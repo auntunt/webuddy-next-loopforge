@@ -22,7 +22,9 @@
     serverHost: '',
     repos: [],
     issues: [],
+    tasks: [],
     runs: [],
+    linkedRun: null,
     selectedRepoPath: '',
     gitRefs: { isGit: false, branches: [], commits: [] },
     diffSource: 'repo', // repo | paste
@@ -127,6 +129,53 @@
     }
   }
 
+  function inspectApprovalGate(run, review) {
+    if (!run) return { hasRun: false, waiting: false, nodeId: '', nodeName: '', status: '', isStale: false, latestGateTs: 0 };
+    const status = String(run.status || '');
+    const nodes = run.nodes || {};
+    const nodeId = status === 'waiting'
+      ? (Object.keys(nodes).find(id => nodes[id] && nodes[id].status === 'waiting_approval') || '')
+      : '';
+    const waiting = Boolean(nodeId);
+    const wfNodes = (run.workflowSnapshot && run.workflowSnapshot.nodes) || [];
+    const nodeDef = wfNodes.find(n => n.id === nodeId);
+    const nodeName = (nodeDef && nodeDef.name) || nodeId;
+
+    let latestGateTs = 0;
+    if (waiting) {
+      const wStart = Date.parse((nodes[nodeId] && nodes[nodeId].startedAt) || '');
+      if (wStart > latestGateTs) latestGateTs = wStart;
+      Object.entries(nodes).forEach(([id, nr]) => {
+        if (id === nodeId || !nr) return;
+        const fin = Date.parse(nr.finishedAt || '');
+        if (fin > latestGateTs) latestGateTs = fin;
+      });
+    }
+    const revTs = Date.parse((review && review.createdAt) || '');
+    const isStale = Boolean(waiting && latestGateTs > 0 && revTs > 0 && revTs < latestGateTs);
+    return { hasRun: true, waiting, nodeId, nodeName, status, isStale, latestGateTs };
+  }
+
+  async function resolveLinkedRun(review) {
+    if (!review || (!review.runId && !review.issueId)) return null;
+    let targetRunId = review.runId || '';
+    if (!targetRunId && review.issueId) {
+      const tasks = (crState.tasks && crState.tasks.length) ? crState.tasks : ((window.state && window.state.data && window.state.data.tasks) || []);
+      const runs = (crState.runs && crState.runs.length) ? crState.runs : ((window.state && window.state.data && window.state.data.runs) || []);
+      const matchingRunIds = new Set(tasks.filter(t => t.issueId === review.issueId && t.runId).map(t => t.runId));
+      const matchingRuns = runs.filter(rn => matchingRunIds.has(rn.id));
+      const waitingRun = matchingRuns.find(rn => rn.status === 'waiting');
+      const picked = waitingRun || matchingRuns[0];
+      if (picked) targetRunId = picked.id;
+    }
+    if (!targetRunId) return null;
+    try {
+      const full = await reqJSON('/api/runs/' + encodeURIComponent(targetRunId));
+      if (full && full.id) return full;
+    } catch (_) {}
+    return crState.runs.find(rn => rn.id === targetRunId) || null;
+  }
+
   async function loadCodeReviewView() {
     const root = document.getElementById('codereviewRoot');
     if (!root) return;
@@ -134,12 +183,13 @@
     render();
     try {
       const pid = encodeURIComponent(currentProjectId());
-      const [listData, sumData, execData, repoData, issuesData, runsData] = await Promise.all([
+      const [listData, sumData, execData, repoData, issuesData, tasksData, runsData] = await Promise.all([
         reqJSON('/api/codereview/reviews?projectId=' + pid),
         reqJSON('/api/codereview/summary?projectId=' + pid),
         reqJSON('/api/codereview/executors').catch(() => ({ executors: [] })),
         reqJSON('/api/webuddy/kb/repos').catch(() => ({ repos: [] })),
         reqJSON('/api/issues').catch(() => []),
+        reqJSON('/api/tasks').catch(() => []),
         reqJSON('/api/runs').catch(() => []),
       ]);
       crState.reviews = listData.reviews || [];
@@ -149,6 +199,7 @@
       crState.repos = repoData.repos || [];
       const rawPid = currentProjectId();
       crState.issues = (Array.isArray(issuesData) ? issuesData : []).filter(x => !rawPid || x.projectId === rawPid).slice(0, 30);
+      crState.tasks = Array.isArray(tasksData) ? tasksData : [];
       crState.runs = (Array.isArray(runsData) ? runsData : []).filter(x => !rawPid || x.projectId === rawPid).slice(0, 30);
       const matchActive = rawPid && crState.repos.find(r => r.projectId === rawPid && r.exists);
       if (matchActive && crState.selectedRepoPath !== matchActive.localPath) {
@@ -167,14 +218,17 @@
       if (crState.selectedId && !crState.reviews.some(r => r.id === crState.selectedId)) {
         crState.selectedId = '';
         crState.detail = null;
+        crState.linkedRun = null;
       }
       if (!crState.selectedId && crState.reviews.length > 0) {
         crState.selectedId = crState.reviews[0].id;
       }
       if (crState.selectedId) {
         crState.detail = await reqJSON('/api/codereview/reviews/' + encodeURIComponent(crState.selectedId));
+        crState.linkedRun = await resolveLinkedRun(crState.detail && crState.detail.review);
       } else {
         crState.detail = null;
+        crState.linkedRun = null;
       }
     } catch (err) {
       notify(err.message);
@@ -189,6 +243,7 @@
     crState.showCreate = false;
     try {
       crState.detail = await reqJSON('/api/codereview/reviews/' + encodeURIComponent(id));
+      crState.linkedRun = await resolveLinkedRun(crState.detail && crState.detail.review);
     } catch (err) {
       notify(err.message);
     }
@@ -435,24 +490,56 @@
     const gateTrackHTML = window.WebuddyVisuals ? window.WebuddyVisuals.renderReviewGateTrack(r, crState.summary) : '';
     const hasCurrentFb = feedbacks.some(fb => fb.current);
     const linkedTask = !!(r.issueId || r.runId);
-    const nextActionText = r.verdict === 'fail'
-      ? '存在 ' + (r.blocking || []).length + ' 项阻断问题：请先核对下方彩色 Diff 与阻断项，确认无误报后返工修复并重新发起审查。'
-      : !r.complete
-        ? '审查存在未覆盖批次或二进制文件：请人工重点核对未覆盖项后记录结论。'
-        : hasCurrentFb
-          ? (linkedTask
-              ? '本版本 AI 审查已通过且已完成人工复核反馈，已关联任务（' + (r.issueId ? '需求 ' + r.issueId : '运行 ' + r.runId) + '），可前往「待我确认」完成签收。'
-              : '独立审查记录（未关联需求或运行）：AI 审查已通过且已完成人工复核反馈，结论已计入项目有效率统计。')
-          : 'AI 审查已通过：下一步请核对下方改动并在本页提交人工复核反馈（本记录也会显示在「待我确认」的待核对列表中）。';
+    const gate = inspectApprovalGate(crState.linkedRun, r);
+    const runStatusMap = {
+      queued: '排队中',
+      running: '执行中',
+      waiting: '等待人工确认',
+      succeeded: '已完成',
+      failed: '已失败',
+      cancelled: '已取消',
+    };
+    const runStatusText = runStatusMap[gate.status] || gate.status || '未知';
+    const targetRunId = (crState.linkedRun && crState.linkedRun.id) || r.runId || '';
+
+    let nextActionText = '';
+    let nextBannerColor = r.verdict === 'fail' ? '#ef4444' : r.verdict === 'pass' ? '#10b981' : '#f59e0b';
+    if (gate.waiting && gate.isStale) {
+      nextBannerColor = '#f59e0b';
+      nextActionText = '旧版本审查已过期：关联运行 ' + targetRunId.slice(0, 12) + ' 本轮进入人工确认节点「' + gate.nodeName + '」的时间晚于本次审查。旧版本结论不自动代替新版本确认，请基于最新改动重新发起代码审查，再前往「待我确认」签收。';
+    } else if (r.verdict === 'fail') {
+      nextActionText = gate.waiting
+        ? '存在 ' + (r.blocking || []).length + ' 项阻断问题，且关联运行 ' + targetRunId.slice(0, 12) + ' 正停在人工确认节点「' + gate.nodeName + '」：请核对下方彩色 Diff 后前往该确认项退回上游返工，修复后重新审查。'
+        : '存在 ' + (r.blocking || []).length + ' 项阻断问题：请先核对下方彩色 Diff 与阻断项，确认无误报后返工修复并重新发起审查。';
+    } else if (!r.complete) {
+      nextActionText = '审查存在未覆盖批次或二进制文件：请人工重点核对未覆盖项后记录结论。';
+    } else if (!linkedTask) {
+      nextActionText = hasCurrentFb
+        ? '独立审查记录（未关联需求或运行）：AI 审查已通过且已完成人工复核反馈，结论已计入项目有效率统计。'
+        : '独立审查记录（未关联需求或运行）：AI 审查已通过，请核对下方改动并在本页提交人工复核反馈。';
+    } else if (gate.waiting) {
+      nextActionText = hasCurrentFb
+        ? '关联运行 ' + targetRunId.slice(0, 12) + ' 当前正停在人工确认节点「' + gate.nodeName + '」，本版本 AI 审查与人工复核均已完成，可立即前往「待我确认」执行批准或退回。'
+        : '关联运行 ' + targetRunId.slice(0, 12) + ' 当前正停在人工确认节点「' + gate.nodeName + '」：建议先在本页提交人工复核反馈，再前往「待我确认」执行批准或退回。';
+    } else if (gate.hasRun) {
+      nextActionText = '审查已记录，流程尚未到达人工确认节点（关联运行 ' + targetRunId.slice(0, 12) + ' 当前状态：' + runStatusText + '）。待流程运行到人工确认节点后，即可在「待我确认」中携带本审查证据完成签收。';
+    } else {
+      nextActionText = '审查已记录（已关联需求 ' + r.issueId + '），但该需求当前尚无停在人工确认节点的运行，流程尚未到达人工确认阶段。';
+    }
 
     const nextButtons =
+      (gate.waiting && gate.isStale
+        ? '<button type="button" class="button primary small" id="wbCrRerunReview">基于最新改动重新审查</button>'
+        : '') +
+      (gate.waiting
+        ? '<button type="button" class="button ' + (gate.isStale ? 'ghost' : 'primary') + ' small" id="wbCrOpenApprovalCard" data-run-id="' + esc(targetRunId) + '">' + (r.verdict === 'fail' ? '前往此确认项（退回返工） →' : '前往此确认项 →') + '</button>'
+        : '') +
       (r.issueId ? '<button type="button" class="button ghost small" id="wbCrOpenIssue">打开关联需求</button>' : '') +
-      (r.runId ? '<button type="button" class="button ghost small" id="wbCrOpenRun">打开关联运行</button>' : '') +
-      (linkedTask || !hasCurrentFb ? '<button type="button" class="button ghost small" id="wbCrOpenApprovals">查看待我确认</button>' : '');
+      (targetRunId ? '<button type="button" class="button ghost small" id="wbCrOpenRun">打开关联运行</button>' : '');
 
     return (
       '<div style="display:flex;flex-direction:column;gap:14px">' +
-        '<div class="wb-panel" style="border-left:4px solid ' + (r.verdict === 'fail' ? '#ef4444' : r.verdict === 'pass' ? '#10b981' : '#f59e0b') + '">' +
+        '<div class="wb-panel" style="border-left:4px solid ' + nextBannerColor + '">' +
           '<div class="wb-item-top"><strong>下一步动作</strong><div class="wb-actions">' + nextButtons + verdictBadge(r.verdict) + '</div></div>' +
           '<div style="font-size:13px;margin-top:4px">' + esc(nextActionText) + '</div>' +
         '</div>' +
@@ -544,7 +631,21 @@
     root.querySelectorAll('[data-cr-mode]').forEach(btn => {
       btn.addEventListener('click', () => { syncDraftFromDOM(); crState.createMode = btn.dataset.crMode; render(); });
     });
-    root.querySelector('#wbCrOpenApprovals')?.addEventListener('click', () => { if (typeof window.switchView === 'function') window.switchView('approvals'); });
+    root.querySelector('#wbCrOpenApprovalCard')?.addEventListener('click', ev => {
+      const rid = ev.currentTarget.dataset.runId || '';
+      if (rid && typeof window.openApprovalForRun === 'function') window.openApprovalForRun(rid);
+      else if (typeof window.switchView === 'function') window.switchView('approvals');
+    });
+    root.querySelector('#wbCrRerunReview')?.addEventListener('click', () => {
+      const r = crState.detail && crState.detail.review;
+      const d = activeDraft();
+      d.issueId = (r && r.issueId) || '';
+      d.runId = (crState.linkedRun && crState.linkedRun.id) || (r && r.runId) || '';
+      d.title = r && r.title ? (r.title.replace(/（返工复审）$/, '') + '（返工复审）') : '';
+      d.diff = '';
+      crState.showCreate = true;
+      render();
+    });
     root.querySelector('#wbCrOpenIssue')?.addEventListener('click', () => {
       const iid = crState.detail?.review?.issueId;
       if (iid && typeof window.switchView === 'function') {
@@ -553,7 +654,7 @@
       }
     });
     root.querySelector('#wbCrOpenRun')?.addEventListener('click', () => {
-      const rid = crState.detail?.review?.runId;
+      const rid = (crState.linkedRun && crState.linkedRun.id) || crState.detail?.review?.runId;
       if (rid && typeof window.switchView === 'function') {
         window.switchView('runs');
         if (typeof window.showRunDetail === 'function') setTimeout(() => window.showRunDetail(rid), 200);
@@ -660,6 +761,17 @@
   window.openWebuddyCodeReview = async function (reviewId) {
     crState.selectedId = reviewId || '';
     crState.showCreate = false;
+    if (typeof window.switchView === 'function') window.switchView('codereview');
+    else await loadCodeReviewView();
+  };
+  window.openNewWebuddyCodeReview = async function (opts) {
+    const o = opts || {};
+    const d = activeDraft();
+    if (o.issueId !== undefined) d.issueId = o.issueId || '';
+    if (o.runId !== undefined) d.runId = o.runId || '';
+    if (o.title) d.title = o.title;
+    crState.showCreate = true;
+    crState.submitError = '';
     if (typeof window.switchView === 'function') window.switchView('codereview');
     else await loadCodeReviewView();
   };

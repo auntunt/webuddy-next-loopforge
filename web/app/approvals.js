@@ -1,18 +1,104 @@
-async function renderWebuddyReviewApprovals(){
+function webuddyMatchWaitingRunForReview(rev,waitingRuns){
+  const list=waitingRuns||[];
+  if(rev.runId){const direct=list.find(wr=>wr.id===rev.runId);if(direct)return direct}
+  if(rev.issueId){
+    const runIds=new Set((state.data.tasks||[]).filter(t=>t.issueId===rev.issueId&&t.runId).map(t=>t.runId));
+    const byIssue=list.find(wr=>runIds.has(wr.id));
+    if(byIssue)return byIssue;
+  }
+  return null;
+}
+function webuddyReviewMatchForRun(r,issue,reviews){
+  const list=Array.isArray(reviews)?reviews:[];
+  const matched=list.filter(rev=>(rev.runId&&rev.runId===r.id)||(issue&&rev.issueId&&rev.issueId===issue.id));
+  if(!matched.length)return null;
+  matched.sort((a,b)=>{
+    const aDirect=a.runId===r.id?1:0,bDirect=b.runId===r.id?1:0;
+    if(aDirect!==bDirect)return bDirect-aDirect;
+    return (Date.parse(b.createdAt||'')||0)-(Date.parse(a.createdAt||'')||0);
+  });
+  return matched[0];
+}
+function webuddyReviewStaleInfo(r,rev){
+  const nodeId=waitingNodeId(r);
+  const nodes=r?.nodes||{};
+  let latestGateTs=0;
+  if(nodeId&&nodes[nodeId]?.startedAt){
+    const ts=Date.parse(nodes[nodeId].startedAt);
+    if(ts>latestGateTs)latestGateTs=ts;
+  }
+  Object.entries(nodes).forEach(([id,nr])=>{
+    if(id===nodeId||!nr)return;
+    const fin=Date.parse(nr.finishedAt||'');
+    if(fin>latestGateTs)latestGateTs=fin;
+  });
+  const revTs=Date.parse(rev?.createdAt||'');
+  const isStale=Boolean(latestGateTs>0&&revTs>0&&revTs<latestGateTs);
+  return {isStale,latestGateTs,revTs};
+}
+function webuddyApprovalReviewHTML(r,issue,title){
+  const rev=webuddyReviewMatchForRun(r,issue,state.webuddyReviews||[]);
+  if(!rev){
+    return `<div class="wb-finding-card wb-ap-review-box" style="margin-bottom:10px;border-style:dashed"><div class="wb-item-top"><span style="font-size:12.5px;color:var(--muted)">关联代码审查证据：当前运行尚未关联代码审查记录</span><button type="button" class="button ghost small" data-wb-new-review-run="${escapeHTML(r.id)}" data-wb-new-review-issue="${escapeHTML(issue?.id||'')}" data-wb-new-review-title="${escapeHTML(title||'')}">为此运行发起代码审查</button></div></div>`;
+  }
+  const stale=webuddyReviewStaleInfo(r,rev);
+  const badge=rev.verdict==='pass'?'pass':rev.verdict==='fail'?'fail':'unknown';
+  const verdictLabel=rev.verdict==='pass'?'审查通过':rev.verdict==='fail'?`阻断 ${(rev.blocking||[]).length} 项`:'待核实';
+  const baseShort=(rev.baseCommit||'').slice(0,10)||'—';
+  const headShort=(rev.headCommit||'').slice(0,10)||'—';
+  const diffShort=(rev.diffSha256||'').slice(0,12)||'—';
+  const bindShort=(rev.binding||'').slice(0,12)||'—';
+  const borderColor=stale.isStale?'rgba(245,158,11,0.6)':rev.verdict==='fail'?'rgba(239,68,68,0.5)':'rgba(16,185,129,0.4)';
+  return `<div class="wb-finding-card wb-ap-review-box" style="margin-bottom:10px;border-color:${borderColor}">`+
+    `<div class="wb-item-top">`+
+      `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><strong style="font-size:12.5px">关联代码审查：${escapeHTML(rev.title)}</strong><span class="wb-badge ${badge}">${verdictLabel}</span>${stale.isStale?'<span class="wb-badge fail">旧版本审查已过期</span>':''}</div>`+
+      `<div class="wb-actions">${stale.isStale?`<button type="button" class="button primary small" data-wb-new-review-run="${escapeHTML(r.id)}" data-wb-new-review-issue="${escapeHTML(issue?.id||'')}" data-wb-new-review-title="${escapeHTML(rev.title.replace(/（返工复审）$/,'')+'（返工复审）')}">重新发起代码审查</button>`:''}<button type="button" class="button ghost small" data-wb-open-review="${escapeHTML(rev.id)}">查看完整审查与 Diff</button></div>`+
+    `</div>`+
+    `<div class="wb-meta"><span>${escapeHTML(rev.writer)} → ${escapeHTML(rev.reviewer)}</span><span>Base: <code>${escapeHTML(baseShort)}</code></span><span>Head: <code>${escapeHTML(headShort)}</code></span><span>Diff: <code>${escapeHTML(diffShort)}</code></span><span>Binding: <code>${escapeHTML(bindShort)}</code></span><span>${rev.totalParts} 批</span></div>`+
+    (stale.isStale?`<div style="font-size:12px;color:#b45309;margin-top:4px">⚠️ 本轮上游节点完成于 ${escapeHTML(new Date(stale.latestGateTs).toLocaleString())}，晚于该审查创建时间（${escapeHTML(new Date(stale.revTs).toLocaleString())}）。退回重跑产生新改动后需重新审查，旧版本通过结论不自动代替新版本确认。</div>`:'')+
+  `</div>`;
+}
+function focusApprovalRunCard(runId){
+  if(!runId)return false;
+  const cards=Array.from(document.querySelectorAll('#approvalList [data-approval-run-id]'));
+  const card=cards.find(el=>el.dataset.approvalRunId===runId);
+  if(!card)return false;
+  card.scrollIntoView({behavior:'smooth',block:'center'});
+  const prevShadow=card.style.boxShadow;
+  card.style.boxShadow='0 0 0 2px var(--accent, #2563eb)';
+  setTimeout(()=>{card.style.boxShadow=prevShadow},2400);
+  return true;
+}
+window.focusApprovalRunCard=focusApprovalRunCard;
+window.openApprovalForRun=async function(runId){
+  if(typeof window.switchView==='function')window.switchView('approvals');
+  await renderApprovals(false);
+  if(!focusApprovalRunCard(runId)){
+    toast('未在当前「待我确认」中找到该运行的等待节点（可能已处理或尚未到达人工确认）','err');
+  }
+};
+async function renderWebuddyReviewApprovals(waitingRuns){
   const host=$('#webuddyReviewApprovals');
   if(!host)return;
   try{
-    const pid=encodeURIComponent(state.projectFilter||'');
-    const data=await api('/api/codereview/reviews?projectId='+pid+'&limit=20',{silent:true});
-    const reviews=(data&&data.reviews)||[];
+    const reviews=Array.isArray(state.webuddyReviews)?state.webuddyReviews:[];
     if(!reviews.length){host.innerHTML='';return}
-    host.innerHTML=`<div class="wb-panel"><div class="wb-item-top" style="margin-bottom:10px"><h3 style="margin:0">代码审查记录与待核对项（${reviews.length}）</h3><button type="button" class="button ghost small" id="wbApOpenCR">前往代码审查</button></div><div style="display:flex;flex-direction:column;gap:8px">${reviews.slice(0,8).map(r=>{
+    host.innerHTML=`<div class="wb-panel"><div class="wb-item-top" style="margin-bottom:10px"><div><h3 style="margin:0">代码审查记录（${reviews.length}）</h3><p class="wb-subtitle" style="margin:2px 0 0">仅用于查看审查记录与快速定位；实际批准、退回请操作上方停在人工确认节点的运行卡片。</p></div><button type="button" class="button ghost small" id="wbApOpenCR">前往代码审查</button></div><div style="display:flex;flex-direction:column;gap:8px">${reviews.slice(0,8).map(r=>{
       const badge=r.verdict==='pass'?'pass':r.verdict==='fail'?'fail':'unknown';
-      const label=r.verdict==='pass'?'通过 · 待核对/签收':r.verdict==='fail'?`阻断 ${(r.blocking||[]).length} 项`:'待核实';
+      const label=r.verdict==='pass'?'审查通过':r.verdict==='fail'?`阻断 ${(r.blocking||[]).length} 项`:'待核实';
+      const wr=webuddyMatchWaitingRunForReview(r,waitingRuns);
+      const stale=wr?webuddyReviewStaleInfo(wr,r).isStale:false;
       const linkMeta=(r.issueId?`关联需求 ${escapeHTML(r.issueId)}`:r.runId?`关联运行 ${escapeHTML(r.runId.slice(0,12))}`:'独立审查');
-      return `<div class="wb-finding-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px"><div><div style="font-size:13px;font-weight:600">${escapeHTML(r.title)}</div><div class="wb-meta"><span>${linkMeta}</span><span>${escapeHTML(r.writer)} → ${escapeHTML(r.reviewer)}</span><span>${r.totalParts} 批</span></div></div><div class="wb-actions"><span class="wb-badge ${badge}">${label}</span><button type="button" class="button primary small" data-wb-open-review="${escapeHTML(r.id)}">打开处理 →</button></div></div>`;
+      const gateTag=wr?(stale?'<span class="wb-badge fail">旧版本已过期</span>':'<span class="wb-badge info">上方待确认</span>'):`<span class="wb-badge unknown">${r.issueId||r.runId?'未到人工确认':'独立记录'}</span>`;
+      const actionBtn=wr
+        ?`<button type="button" class="button primary small" data-wb-focus-run="${escapeHTML(wr.id)}">定位到上方确认项 ↑</button><button type="button" class="button ghost small" data-wb-open-review="${escapeHTML(r.id)}">查看审查</button>`
+        :`<button type="button" class="button ghost small" data-wb-open-review="${escapeHTML(r.id)}">查看审查详情</button>`;
+      return `<div class="wb-finding-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px"><div><div style="font-size:13px;font-weight:600">${escapeHTML(r.title)}</div><div class="wb-meta"><span>${linkMeta}</span><span>${escapeHTML(r.writer)} → ${escapeHTML(r.reviewer)}</span><span>${r.totalParts} 批</span></div></div><div class="wb-actions">${gateTag}<span class="wb-badge ${badge}">${label}</span>${actionBtn}</div></div>`;
     }).join('')}</div></div>`;
     host.querySelector('#wbApOpenCR')?.addEventListener('click',()=>switchView('codereview'));
+    host.querySelectorAll('[data-wb-focus-run]').forEach(btn=>btn.addEventListener('click',()=>{
+      focusApprovalRunCard(btn.dataset.wbFocusRun);
+    }));
     host.querySelectorAll('[data-wb-open-review]').forEach(btn=>btn.addEventListener('click',()=>{
       if(typeof window.openWebuddyCodeReview==='function')window.openWebuddyCodeReview(btn.dataset.wbOpenReview);
     }));
@@ -494,7 +580,8 @@ function approvalCardHTML(r){
   const sideButton=issue?`<button class="button ghost small" data-open-issue="${escapeHTML(issue.id)}">打开需求</button>`:`<button class="button ghost small" data-open-logs="${escapeHTML(r.id)}">${alignRun?'查看对齐详情':'排查日志'}</button>`;
   const more=`<div class="ap-more"><button type="button" class="ap-more-toggle" data-ap-more title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${huiIcon('more-horizontal')}</button><div class="ap-more-menu" role="menu" hidden><button type="button" class="ap-menu-item danger" role="menuitem" data-cancel-run="${escapeHTML(r.id)}">${huiIcon('close')}<span>取消流程</span></button></div></div>`;
   const decision=r.pauseRequested?pausedRunPanelHTML(r):humanDecisionPanelHTML(r.id,nodeId,r.nodes?.[nodeId],node,r.workflowSnapshot?.nodes||[]);
-  return `<div class="ap-card${approvalSelectable(r)&&approvalSelection().has(approvalKey(r.id,waitingNodeId(r)))?' is-selected':''}"><div class="ap-card-head">${approvalSelectBoxHTML(r)}<div class="ap-main"><div class="ap-head"><b>${escapeHTML(title)}</b>${approvalStatusBadgeHTML(r.pauseRequested)}</div><div class="ap-meta">${keyHTML}${sep}${r.pauseRequested?'暂停于':'卡在'}「${escapeHTML(node?.name||nodeId||'确认')}」${sep}已等待 ${relativeTime(r.createdAt)}</div></div><div class="ap-side">${sideButton}${!r.pauseRequested?refreshRunSOPButtonHTML(r):''}${more}</div></div>${decision?`<div class="ap-body">${decision}</div>`:''}</div>`;
+  const reviewEvidence=webuddyApprovalReviewHTML(r,issue,title);
+  return `<div class="ap-card${approvalSelectable(r)&&approvalSelection().has(approvalKey(r.id,waitingNodeId(r)))?' is-selected':''}" data-approval-run-id="${escapeHTML(r.id)}"><div class="ap-card-head">${approvalSelectBoxHTML(r)}<div class="ap-main"><div class="ap-head"><b>${escapeHTML(title)}</b>${approvalStatusBadgeHTML(r.pauseRequested)}</div><div class="ap-meta">${keyHTML}${sep}${r.pauseRequested?'暂停于':'卡在'}「${escapeHTML(node?.name||nodeId||'确认')}」${sep}已等待 ${relativeTime(r.createdAt)}</div></div><div class="ap-side">${sideButton}${!r.pauseRequested?refreshRunSOPButtonHTML(r):''}${more}</div></div>${(reviewEvidence||decision)?`<div class="ap-body">${reviewEvidence}${decision}</div>`:''}</div>`;
 }
 function closeApprovalMoreMenus(except){
   document.querySelectorAll('#approvalsView .ap-more.is-open').forEach(more=>{
@@ -528,6 +615,13 @@ function bindApprovalMoreMenus(host){
 }
 async function renderApprovals(background=false){
   if(!background){try{const [runs,tasks,issues]=await Promise.all([api('/api/runs'),api('/api/tasks'),api('/api/issues')]);state.data.runs=runs;state.data.tasks=tasks;state.data.issues=issues}catch(e){toast(e.message,'err')}}
+  try{
+    const pid=encodeURIComponent(state.projectFilter||'');
+    const crData=await api('/api/codereview/reviews?projectId='+pid+'&limit=50',{silent:true});
+    state.webuddyReviews=(crData&&crData.reviews)||[];
+  }catch(_){
+    if(!Array.isArray(state.webuddyReviews))state.webuddyReviews=[];
+  }
   const items=(await Promise.all(approvalItems().map(async summary=>{
     const cached=cachedRun(summary.id);
     if(cached?.workflowSnapshot?.id)return {...cached,...summary,workflowSnapshot:cached.workflowSnapshot};
@@ -545,7 +639,6 @@ async function renderApprovals(background=false){
   const updated=$('#approvalLiveState [data-updated]');if(updated)updated.textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`;
   updateApprovalBadge();
   $('#approvalStats').innerHTML=`<span class="issue-stat"><b>${items.length}</b> 条待确认</span>`;
-  void renderWebuddyReviewApprovals();
   state.approvalItems=items;pruneApprovalSelection(items);
   const batch=$('#approvalBatch');
   if(batch){batch.innerHTML=approvalBatchBarHTML(items);batch.hidden=!batch.innerHTML;bindApprovalBatch()}
@@ -554,7 +647,10 @@ async function renderApprovals(background=false){
   host.querySelectorAll('[data-open-issue]').forEach(b=>b.onclick=()=>openIssueDetail(b.dataset.openIssue,'sop'));
   host.querySelectorAll('[data-open-logs]').forEach(b=>b.onclick=()=>openRunFromId(b.dataset.openLogs,{forceRuns:true}));
   host.querySelectorAll('[data-cancel-run]').forEach(b=>b.onclick=()=>{closeApprovalMoreMenus();cancelRunFlow(b.dataset.cancelRun)});
+  host.querySelectorAll('[data-wb-open-review]').forEach(b=>b.onclick=()=>{if(typeof window.openWebuddyCodeReview==='function')window.openWebuddyCodeReview(b.dataset.wbOpenReview)});
+  host.querySelectorAll('[data-wb-new-review-run]').forEach(b=>b.onclick=()=>{if(typeof window.openNewWebuddyCodeReview==='function')window.openNewWebuddyCodeReview({runId:b.dataset.wbNewReviewRun,issueId:b.dataset.wbNewReviewIssue,title:b.dataset.wbNewReviewTitle})});
   bindApprovalMoreMenus(host);
   host.querySelectorAll('[data-ap-select]').forEach(box=>{box.onchange=()=>{const key=approvalKey(box.dataset.apSelect,box.dataset.apNode);if(box.checked)approvalSelection().add(key);else approvalSelection().delete(key);refreshApprovalBatchUI()}});
   bindWaitingActions(host);
+  void renderWebuddyReviewApprovals(items);
 }
