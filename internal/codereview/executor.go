@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -119,13 +120,123 @@ func detectLocalAuth(id string) (bool, string) {
 	}
 }
 
-// DetectExecutors checks which review CLIs are available in PATH and whether
-// local credentials exist.
+func extraCLISearchDirs() []string {
+	home, _ := os.UserHomeDir()
+	dirs := make([]string, 0, 24)
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return
+		}
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			dirs = append(dirs, p)
+		}
+	}
+	if home != "" {
+		add(filepath.Join(home, ".npm-global", "bin"))
+		add(filepath.Join(home, ".local", "bin"))
+		add(filepath.Join(home, "bin"))
+		add(filepath.Join(home, ".volta", "bin"))
+		add(filepath.Join(home, ".bun", "bin"))
+		add(filepath.Join(home, ".pnpm-global", "bin"))
+		add(filepath.Join(home, ".local", "share", "pnpm"))
+		add(filepath.Join(home, "Library", "pnpm"))
+		add(filepath.Join(home, ".yarn", "bin"))
+		add(filepath.Join(home, ".config", "yarn", "global", "node_modules", ".bin"))
+		add(filepath.Join(home, ".cargo", "bin"))
+		add(filepath.Join(home, ".asdf", "shims"))
+		add(filepath.Join(home, ".mise", "shims"))
+		for _, pattern := range []string{
+			filepath.Join(home, ".nvm", "versions", "node", "*", "bin"),
+			filepath.Join(home, ".fnm", "node-versions", "*", "installation", "bin"),
+		} {
+			matches, _ := filepath.Glob(pattern)
+			sort.Sort(sort.Reverse(sort.StringSlice(matches)))
+			for _, m := range matches {
+				add(m)
+			}
+		}
+	}
+	add("/opt/homebrew/bin")
+	add("/usr/local/bin")
+	add("/snap/bin")
+	return dirs
+}
+
+func isExecutableFile(p string) bool {
+	st, err := os.Stat(p)
+	if err != nil || st.IsDir() {
+		return false
+	}
+	return st.Mode()&0o111 != 0
+}
+
+// lookupCLIPath resolves a CLI binary from PATH first, then falls back to
+// common user and package-manager install directories (e.g. ~/.npm-global/bin,
+// ~/.nvm, ~/.volta, ~/.local/bin, /opt/homebrew/bin) so non-interactive
+// services such as systemd/launchd still discover installed CLIs reliably.
+func lookupCLIPath(binary string) (string, bool) {
+	if p, err := exec.LookPath(binary); err == nil && p != "" {
+		return p, true
+	}
+	for _, dir := range extraCLISearchDirs() {
+		cand := filepath.Join(dir, binary)
+		if isExecutableFile(cand) {
+			return cand, true
+		}
+	}
+	return "", false
+}
+
+func expandedCLIEnv(resolvedBin string) []string {
+	env := os.Environ()
+	extra := make([]string, 0, 8)
+	if dir := filepath.Dir(resolvedBin); dir != "" && dir != "." {
+		extra = append(extra, dir)
+	}
+	extra = append(extra, extraCLISearchDirs()...)
+	seen := make(map[string]struct{})
+	var merged []string
+	addPath := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		merged = append(merged, p)
+	}
+	pathIdx := -1
+	for i, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") {
+			pathIdx = i
+			for _, seg := range filepath.SplitList(strings.TrimPrefix(kv, "PATH=")) {
+				addPath(seg)
+			}
+			break
+		}
+	}
+	for _, seg := range extra {
+		addPath(seg)
+	}
+	newPath := "PATH=" + strings.Join(merged, string(os.PathListSeparator))
+	if pathIdx >= 0 {
+		out := make([]string, len(env))
+		copy(out, env)
+		out[pathIdx] = newPath
+		return out
+	}
+	return append(env, newPath)
+}
+
+// DetectExecutors checks which review CLIs are available in PATH or common
+// user/package-manager install directories, and whether local credentials exist.
 func DetectExecutors() []ExecutorInfo {
 	out := make([]ExecutorInfo, 0, len(supportedExecutors))
 	for _, item := range supportedExecutors {
-		path, err := exec.LookPath(item.binary)
-		avail := err == nil && path != ""
+		path, avail := lookupCLIPath(item.binary)
 		loggedIn, hint := false, ""
 		if avail {
 			loggedIn, hint = detectLocalAuth(item.id)
@@ -165,11 +276,13 @@ func (e *CLIExecutor) DiagnoseBatch(ctx context.Context, req BatchRequest) (Batc
 	if err != nil {
 		return BatchDiagnosis{}, err
 	}
-	if _, lookErr := exec.LookPath(bin); lookErr != nil {
-		return BatchDiagnosis{}, apperr.Newf(apperr.Unavailable, "审查执行器 %s 未安装或不在 PATH 中", bin)
+	resolvedBin, ok := lookupCLIPath(bin)
+	if !ok {
+		return BatchDiagnosis{}, apperr.Newf(apperr.Unavailable, "审查执行器 %s 未安装或不在 PATH / 常见用户目录中", bin)
 	}
 
-	cmd := exec.CommandContext(cctx, bin, args...)
+	cmd := exec.CommandContext(cctx, resolvedBin, args...)
+	cmd.Env = expandedCLIEnv(resolvedBin)
 	if strings.TrimSpace(req.RepoPath) != "" {
 		cmd.Dir = strings.TrimSpace(req.RepoPath)
 	}
