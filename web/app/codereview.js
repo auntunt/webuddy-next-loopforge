@@ -1,8 +1,23 @@
 /* Webuddy v2 Code Review & Human Effectiveness Feedback Workbench */
 (function () {
+  function emptyDraft() {
+    return {
+      title: '',
+      writer: 'codex',
+      reviewer: 'claude',
+      model: '',
+      baseRef: 'HEAD~1',
+      headRef: 'HEAD',
+      diff: '',
+      blocking: '',
+      advisory: '',
+    };
+  }
+
   const crState = {
     reviews: [],
     executors: [],
+    serverHost: '',
     repos: [],
     selectedRepoPath: '',
     gitRefs: { isGit: false, branches: [], commits: [] },
@@ -12,9 +27,29 @@
     summary: null,
     showCreate: false,
     createMode: 'auto', // auto | manual
+    draft: emptyDraft(),
+    submitError: '',
     runningAI: false,
     loading: false,
   };
+
+  function syncDraftFromDOM() {
+    const form = document.getElementById('wbCreateReviewForm');
+    if (!form) return;
+    const val = name => {
+      const el = form.elements.namedItem(name);
+      return el ? String(el.value || '') : undefined;
+    };
+    ['title', 'writer', 'reviewer', 'model', 'baseRef', 'headRef', 'diff', 'blocking', 'advisory'].forEach(k => {
+      const v = val(k);
+      if (v !== undefined) crState.draft[k] = v;
+    });
+  }
+
+  function resetDraft() {
+    crState.draft = emptyDraft();
+    crState.submitError = '';
+  }
 
   function esc(v) {
     return String(v == null ? '' : v)
@@ -89,10 +124,17 @@
       crState.reviews = listData.reviews || [];
       crState.summary = sumData;
       crState.executors = execData.executors || [];
+      crState.serverHost = execData.host || repoData.host || '';
       crState.repos = repoData.repos || [];
-      if (!crState.selectedRepoPath && crState.repos.length > 0) {
-        const activePid = currentProjectId();
-        const hit = (activePid && crState.repos.find(r => r.projectId === activePid && r.exists)) || crState.repos.find(r => r.exists && r.isGit) || crState.repos[0];
+      const activePid = currentProjectId();
+      const matchActive = activePid && crState.repos.find(r => r.projectId === activePid && r.exists);
+      if (matchActive && crState.selectedRepoPath !== matchActive.localPath) {
+        crState.selectedRepoPath = matchActive.localPath;
+        crState.draft.baseRef = 'HEAD~1';
+        crState.draft.headRef = 'HEAD';
+        await loadGitRefs(crState.selectedRepoPath);
+      } else if (!crState.selectedRepoPath && crState.repos.length > 0) {
+        const hit = crState.repos.find(r => r.exists && r.isGit) || crState.repos[0];
         if (hit) {
           crState.selectedRepoPath = hit.localPath;
           await loadGitRefs(crState.selectedRepoPath);
@@ -160,35 +202,51 @@
 
   function renderCreateForm() {
     const isAuto = crState.createMode === 'auto';
-    const execOpts = (crState.executors.length ? crState.executors : [
+    const d = crState.draft;
+    const execList = crState.executors.length ? crState.executors : [
       { id: 'codex', name: 'Codex CLI', available: false },
       { id: 'claude', name: 'Claude Code CLI', available: false },
       { id: 'codebuddy', name: 'CodeBuddy CLI', available: false },
       { id: 'opencode', name: 'OpenCode CLI', available: false },
-    ]).map(ex =>
-      '<option value="' + esc(ex.id) + '">' + esc(ex.name) + (ex.available ? '（本机已安装）' : '（未检测到）') + '</option>'
+    ];
+    const execOpts = execList.map(ex =>
+      '<option value="' + esc(ex.id) + '" ' + (ex.id === d.reviewer ? 'selected' : '') + '>' + esc(ex.name) + (ex.available ? '（服务端已安装）' : '（未检测到）') + '</option>'
     ).join('');
+
+    const buildRefOptions = (defaultVal, defaultLabel, selectedVal) => {
+      const items = [
+        { ref: defaultVal, label: defaultLabel },
+        ...crState.gitRefs.branches,
+        ...crState.gitRefs.commits,
+      ];
+      return items.map(it =>
+        '<option value="' + esc(it.ref) + '" ' + (it.ref === selectedVal ? 'selected' : '') + '>' + esc(it.label) + '</option>'
+      ).join('');
+    };
 
     return (
       '<div class="wb-panel">' +
         '<div class="wb-item-top" style="margin-bottom:12px">' +
-          '<h3 style="margin:0">发起完整 Diff 分批审查</h3>' +
+          '<div><h3 style="margin:0">发起代码审查</h3>' +
+            (crState.serverHost ? '<p class="wb-subtitle" style="margin:2px 0 0">执行与仓库读取主机：<code>' + esc(crState.serverHost) + '</code>（切换仓库时已填写草稿会自动保留）</p>' : '') +
+          '</div>' +
           '<div class="wb-tabs" style="border:none;padding:0">' +
             '<button type="button" class="wb-tab ' + (isAuto ? 'active' : '') + '" data-cr-mode="auto">自动 AI 分批审查（CLI）</button>' +
             '<button type="button" class="wb-tab ' + (!isAuto ? 'active' : '') + '" data-cr-mode="manual">手动录入审查结果</button>' +
           '</div>' +
         '</div>' +
+        (crState.submitError ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(239,68,68,0.4)"><span class="wb-badge fail">提交失败（已保留你的草稿）：' + esc(crState.submitError) + '</span></div>' : '') +
         '<form id="wbCreateReviewForm" class="wb-form">' +
           '<div class="wb-form-row">' +
-            '<div class="wb-field"><label>审查标题</label><input type="text" name="title" placeholder="例如：订单支付权限边界审查"></div>' +
-            '<div class="wb-field"><label>编写者 (Writer)</label><input type="text" name="writer" value="codex" placeholder="codex / developer"></div>' +
+            '<div class="wb-field"><label>审查标题</label><input type="text" name="title" value="' + esc(d.title) + '" placeholder="例如：订单支付权限边界审查"></div>' +
+            '<div class="wb-field"><label>编写者 (Writer)</label><input type="text" name="writer" value="' + esc(d.writer) + '" placeholder="codex / developer"></div>' +
             (isAuto
               ? '<div class="wb-field"><label>独立审查 CLI 执行器 (Reviewer)</label><select name="reviewer">' + execOpts + '</select></div>' +
-                '<div class="wb-field"><label>模型（可选，留空走 CLI 默认）</label><input type="text" name="model" placeholder="例如 gpt-5 / claude-sonnet-4"></div>'
-              : '<div class="wb-field"><label>独立审查者 (Reviewer)</label><input type="text" name="reviewer" value="claude-code" placeholder="与编写者分离"></div>') +
+                '<div class="wb-field"><label>模型（可选，留空走 CLI 默认）</label><input type="text" name="model" value="' + esc(d.model) + '" placeholder="例如 gpt-5 / claude-sonnet-4"></div>'
+              : '<div class="wb-field"><label>独立审查者 (Reviewer)</label><input type="text" name="reviewer" value="' + esc(d.reviewer) + '" placeholder="与编写者分离"></div>') +
           '</div>' +
           '<div class="wb-form-row">' +
-            '<div class="wb-field" style="grid-column:span 2"><label>选择本地项目仓库（免手填路径）</label>' +
+            '<div class="wb-field" style="grid-column:span 2"><label>选择项目仓库（位于服务端主机 ' + esc(crState.serverHost || 'local') + '）</label>' +
               '<div class="wb-toolbar">' +
                 '<select name="repoPath" id="wbCrRepoSelect" style="flex:1;min-width:220px">' +
                   '<option value="">不使用本地仓库（改用下方粘贴 Diff）</option>' +
@@ -200,29 +258,21 @@
           '</div>' +
           (crState.gitRefs.isGit
             ? '<div class="wb-form-row">' +
-                '<div class="wb-field"><label>基准提交 / 分支 (Base)</label><select name="baseRef">' +
-                  '<option value="HEAD~1">HEAD~1（上一提交）</option>' +
-                  crState.gitRefs.branches.map(b => '<option value="' + esc(b.ref) + '">' + esc(b.label) + '</option>').join('') +
-                  crState.gitRefs.commits.map(c => '<option value="' + esc(c.ref) + '">' + esc(c.label) + '</option>').join('') +
-                '</select></div>' +
-                '<div class="wb-field"><label>目标提交 / 分支 (Head)</label><select name="headRef">' +
-                  '<option value="HEAD">HEAD（当前最新提交）</option>' +
-                  crState.gitRefs.branches.map(b => '<option value="' + esc(b.ref) + '">' + esc(b.label) + '</option>').join('') +
-                  crState.gitRefs.commits.map(c => '<option value="' + esc(c.ref) + '">' + esc(c.label) + '</option>').join('') +
-                '</select></div>' +
+                '<div class="wb-field"><label>基准提交 / 分支 (Base)</label><select name="baseRef">' + buildRefOptions('HEAD~1', 'HEAD~1（上一提交）', d.baseRef) + '</select></div>' +
+                '<div class="wb-field"><label>目标提交 / 分支 (Head)</label><select name="headRef">' + buildRefOptions('HEAD', 'HEAD（当前最新提交）', d.headRef) + '</select></div>' +
               '</div>'
-            : '<div class="wb-meta">当前所选目录不是 Git 仓库（或未选择仓库），可直接在下方粘贴 Unified Diff 进行 14k 分批审查。</div>') +
-          '<div class="wb-field"><label>或直接粘贴 Unified Diff（留空则自动读取上方所选仓库的 Git Diff）</label><textarea name="diff" rows="5" placeholder="diff --git a/... b/..."></textarea></div>' +
+            : '<div class="wb-meta">当前所选目录不是 Git 仓库（或未选择仓库），可直接在下方粘贴 Unified Diff 进行分批审查。</div>') +
+          '<div class="wb-field"><label>或直接粘贴 Unified Diff（留空则自动读取上方所选仓库的 Git Diff）</label><textarea name="diff" rows="5" placeholder="diff --git a/... b/...">' + esc(d.diff) + '</textarea></div>' +
           (isAuto ? '' :
             '<div class="wb-form-row">' +
-              '<div class="wb-field"><label>阻断项（每行一条：文件:行号 + 触发条件与影响）</label><textarea name="blocking" rows="3" placeholder="auth.go:42 缺少租户隔离校验"></textarea></div>' +
-              '<div class="wb-field"><label>建议项（每行一条，不阻断交付）</label><textarea name="advisory" rows="3" placeholder="建议补充边界测试"></textarea></div>' +
+              '<div class="wb-field"><label>阻断项（每行一条：文件:行号 + 触发条件与影响）</label><textarea name="blocking" rows="3" placeholder="auth.go:42 缺少租户隔离校验">' + esc(d.blocking) + '</textarea></div>' +
+              '<div class="wb-field"><label>建议项（每行一条，不阻断交付）</label><textarea name="advisory" rows="3" placeholder="建议补充边界测试">' + esc(d.advisory) + '</textarea></div>' +
             '</div>') +
           '<div class="wb-actions">' +
             '<button type="submit" class="button primary" ' + (crState.runningAI ? 'disabled' : '') + '>' +
               (crState.runningAI ? '正在分批调用 CLI 审查…' : (isAuto ? '运行自动分批 AI 审查' : '提交并生成防篡改审查快照')) +
             '</button>' +
-            '<button type="button" class="button ghost" id="wbCancelCreateReview">取消</button>' +
+            '<button type="button" class="button ghost" id="wbCancelCreateReview">取消并清空草稿</button>' +
           '</div>' +
         '</form>' +
       '</div>'
@@ -349,9 +399,21 @@
         ).join('');
 
     const gateTrackHTML = window.WebuddyVisuals ? window.WebuddyVisuals.renderReviewGateTrack(r, crState.summary) : '';
+    const hasCurrentFb = feedbacks.some(fb => fb.current);
+    const nextActionText = r.verdict === 'fail'
+      ? '存在 ' + (r.blocking || []).length + ' 项阻断问题：请先核对下方彩色 Diff 与阻断项，确认无误报后返工修复并重新发起审查。'
+      : !r.complete
+        ? '审查存在未覆盖批次或二进制文件：请人工重点核对未覆盖项后记录结论。'
+        : hasCurrentFb
+          ? '本版本 AI 审查已通过且已完成人工复核反馈，可前往「待我确认」签收交付。'
+          : 'AI 审查已通过：下一步请核对下方改动并在本页提交人工复核反馈。';
 
     return (
       '<div style="display:flex;flex-direction:column;gap:14px">' +
+        '<div class="wb-panel" style="border-left:4px solid ' + (r.verdict === 'fail' ? '#ef4444' : r.verdict === 'pass' ? '#10b981' : '#f59e0b') + '">' +
+          '<div class="wb-item-top"><strong>下一步动作</strong>' + verdictBadge(r.verdict) + '</div>' +
+          '<div style="font-size:13px;margin-top:4px">' + esc(nextActionText) + '</div>' +
+        '</div>' +
         gateTrackHTML +
         '<div class="wb-panel">' +
           '<div class="wb-item-top" style="margin-bottom:10px">' +
@@ -432,26 +494,33 @@
     root.querySelector('#wbNewCRBtn')?.addEventListener('click', () => { crState.showCreate = true; render(); });
     root.querySelector('#wbEmptyNewCR')?.addEventListener('click', () => { crState.showCreate = true; render(); });
     root.querySelector('#wbSampleCRBtn')?.addEventListener('click', createSampleReview);
-    root.querySelector('#wbCancelCreateReview')?.addEventListener('click', () => { crState.showCreate = false; render(); });
+    root.querySelector('#wbCancelCreateReview')?.addEventListener('click', () => { resetDraft(); crState.showCreate = false; render(); });
     root.querySelectorAll('[data-cr-id]').forEach(btn => {
       btn.addEventListener('click', () => selectReview(btn.dataset.crId));
     });
 
     root.querySelectorAll('[data-cr-mode]').forEach(btn => {
-      btn.addEventListener('click', () => { crState.createMode = btn.dataset.crMode; render(); });
+      btn.addEventListener('click', () => { syncDraftFromDOM(); crState.createMode = btn.dataset.crMode; render(); });
     });
-    root.querySelector('#wbCrPickRepoBtn')?.addEventListener('click', pickRepoForReview);
+    root.querySelector('#wbCrPickRepoBtn')?.addEventListener('click', () => { syncDraftFromDOM(); pickRepoForReview(); });
     root.querySelector('#wbCrRepoSelect')?.addEventListener('change', async e => {
+      syncDraftFromDOM();
       crState.selectedRepoPath = e.target.value;
+      crState.draft.baseRef = 'HEAD~1';
+      crState.draft.headRef = 'HEAD';
       await loadGitRefs(crState.selectedRepoPath);
       render();
     });
 
     const createForm = root.querySelector('#wbCreateReviewForm');
     if (createForm) {
+      createForm.addEventListener('input', syncDraftFromDOM);
+      createForm.addEventListener('change', syncDraftFromDOM);
       createForm.addEventListener('submit', async e => {
         e.preventDefault();
-        const fd = new FormData(createForm);
+        syncDraftFromDOM();
+        crState.submitError = '';
+        const d = crState.draft;
         const lines = s => String(s || '').split('\n').map(x => x.trim()).filter(Boolean);
         const isAuto = crState.createMode === 'auto';
         crState.runningAI = isAuto;
@@ -460,28 +529,30 @@
           const url = isAuto ? '/api/codereview/reviews/run' : '/api/codereview/reviews';
           const payload = {
             projectId: currentProjectId(),
-            title: fd.get('title'),
-            writer: fd.get('writer'),
-            reviewer: fd.get('reviewer'),
-            model: fd.get('model') || '',
-            repoPath: fd.get('repoPath'),
-            baseRef: fd.get('baseRef'),
-            headRef: fd.get('headRef'),
-            diff: fd.get('diff'),
+            title: d.title,
+            writer: d.writer,
+            reviewer: d.reviewer,
+            model: d.model || '',
+            repoPath: crState.selectedRepoPath,
+            baseRef: crState.gitRefs.isGit ? d.baseRef : '',
+            headRef: crState.gitRefs.isGit ? d.headRef : '',
+            diff: d.diff,
           };
           if (!isAuto) {
-            payload.blocking = lines(fd.get('blocking'));
-            payload.advisory = lines(fd.get('advisory'));
+            payload.blocking = lines(d.blocking);
+            payload.advisory = lines(d.advisory);
           }
           const created = await reqJSON(url, {
             method: 'POST',
             body: JSON.stringify(payload),
           });
           notify('审查完成（' + created.verdict + '），共 ' + created.totalParts + ' 批');
+          resetDraft();
           crState.showCreate = false;
           crState.selectedId = created.id;
           await loadCodeReviewView();
         } catch (err) {
+          crState.submitError = err.message;
           notify(err.message);
         } finally {
           crState.runningAI = false;

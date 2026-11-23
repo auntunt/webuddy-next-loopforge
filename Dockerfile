@@ -58,9 +58,11 @@ COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker:27-cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 WORKDIR /app
 COPY --from=build /out/ /app/bin/
+COPY webuddy_core/ /app/webuddy_core/
 COPY LICENSE THIRD_PARTY_NOTICES.md /app/
 COPY third_party/go/ /app/third_party/go/
 ENV PATH="/app/bin:${PATH}"
+ENV WEBUDDY_CORE_DIR="/app/webuddy_core"
 # An explicit LOOPFORGE_COMMIT wins. Otherwise read HEAD from the build context
 # so `docker build` stamps the same corner label as the release workflow.
 ARG LOOPFORGE_COMMIT=

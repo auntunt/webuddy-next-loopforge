@@ -23,6 +23,7 @@ const state = {
   issueSelectionMode:false, issueSelection:new Set(), issueSelectionScope:'', issueBulkDeleting:false, issueBulkDeleteProgress:null, issueBulkDeleteResult:null,
   listPages:{}
 };
+window.state = state;
 
 const LIST_PAGE_SIZE={issues:20,runs:20,mcp:24,obs:20};
 function listPageSize(key){return String(key||'').startsWith('obs-')?LIST_PAGE_SIZE.obs:(LIST_PAGE_SIZE[key]||20)}
@@ -1380,6 +1381,8 @@ function bind(){
     if($('#observabilityView').classList.contains('active'))refreshObs();
     if($('#codereviewView')?.classList.contains('active')&&typeof loadCodeReviewView==='function')loadCodeReviewView();
     if($('#knowledgebaseView')?.classList.contains('active')&&typeof loadKnowledgeBaseView==='function')loadKnowledgeBaseView();
+    if($('#onboardingView')?.classList.contains('active')&&typeof loadOnboardingView==='function')loadOnboardingView();
+    if(typeof refreshWebuddyFloatingReview==='function')refreshWebuddyFloatingReview();
     if($('#sopsView').classList.contains('active'))refreshWorkflowMetrics();
   };
   document.querySelectorAll('[data-scope-for]').forEach(bar=>{

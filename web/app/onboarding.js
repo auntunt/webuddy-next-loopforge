@@ -1,9 +1,14 @@
-/* Webuddy 2.0 Interactive Onboarding & 3-Minute Usage Guide */
+/* Webuddy 2.0 Task-First Onboarding & Live Health Check Guide */
 (function () {
   const obState = {
+    serverHost: '',
     executors: [],
+    execError: '',
     runners: [],
+    runnersError: '',
     repos: [],
+    reposError: '',
+    mcp: { status: 'checking', detail: '正在探测 /api/webuddy/kb/mcp…' },
     loading: false,
   };
 
@@ -19,24 +24,72 @@
     if (typeof window.toast === 'function') window.toast(msg);
   }
 
+  async function fetchChecked(url, opts) {
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try {
+        const body = await res.json();
+        if (body && body.error) msg = body.error + ' (HTTP ' + res.status + ')';
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
   async function loadOnboardingView() {
     const root = document.getElementById('onboardingRoot');
     if (!root) return;
     obState.loading = true;
+    obState.mcp = { status: 'checking', detail: '正在探测 MCP 接口…' };
     render();
-    try {
-      const [exRes, runRes, repoRes] = await Promise.all([
-        fetch('/api/codereview/executors').then(r => r.ok ? r.json() : { executors: [] }).catch(() => ({ executors: [] })),
-        fetch('/api/runners').then(r => r.ok ? r.json() : []).catch(() => []),
-        fetch('/api/webuddy/kb/repos').then(r => r.ok ? r.json() : { repos: [] }).catch(() => ({ repos: [] })),
-      ]);
-      obState.executors = exRes.executors || [];
-      obState.runners = Array.isArray(runRes) ? runRes : [];
-      obState.repos = repoRes.repos || [];
-    } finally {
-      obState.loading = false;
-      render();
+
+    const [exR, runR, repoR, mcpR] = await Promise.allSettled([
+      fetchChecked('/api/codereview/executors'),
+      fetchChecked('/api/runners'),
+      fetchChecked('/api/webuddy/kb/repos'),
+      fetchChecked('/api/webuddy/kb/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }),
+      }),
+    ]);
+
+    if (exR.status === 'fulfilled') {
+      obState.executors = exR.value.executors || [];
+      obState.serverHost = exR.value.host || '';
+      obState.execError = '';
+    } else {
+      obState.executors = [];
+      obState.execError = exR.reason.message;
     }
+
+    if (runR.status === 'fulfilled') {
+      obState.runners = Array.isArray(runR.value) ? runR.value : [];
+      obState.runnersError = '';
+    } else {
+      obState.runners = [];
+      obState.runnersError = runR.reason.message;
+    }
+
+    if (repoR.status === 'fulfilled') {
+      obState.repos = repoR.value.repos || [];
+      if (!obState.serverHost && repoR.value.host) obState.serverHost = repoR.value.host;
+      obState.reposError = '';
+    } else {
+      obState.repos = [];
+      obState.reposError = repoR.reason.message;
+    }
+
+    if (mcpR.status === 'fulfilled' && !mcpR.value.error) {
+      obState.mcp = { status: 'ok', detail: 'ping 校验通过' };
+    } else {
+      const reason = mcpR.status === 'rejected' ? mcpR.reason.message : (mcpR.value.error?.message || 'MCP 返回错误');
+      obState.mcp = { status: 'error', detail: reason };
+    }
+
+    obState.loading = false;
+    render();
   }
 
   function render() {
@@ -46,64 +99,97 @@
     const installed = obState.executors.filter(e => e.available);
     const onlineRunners = obState.runners.filter(r => r.status === 'online');
     const repos = obState.repos;
+    const activePid = (window.state && window.state.projectFilter) || '';
+    const activeRepo = (activePid && repos.find(r => r.projectId === activePid)) || repos.find(r => r.hasGraph) || repos[0];
+
     const mcpUrl = location.origin + '/api/webuddy/kb/mcp';
-    const mcpSnippet = JSON.stringify({ mcpServers: { 'webuddy-kb': { url: mcpUrl } } }, null, 2);
+    const mcpSnippet = JSON.stringify({
+      mcpServers: {
+        'webuddy-kb': {
+          url: mcpUrl,
+          headers: {
+            Authorization: 'Bearer <替换为你在「访问密钥」生成的 Token>',
+          },
+        },
+      },
+    }, null, 2);
+
+    const mcpCardVal = obState.mcp.status === 'ok'
+      ? '<span style="color:#059669">已连通</span>'
+      : obState.mcp.status === 'checking'
+        ? '检测中…'
+        : '<span style="color:#dc2626">不可用</span>';
 
     root.innerHTML =
       '<div class="wb-page">' +
         '<div class="wb-header">' +
-          '<div><h1>Webuddy 2.0 · 3 分钟上手指引</h1><p class="wb-subtitle">实时检查你的本机 CLI、项目代码图谱、全量代码审查与 MCP 接入状态</p></div>' +
+          '<div><h1>开始一项真实工作 · Webuddy 指引</h1><p class="wb-subtitle">选择一个项目，说明这次要解决什么问题——知识图谱、代码审查和执行机都会围绕当前任务展开。</p></div>' +
           '<div class="wb-actions">' +
-            '<a class="button ghost" href="/landing" target="_blank" rel="noopener">打开产品官网 ↗</a>' +
-            '<button type="button" class="button primary" id="wbObRefresh">刷新状态</button>' +
+            '<a class="button ghost" href="/landing" target="_blank" rel="noopener">产品官网 ↗</a>' +
+            '<button type="button" class="button primary" id="wbObRefresh">重新自检</button>' +
           '</div>' +
         '</div>' +
 
         '<div class="wb-kpi-grid">' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">本机已安装 CLI</span><span class="wb-kpi-val">' + installed.length + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">在线执行机器</span><span class="wb-kpi-val">' + onlineRunners.length + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">已绑定本地项目</span><span class="wb-kpi-val">' + repos.length + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">内置知识库 MCP</span><span class="wb-kpi-val">就绪</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">产品官网</span><span class="wb-kpi-val"><a href="/landing" target="_blank" style="font-size:15px">/landing ↗</a></span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">当前选中项目</span><span class="wb-kpi-val" style="font-size:16px">' + esc(activeRepo ? activeRepo.projectName : '未选择') + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">服务端已扫 CLI' + (obState.serverHost ? ' (' + esc(obState.serverHost) + ')' : '') + '</span><span class="wb-kpi-val">' + (obState.execError ? '异常' : installed.length) + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">在线个人执行机</span><span class="wb-kpi-val">' + (obState.runnersError ? '异常' : onlineRunners.length) + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">知识库 MCP 实时状态</span><span class="wb-kpi-val" style="font-size:16px">' + mcpCardVal + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">已导入本地项目</span><span class="wb-kpi-val">' + (obState.reposError ? '异常' : repos.length) + '</span></div>' +
         '</div>' +
 
         '<div class="wb-panel">' +
-          '<h3>步骤 1 · 确认本机 CLI 与执行机（免填 Key 复用订阅）</h3>' +
-          '<p class="wb-subtitle" style="margin-bottom:10px">Webuddy 支持自动扫描本机已登录的 Codex / Claude Code / Cursor，同时也保留了手动 API Key 模式。</p>' +
+          '<h3>第 1 步 · 选择项目并确认影响范围</h3>' +
+          '<p class="wb-subtitle" style="margin-bottom:10px">先在顶栏或下方选定目标项目，打开知识库看清这次改动涉及哪些业务域、流程和数据表，再开始修改。</p>' +
+          (obState.reposError
+            ? '<div class="wb-badge fail" style="margin-bottom:10px">读取项目列表失败：' + esc(obState.reposError) + '</div>'
+            : '<div class="wb-meta" style="margin-bottom:12px">' +
+                (repos.length
+                  ? repos.map(r => '<span class="wb-badge ' + (r.hasGraph ? 'pass' : 'info') + '">' + esc(r.projectName + (r.hasGraph ? ' · 已建图谱' : ' · 待扫描')) + '</span>').join('')
+                  : '<span class="wb-badge unknown">尚未导入本地项目</span>') +
+              '</div>') +
+          '<div class="wb-actions">' +
+            '<button type="button" class="button primary" data-ob-jump="knowledgebase">打开知识库与架构蓝图 →</button>' +
+            '<button type="button" class="button ghost" id="wbObPickRepo">+ 选择本地文件夹导入</button>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="wb-panel">' +
+          '<h3>第 2 步 · 开始修改（确认代码与执行所在机器）</h3>' +
+          '<p class="wb-subtitle" style="margin-bottom:10px">个人电脑上的执行机器可直接复用你本机已登录的 Claude Code / Codex；服务端主机（<code>' + esc(obState.serverHost || 'local') + '</code>）上的操作会读取服务端文件系统与服务端 CLI。</p>' +
+          (obState.execError ? '<div class="wb-badge fail" style="margin-bottom:8px">服务端 CLI 检测失败：' + esc(obState.execError) + '</div>' : '') +
+          (obState.runnersError ? '<div class="wb-badge fail" style="margin-bottom:8px">执行机器列表读取失败：' + esc(obState.runnersError) + '</div>' : '') +
           '<div class="wb-meta" style="margin-bottom:12px">' +
-            (installed.length
-              ? installed.map(e => '<span class="wb-badge ' + (e.loggedIn ? 'pass' : 'info') + '">' + esc(e.name) + (e.loggedIn ? ' · 已登录' : ' · 已安装') + '</span>').join('')
-              : '<span class="wb-badge unknown">未检测到本机 CLI</span>') +
             (onlineRunners.length
               ? '<span class="wb-badge pass">在线执行机：' + esc(onlineRunners.map(r => r.name).join('、')) + '</span>'
-              : '<span class="wb-badge unknown">暂无在线执行机</span>') +
+              : '<span class="wb-badge unknown">暂无在线个人执行机</span>') +
+            installed.map(e => '<span class="wb-badge ' + (e.loggedIn ? 'pass' : 'info') + '">服务端 ' + esc(e.name) + '</span>').join('') +
           '</div>' +
           '<div class="wb-actions">' +
-            '<button type="button" class="button ghost" data-ob-jump="settings">前往个人配置（查看自动扫描 / 填 API Key）</button>' +
+            '<button type="button" class="button primary" data-ob-jump="collaboration">前往工作台提出任务 →</button>' +
             '<button type="button" class="button ghost" data-ob-jump="runners">管理执行机器</button>' +
+            '<button type="button" class="button ghost" data-ob-jump="settings">个人配置（API Key）</button>' +
           '</div>' +
         '</div>' +
 
         '<div class="wb-panel">' +
-          '<h3>步骤 2 · 打开知识库与空间架构图谱</h3>' +
-          '<p class="wb-subtitle" style="margin-bottom:10px">支持空间架构蓝图、ER 实体关系图、业务状态图与源码精准定位、富文本 Wiki 互跳与防幻觉源码核验。</p>' +
-          '<div class="wb-meta" style="margin-bottom:12px">' +
-            (repos.length
-              ? repos.map(r => '<span class="wb-badge ' + (r.hasGraph ? 'pass' : 'info') + '">' + esc(r.projectName + (r.hasGraph ? ' · 已建图谱' : ' · 待扫描')) + '</span>').join('')
-              : '<span class="wb-badge unknown">尚未导入本地项目</span>') +
+          '<h3>第 3 步 · 独立代码审查与人工确认</h3>' +
+          '<p class="wb-subtitle" style="margin-bottom:10px">改动完成后提交独立审查：逐行检查彩色 Diff 与阻断项，确认无误报后在「待我确认」完成签收交付。</p>' +
+          '<div class="wb-actions">' +
+            '<button type="button" class="button primary" data-ob-jump="codereview">打开代码审查 →</button>' +
+            '<button type="button" class="button ghost" data-ob-jump="approvals">查看待我确认</button>' +
           '</div>' +
-          '<div class="wb-actions"><button type="button" class="button primary" data-ob-jump="knowledgebase">打开知识库与架构蓝图 →</button><button type="button" class="button ghost" id="wbObPickRepo">+ 选择本地文件夹导入</button></div>' +
         '</div>' +
 
         '<div class="wb-panel">' +
-          '<h3>步骤 3 · 发起 14k 全量分批独立代码审查</h3>' +
-          '<p class="wb-subtitle" style="margin-bottom:10px">自动按文件与 14,000 字符上限分批、校验 Writer ≠ Reviewer 与基准提交防篡改、彩色 Diff 阅读，并支持人工逐条记录有效率与遗漏项。</p>' +
-          '<div class="wb-actions"><button type="button" class="button primary" data-ob-jump="codereview">打开代码审查工作台 →</button></div>' +
-        '</div>' +
-
-        '<div class="wb-panel">' +
-          '<div class="wb-item-top" style="margin-bottom:8px"><h3 style="margin:0">步骤 4 · 将 Webuddy 知识库 MCP 挂载到外部 IDE / CLI</h3><button type="button" class="button primary small" id="wbObCopyMcp">一键复制 JSON 配置</button></div>' +
-          '<p class="wb-subtitle" style="margin-bottom:10px">粘贴到 Codex / Claude Code / Cursor 的 MCP 配置中，即可直接调用 <code>kb_search</code>、<code>kb_fetch</code>、<code>kb_overview</code>、<code>kb_verify_evidence</code>。</p>' +
+          '<div class="wb-item-top" style="margin-bottom:8px">' +
+            '<div><h3 style="margin:0">第 4 步 · 在外部助手（Codex / Claude Code / Cursor）挂载知识库 MCP</h3>' +
+            '<p class="wb-subtitle" style="margin:2px 0 0">当前实时状态：<b>' + esc(obState.mcp.detail) + '</b>。开启认证的实例需要携带访问密钥（Bearer Token）。</p></div>' +
+            '<div class="wb-actions">' +
+              '<button type="button" class="button ghost small" data-ob-jump="guide">前往生成访问密钥</button>' +
+              '<button type="button" class="button primary small" id="wbObCopyMcp">复制含鉴权的 MCP 配置</button>' +
+            '</div>' +
+          '</div>' +
           '<pre class="wb-code">' + esc(mcpSnippet) + '</pre>' +
         '</div>' +
       '</div>';
@@ -115,13 +201,13 @@
       });
     });
     root.querySelector('#wbObCopyMcp')?.addEventListener('click', () => {
-      navigator.clipboard?.writeText(mcpSnippet).then(() => notify('已复制 Webuddy MCP 配置 JSON')).catch(() => notify(mcpUrl));
+      navigator.clipboard?.writeText(mcpSnippet).then(() => notify('已复制含 Authorization 头的 MCP 配置 JSON')).catch(() => notify(mcpUrl));
     });
     root.querySelector('#wbObPickRepo')?.addEventListener('click', async () => {
       try {
-        const picked = await fetch('/api/webuddy/kb/pick-folder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+        const picked = await fetchChecked('/api/webuddy/kb/pick-folder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         if (picked.cancelled || !picked.path) return;
-        const imp = await fetch('/api/webuddy/kb/import-local', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localPath: picked.path, name: picked.name }) }).then(r => r.json());
+        const imp = await fetchChecked('/api/webuddy/kb/import-local', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ localPath: picked.path, name: picked.name }) });
         if (imp.repo) {
           localStorage.setItem('webuddy.kb.repoPath', imp.repo.localPath);
           notify('已导入本地项目：' + imp.repo.projectName);

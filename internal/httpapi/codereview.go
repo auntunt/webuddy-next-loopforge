@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"os"
 	"strconv"
 
 	"agentflow/internal/codereview"
@@ -75,7 +76,8 @@ func (h *codeReviewHandlers) summary(c *gin.Context) {
 
 // GET /api/codereview/executors
 func (h *codeReviewHandlers) executors(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"executors": codereview.DetectExecutors()})
+	host, _ := os.Hostname()
+	c.JSON(http.StatusOK, gin.H{"host": host, "executors": codereview.DetectExecutors()})
 }
 
 // POST /api/codereview/reviews/run

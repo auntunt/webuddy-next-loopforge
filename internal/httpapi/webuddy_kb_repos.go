@@ -84,7 +84,8 @@ func (h *webuddyKBHandlers) repos(c *gin.Context) {
 			IsGit:       ig,
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{"repos": items})
+	host, _ := os.Hostname()
+	c.JSON(http.StatusOK, gin.H{"host": host, "repos": items})
 }
 
 // POST /api/webuddy/kb/pick-folder
