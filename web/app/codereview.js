@@ -299,6 +299,10 @@
     const execOpts = execList.map(ex =>
       '<option value="' + esc(ex.id) + '" ' + (ex.id === d.reviewer ? 'selected' : '') + '>' + esc(ex.name) + (ex.available ? '（服务端已安装）' : '（未检测到）') + '</option>'
     ).join('');
+    const modelCandidates = Array.from(new Set(execList.flatMap(ex => Array.isArray(ex.models) ? ex.models : [])));
+    const modelDatalist = modelCandidates.length
+      ? '<datalist id="wbCrModelList">' + modelCandidates.map(m => '<option value="' + esc(m) + '"></option>').join('') + '</datalist>'
+      : '';
 
     const buildRefOptions = (defaultVal, defaultLabel, selectedVal) => {
       const items = [
@@ -329,7 +333,7 @@
             '<div class="wb-field"><label>编写者 (Writer)</label><input type="text" name="writer" value="' + esc(d.writer) + '" placeholder="codex / developer"></div>' +
             (isAuto
               ? '<div class="wb-field"><label>独立审查 CLI 执行器 (Reviewer)</label><select name="reviewer">' + execOpts + '</select></div>' +
-                '<div class="wb-field"><label>模型（可选，留空走 CLI 默认）</label><input type="text" name="model" value="' + esc(d.model) + '" placeholder="例如 gpt-5 / claude-sonnet-4"></div>'
+                '<div class="wb-field"><label>模型（可选，留空走 CLI 默认）</label><input type="text" name="model" list="wbCrModelList" value="' + esc(d.model) + '" placeholder="例如 codex-auto-review / gpt-6.2-astra / gpt-6-luna">' + modelDatalist + '</div>'
               : '<div class="wb-field"><label>独立审查者 (Reviewer)</label><input type="text" name="reviewer" value="' + esc(d.reviewer) + '" placeholder="与编写者分离"></div>') +
           '</div>' +
           '<div class="wb-form-row">' +

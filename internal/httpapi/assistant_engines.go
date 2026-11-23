@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"agentflow/internal/codereview"
 	"agentflow/internal/domain"
 	"agentflow/internal/repo"
 	"agentflow/internal/runtime"
@@ -337,6 +338,13 @@ func assistantDiscoveredModelsFor(ctx context.Context, user domain.User, engine 
 		}
 		listed = cachedAssistantEngineDiscovery(ctx, protocol, key, baseURL)
 	}
+	if len(listed) == 0 && engine == assistantEngineCodex {
+		for _, mid := range codereview.DiscoverCodexGatewayModels(ctx) {
+			if assistantValidEngineModel(mid) {
+				listed = append(listed, assistantDiscoveredModel{ID: mid, Name: mid})
+			}
+		}
+	}
 	if engine == runtime.AgentCLICursor && key != "" && !user.AgentCLICredentials[engine].ModelsCustomized {
 		fresh, pending := cachedCursorModels(key)
 		if len(fresh) > 0 {
@@ -367,7 +375,7 @@ func assistantEngineModels(ctx context.Context, user domain.User, runnerLogin ma
 		if key == "" && !runnerLogin[engine] && len(listed) == 0 {
 			continue
 		}
-		if !runnerLogin[engine] {
+		if !runnerLogin[engine] || (engine == assistantEngineCodex && len(listed) == 0) {
 			var pending bool
 			listed, pending = assistantDiscoveredModelsFor(ctx, user, engine)
 			cursorModelsPending = cursorModelsPending || pending

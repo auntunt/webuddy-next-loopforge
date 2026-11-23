@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"agentflow/internal/apperr"
@@ -52,13 +54,14 @@ type BatchDiagnoser interface {
 // ExecutorInfo reports whether a supported coding-agent CLI is installed locally
 // and whether local login credentials are detected (without exposing secret values).
 type ExecutorInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Binary    string `json:"binary"`
-	Available bool   `json:"available"`
-	LoggedIn  bool   `json:"loggedIn"`
-	AuthHint  string `json:"authHint,omitempty"`
-	Path      string `json:"path,omitempty"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Binary    string   `json:"binary"`
+	Available bool     `json:"available"`
+	LoggedIn  bool     `json:"loggedIn"`
+	AuthHint  string   `json:"authHint,omitempty"`
+	Path      string   `json:"path,omitempty"`
+	Models    []string `json:"models,omitempty"`
 }
 
 var supportedExecutors = []struct {
@@ -247,6 +250,10 @@ func DetectExecutors() []ExecutorInfo {
 		if avail {
 			loggedIn, hint = detectLocalAuth(item.id)
 		}
+		var models []string
+		if avail && item.id == "codex" {
+			models = DiscoverCodexGatewayModels(context.Background())
+		}
 		out = append(out, ExecutorInfo{
 			ID:        item.id,
 			Name:      item.name,
@@ -255,6 +262,7 @@ func DetectExecutors() []ExecutorInfo {
 			LoggedIn:  loggedIn,
 			AuthHint:  hint,
 			Path:      path,
+			Models:    models,
 		})
 	}
 	return out
@@ -671,4 +679,134 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 		return domain.CodeReviewRecord{}, err
 	}
 	return rec, nil
+}
+
+var (
+	codexGwCacheMu sync.Mutex
+	codexGwModels  []string
+	codexGwUntil   time.Time
+)
+
+func parseCodexGatewayConfig(raw string) (baseURL, token string, ok bool) {
+	var activeProvider string
+	section := ""
+	providers := map[string][2]string{}
+	for _, ln := range strings.Split(raw, "\n") {
+		line := strings.TrimSpace(ln)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq < 0 {
+			continue
+		}
+		k := strings.TrimSpace(line[:eq])
+		v := strings.TrimSpace(line[eq+1:])
+		if idx := strings.Index(v, " #"); idx >= 0 {
+			v = strings.TrimSpace(v[:idx])
+		}
+		v = strings.Trim(v, `"'`)
+		if section == "" && k == "model_provider" {
+			activeProvider = v
+		} else if strings.HasPrefix(section, "model_providers.") {
+			pname := strings.TrimPrefix(section, "model_providers.")
+			pair := providers[pname]
+			if k == "base_url" {
+				pair[0] = strings.TrimRight(v, "/")
+			} else if k == "experimental_bearer_token" {
+				pair[1] = v
+			}
+			providers[pname] = pair
+		}
+	}
+	if activeProvider != "" {
+		if pair, exists := providers[activeProvider]; exists && pair[0] != "" && pair[1] != "" {
+			return pair[0], pair[1], true
+		}
+	}
+	for _, pair := range providers {
+		if pair[0] != "" && pair[1] != "" {
+			return pair[0], pair[1], true
+		}
+	}
+	return "", "", false
+}
+
+// DiscoverCodexGatewayModels queries the custom Codex gateway configured in
+// ~/.codex/config.toml (e.g. experimental_bearer_token + base_url/models) and
+// returns selectable chat/coding model IDs (excluding pure image models).
+// Results are cached in memory for 5 minutes.
+func DiscoverCodexGatewayModels(ctx context.Context) []string {
+	codexGwCacheMu.Lock()
+	if time.Now().Before(codexGwUntil) && len(codexGwModels) > 0 {
+		out := append([]string(nil), codexGwModels...)
+		codexGwCacheMu.Unlock()
+		return out
+	}
+	codexGwCacheMu.Unlock()
+
+	configDir := strings.TrimSpace(os.Getenv("CODEX_HOME"))
+	if configDir == "" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			configDir = filepath.Join(home, ".codex")
+		}
+	}
+	if configDir == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(configDir, "config.toml"))
+	if err != nil {
+		return nil
+	}
+	baseURL, token, ok := parseCodexGatewayConfig(string(raw))
+	if !ok {
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodGet, baseURL+"/models", nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(payload.Data))
+	models := make([]string, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		id := strings.TrimSpace(item.ID)
+		if id == "" || strings.HasPrefix(strings.ToLower(id), "gpt-image") {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		models = append(models, id)
+	}
+	if len(models) > 0 {
+		codexGwCacheMu.Lock()
+		codexGwModels = append([]string(nil), models...)
+		codexGwUntil = time.Now().Add(5 * time.Minute)
+		codexGwCacheMu.Unlock()
+	}
+	return models
 }
