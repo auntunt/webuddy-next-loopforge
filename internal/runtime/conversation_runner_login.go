@@ -113,6 +113,11 @@ func prepareRunnerLogin(home AgentCLIHome, login conversationLoginSpec, enabled 
 		if err := dir.Remove(login.file); err != nil && !os.IsNotExist(err) {
 			return err
 		}
+		if login.binding == BindCodex {
+			if err := dir.Remove("config.toml"); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
 		return nil
 	}
 	// A runner restart can interrupt cleanup. Remove any previous copy even
@@ -143,7 +148,28 @@ func prepareRunnerLogin(home AgentCLIHome, login conversationLoginSpec, enabled 
 		data, err = readRunnerLoginFile(configDir, login.file)
 	}
 	if err != nil {
+		if login.binding == BindCodex {
+			if cfgData, cfgErr := readRunnerConfigFile(configDir, "config.toml"); cfgErr == nil && codexConfigHasCustomAuth(cfgData) {
+				if writeErr := target.WriteFile("config.toml", cfgData, 0600); writeErr != nil {
+					return nil, nil, writeErr
+				}
+				cleanupCfg := func() error {
+					dir, openErr := openAgentCLIHome(home)
+					if openErr != nil {
+						return openErr
+					}
+					defer dir.Close()
+					return remove(dir)
+				}
+				return cleanupCfg, nil, nil
+			}
+		}
 		return nil, nil, fmt.Errorf("执行机器上的 %s 本机登录态不可用，请检查 Runner 账户的 CLI 登录", login.label)
+	}
+	if login.binding == BindCodex {
+		if cfgData, cfgErr := readRunnerConfigFile(configDir, "config.toml"); cfgErr == nil {
+			_ = target.WriteFile("config.toml", cfgData, 0600)
+		}
 	}
 	if login.binding == BindCodex || login.binding == BindClaudeCode {
 		source := fileRunnerLoginSource(login, configDir)
@@ -254,6 +280,40 @@ func readRunnerLoginFile(dir, name string) ([]byte, error) {
 	return data, nil
 }
 
+// readRunnerConfigFile reads a non-JSON host CLI config file (such as
+// ~/.codex/config.toml) with the same symlink and size protections.
+func readRunnerConfigFile(configDir, name string) ([]byte, error) {
+	if configDir == "" {
+		return nil, fmt.Errorf("missing config directory")
+	}
+	root, err := os.OpenRoot(configDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	const maxSize = 1 << 20
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxSize {
+		return nil, fmt.Errorf("invalid config file")
+	}
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 || len(data) > maxSize {
+		return nil, fmt.Errorf("invalid config file")
+	}
+	return data, nil
+}
+
 // Unmanaged/static login copies cannot replace a host credential. OAuth pairs
 // are refreshed by the trusted manager; sandbox JSON is never an issuer response.
 func writeBackRefreshedLogin(dir *os.Root, login conversationLoginSpec, configDir string, original []byte) error {
@@ -333,4 +393,14 @@ func readRootLoginFile(dir *os.Root, name string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid login file")
 	}
 	return data, nil
+}
+
+// codexConfigHasCustomAuth reports whether ~/.codex/config.toml configures a
+// custom gateway/provider that authenticates without ~/.codex/auth.json
+// (for example, requires_openai_auth = false or experimental_bearer_token).
+func codexConfigHasCustomAuth(data []byte) bool {
+	text := string(data)
+	return strings.Contains(text, "experimental_bearer_token") ||
+		strings.Contains(text, "requires_openai_auth = false") ||
+		strings.Contains(text, "requires_openai_auth=false")
 }

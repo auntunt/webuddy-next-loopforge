@@ -88,10 +88,16 @@ func detectLocalAuth(id string) (bool, string) {
 		if fileExists(filepath.Join(home, ".codex", "auth.json")) {
 			return true, "复用本机 ~/.codex 登录态"
 		}
+		if raw, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml")); err == nil {
+			text := string(raw)
+			if strings.Contains(text, "experimental_bearer_token") || strings.Contains(text, "requires_openai_auth = false") {
+				return true, "复用本机 ~/.codex/config.toml 网关配置"
+			}
+		}
 		if strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != "" {
 			return true, "复用环境变量 OPENAI_API_KEY"
 		}
-		return false, "未检测到 ~/.codex/auth.json"
+		return false, "未检测到 ~/.codex/auth.json 或网关配置"
 	case "claude":
 		if fileExists(filepath.Join(home, ".claude", ".credentials.json")) || fileExists(filepath.Join(home, ".claude.json")) {
 			return true, "复用本机 Claude 登录态"
