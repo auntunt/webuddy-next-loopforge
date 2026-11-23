@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Webuddy · 面向存量系统的代码图谱知识库与全量代码审查平台</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --panel: #ffffff;
+      --panel-2: #f1f5f9;
+      --text: #0f172a;
+      --muted: #475569;
+      --line: rgba(15, 23, 42, 0.1);
+      --brand: #2563eb;
+      --brand-2: #4f46e5;
+      --green: #059669;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Inter, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+    header {
+      position: sticky; top: 0; z-index: 40;
+      background: rgba(247, 249, 252, 0.86);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav {
+      height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    }
+    .brand {
+      display: inline-flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; letter-spacing: -0.02em;
+    }
+    .brand-mark {
+      width: 32px; height: 32px; border-radius: 9px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: #fff; display: grid; place-items: center; font-size: 15px; font-weight: 800;
+    }
+    .nav-links { display: flex; align-items: center; gap: 22px; font-size: 14px; color: var(--muted); }
+    .nav-links a:hover { color: var(--text); }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 9px 18px; border-radius: 9px; font-size: 14px; font-weight: 600;
+      border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .btn:hover { transform: translateY(-1px); border-color: var(--brand); }
+    .btn.primary {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: #fff; border-color: transparent;
+      box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
+    }
+    .btn.primary:hover { box-shadow: 0 12px 28px rgba(37, 99, 235, 0.34); }
+    .hero {
+      padding: 72px 0 56px;
+      display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 40px; align-items: center;
+    }
+    @media (max-width: 900px) { .hero { grid-template-columns: 1fr; padding: 48px 0 36px; } .nav-links { display: none; } }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      background: rgba(37, 99, 235, 0.1); color: var(--brand); margin-bottom: 16px;
+    }
+    h1 {
+      margin: 0 0 16px; font-size: 40px; line-height: 1.18; font-weight: 800; letter-spacing: -0.025em;
+    }
+    .hero p { margin: 0 0 26px; font-size: 16px; color: var(--muted); max-width: 560px; }
+    .cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .hero-card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+      padding: 20px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+    }
+    .mock-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line);
+      font-size: 12.5px; color: var(--muted);
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px;
+      border-radius: 999px; font-size: 11px; font-weight: 600;
+    }
+    .pill.ok { background: rgba(5, 150, 105, 0.12); color: var(--green); }
+    .pill.blue { background: rgba(37, 99, 235, 0.12); color: var(--brand); }
+    .gate-mini {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;
+    }
+    .gate-item {
+      background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    }
+    .gate-item b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+    .gate-item span { font-size: 11.5px; color: var(--muted); }
+    .section { padding: 56px 0; }
+    .section-head { margin-bottom: 28px; max-width: 680px; }
+    .section-head h2 { margin: 0 0 8px; font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+    .section-head p { margin: 0; color: var(--muted); font-size: 15px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    @media (max-width: 820px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+    }
+    .card h3 { margin: 0 0 8px; font-size: 17px; font-weight: 700; }
+    .card p { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+    .card ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); }
+    .card li { margin: 5px 0; }
+    pre.code {
+      margin: 12px 0 0; padding: 14px 16px; border-radius: 10px;
+      background: #0f172a; color: #e2e8f0; font-family: var(--mono); font-size: 12.5px;
+      overflow-x: auto; line-height: 1.6;
+    }
+    footer {
+      border-top: 1px solid var(--line); padding: 28px 0 40px; margin-top: 32px;
+      font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap nav">
+      <a class="brand" href="/landing">
+        <span class="brand-mark">W</span>
+        <span>Webuddy 2.0</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#moats">两大核心壁垒</a>
+        <a href="#visuals">空间可视化</a>
+        <a href="#executors">本机 CLI 融合</a>
+        <a href="#quickstart">3 分钟上手</a>
+      </nav>
+      <div class="cta-row">
+        <a class="btn" href="/#/onboarding">使用指引</a>
+        <a class="btn primary" href="/">进入工作台 →</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <span class="eyebrow">Webuddy 2.0 · 代码图谱 × 全量代码审查</span>
+        <h1>让 AI 真正看懂存量系统，<br>守住每一次代码审查底线。</h1>
+        <p>面向真实企业级存量代码仓库的研发协作工作台：自动解析业务域、流程、数据表 ER 与 CRUD 矩阵构建防幻觉知识库，并以 14,000 字符全量分批独立审查与人工有效率闭环把控交付质量。</p>
+        <div class="cta-row">
+          <a class="btn primary" href="/">立即进入工作台 →</a>
+          <a class="btn" href="/#/knowledgebase">浏览知识库与架构蓝图</a>
+          <a class="btn" href="/#/codereview">发起 14k 分批代码审查</a>
+        </div>
+      </div>
+
+      <div class="hero-card">
+        <div class="mock-head">
+          <strong>Webuddy 质量与知识双闭环</strong>
+          <span class="pill ok">真实证据可追溯</span>
+        </div>
+        <div class="gate-mini">
+          <div class="gate-item">
+            <b>1. 空间架构蓝图 & ER</b>
+            <span>入口网关 → 业务域 → 共享数据表</span>
+          </div>
+          <div class="gate-item">
+            <b>2. 源码证据防幻觉核验</b>
+            <span>每一条 文件:行号 实时校验</span>
+          </div>
+          <div class="gate-item">
+            <b>3. 14k 全量分批独立审查</b>
+            <span>Writer ≠ Reviewer · 零丢字覆盖</span>
+          </div>
+          <div class="gate-item">
+            <b>4. 人工有效率度量闭环</b>
+            <span>快照绑定 · 有效 / 误报 / 遗漏可量化</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted)">
+          <span>内置 Streamable HTTP MCP</span>
+          <span class="pill blue">/api/webuddy/kb/mcp</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="moats">
+      <div class="section-head">
+        <h2>为什么普通 AI 编码编排不够？</h2>
+        <p>把仓库直接丢给 Agent 跑几步 SOP 只能解决玩具项目。面对成百上千张表、数千条业务流的真实存量系统，必须先补齐“全局业务理解”和“确定性质量门禁”。</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <span class="pill blue" style="margin-bottom:10px">核心壁垒 01</span>
+          <h3>代码图谱与防幻觉知识库</h3>
+          <p>无需手写文档，直接扫描仓库生成可查询的 <code>graph.db</code> 与结构化 Wiki 知识页，所有结论绑定真实代码行号。</p>
+          <ul>
+            <li>自动提取 <b>业务域、接口/定时任务入口、数据表 DDL/外键 ER、CRUD 矩阵</b></li>
+            <li>内置国密 SM2/3/4、国产数据库方言、信创 .NET 等领域改造知识库</li>
+            <li>通过 <code>kb_structure.evidence</code> 实时核验 <code>文件:起行-止行</code>，杜绝 AI 编造引用</li>
+            <li>原生暴露 <b>Streamable HTTP MCP</b>，Claude Code / Codex / Cursor 即插即用</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="pill ok" style="margin-bottom:10px">核心壁垒 02</span>
+          <h3>14k 全量分批独立代码审查闭环</h3>
+          <p>彻底解决大 Diff 被截断漏审、模型自己审自己、误报率无法度量三大顽疾。</p>
+          <ul>
+            <li>按文件边界与 <b>14,000 字符上限</b> 自动分批，保证不丢弃任何一个字符</li>
+            <li>强制记录 <b>Writer ≠ Reviewer</b> 独立执行器、<code>base</code> 防篡改与二进制未覆盖阻断</li>
+            <li>生成防篡改 <code>Binding SHA-256</code> 快照，人工逐条标记 <b>有效 / 误报 / 待核实</b> 与遗漏项</li>
+            <li>项目级实时统计 AI Review 有效率与人工复核耗时，驱动持续调优</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="visuals">
+      <div class="section-head">
+        <h2>为“人机协同理解”而设计的灵动可视化</h2>
+        <p>可视化不是装饰——图上每一个节点、连线和状态都来自真实代码图谱或审查记录，推断关系明确标出。</p>
+      </div>
+      <div class="grid-3">
+        <div class="card">
+          <h3>空间架构蓝图 & ER 图</h3>
+          <p>点阵画布缩放、悬停聚光灯联动、点击业务域或数据表直接下钻读写流程与彩色 <b>C / R / U / D</b> 影响面。</p>
+        </div>
+        <div class="card">
+          <h3>业务状态图与源码定位</h3>
+          <p>兼容原生状态图文件、知识页 Mermaid 与图谱推导流转图，点击任意状态节点即时展开高亮源码上下文。</p>
+        </div>
+        <div class="card">
+          <h3>全局浮动复核浮层</h3>
+          <p>右下角呼吸药丸 ↔ 右侧停靠抽屉 ↔ 可自由拖拽悬浮窗，在看架构图或对话时随时同步核查阻断项与 Diff。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="executors">
+      <div class="section-head">
+        <h2>本机免 Key 自动扫描 × 团队云端双模式</h2>
+        <p>兼顾个人开箱即用与团队统一托管。</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h3>本机自动扫描（复用已有订阅）</h3>
+          <p>自动识别本机已安装的 <b>Claude Code、Codex CLI、Cursor、Kimi Code</b> 及登录态，连接本机 Runner 即可在对话与代码审查中免填 Key 直接运行。</p>
+        </div>
+        <div class="card">
+          <h3>团队 API Key / 自定义 Base URL</h3>
+          <p>在「个人配置 → 执行器配置」中可随时配置独立 API Key 与中转地址，并与审批关口、多成员权限无缝配合。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="quickstart">
+      <div class="section-head">
+        <h2>3 分钟接入外部 AI 工具（MCP）</h2>
+        <p>把 Webuddy 知识库挂载到你的 Codex、Claude Code 或 Cursor，让每次写代码前先查真实业务域与表结构。</p>
+      </div>
+      <div class="card">
+        <h3>Streamable HTTP MCP 配置示例</h3>
+        <pre class="code">{
+  "mcpServers": {
+    "webuddy-kb": {
+      "url": "http://localhost:8090/api/webuddy/kb/mcp"
+    }
+  }
+}</pre>
+      </div>
+    </section>
+
+    <footer>
+      <span>Webuddy 2.0 · 存量系统代码图谱知识库与全量代码审查平台</span>
+      <span><a href="/">进入工作台</a> · <a href="/#/onboarding">使用指引</a> · <a href="/#/knowledgebase">知识库</a> · <a href="/#/codereview">代码审查</a></span>
+    </footer>
+  </main>
+</body>
+</html>
