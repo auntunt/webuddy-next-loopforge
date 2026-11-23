@@ -185,14 +185,21 @@ func (h *webuddyKBHandlers) importLocal(c *gin.Context) {
 		respond(c, err)
 		return
 	}
+	defaultBranch := "main"
+	if ig {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "git", "-C", lp, "rev-parse", "--abbrev-ref", "HEAD").Output()
+		cancel()
+		if b := strings.TrimSpace(string(out)); err == nil && b != "" && b != "HEAD" {
+			defaultBranch = b
+		}
+	}
 	repoObj := domain.Repository{
-		ID:                rid,
-		ProjectID:         slug,
-		Provider:          "gongfeng",
-		GongfengProjectID: "local/" + slug,
-		Name:              name,
-		DefaultBranch:     "main",
-		LocalPath:         lp,
+		ID:            rid,
+		ProjectID:     slug,
+		Name:          name,
+		DefaultBranch: defaultBranch,
+		LocalPath:     lp,
 	}
 	if err := h.repo.PutRepository(repoObj); err != nil {
 		respond(c, err)

@@ -317,23 +317,57 @@ def _search(repo_path: str | None, query: str, limit: int) -> dict:
 
             kb_dir = root / ".tmh" / "knowledge"
             if kb_dir.is_dir():
-                for fp in sorted(kb_dir.rglob("*.md")):
-                    text = fp.read_text(encoding="utf-8", errors="replace")
-                    low = text.lower()
-                    if all(t in low for t in terms):
-                        idx = low.find(terms[0])
-                        start = max(0, idx - 60)
-                        snippet = text[start : start + 240].replace("\n", " ").strip()
-                        hits.append({
-                            "source": "project-kb",
-                            "kind": "page",
-                            "id": fp.relative_to(root).as_posix(),
-                            "title": fp.stem,
-                            "path": fp.relative_to(root).as_posix(),
-                            "line": 1,
-                            "snippet": snippet,
-                            "score": 8.0,
-                        })
+                pages_json = kb_dir / ".pages.json"
+                if pages_json.is_file():
+                    try:
+                        from tmh import kb as tmh_kb
+                        reg = json.loads(pages_json.read_text(encoding="utf-8", errors="replace"))
+                        if isinstance(reg, dict):
+                            for key, meta in reg.items():
+                                if not isinstance(meta, dict):
+                                    continue
+                                title = str(meta.get("title") or key)
+                                summary = str(meta.get("summary") or "")
+                                scope = str(meta.get("scope") or "")
+                                hay = f"{key} {title} {summary} {scope}".lower()
+                                if all(t in hay for t in terms):
+                                    try:
+                                        rel_p = tmh_kb.page_path(root, key).relative_to(root).as_posix()
+                                    except Exception:
+                                        rel_p = f".tmh/knowledge/{key}.md"
+                                    hits.append({
+                                        "source": "project-kb",
+                                        "kind": scope or "page",
+                                        "id": rel_p,
+                                        "title": title,
+                                        "path": rel_p,
+                                        "line": 1,
+                                        "snippet": summary[:240] or title,
+                                        "score": 8.5 if q_lower in title.lower() else 8.0,
+                                    })
+                    except Exception:
+                        pass
+                else:
+                    deadline = time.monotonic() + 2.5
+                    for fp in sorted(kb_dir.rglob("*.md"))[:120]:
+                        if time.monotonic() > deadline:
+                            break
+                        text = fp.read_text(encoding="utf-8", errors="replace")
+                        low = text.lower()
+                        if all(t in low for t in terms):
+                            idx = low.find(terms[0])
+                            start = max(0, idx - 60)
+                            snippet = text[start : start + 240].replace("\n", " ").strip()
+                            hits.append({
+                                "source": "project-kb",
+                                "kind": "page",
+                                "id": fp.relative_to(root).as_posix(),
+                                "title": fp.stem,
+                                "path": fp.relative_to(root).as_posix(),
+                                "line": 1,
+                                "snippet": snippet,
+                                "score": 8.0,
+                            })
 
     # 2. Search built-in domain KB (kb/*.md)
     if BUILTIN_KB_DIR.is_dir():
@@ -480,11 +514,14 @@ def _statecharts(repo_path: str | None) -> dict:
                 "paths": data.get("paths") if isinstance(data.get("paths"), list) else [],
             })
 
-    # 1.5 Scan .tmh/knowledge/**/*.md for fenced ```mermaid blocks
+    # 1.5 Scan top-level .tmh/knowledge/*.md for fenced ```mermaid blocks (bounded to avoid slow iCloud/large-tree I/O)
     kb_dir = root / ".tmh" / "knowledge"
     if kb_dir.is_dir():
         mermaid_re = re.compile(r"```mermaid\s*(.*?)```", re.S | re.I)
-        for fp in sorted(kb_dir.rglob("*.md"))[:400]:
+        deadline = time.monotonic() + 2.0
+        for fp in sorted(kb_dir.glob("*.md"))[:40]:
+            if time.monotonic() > deadline:
+                break
             text = fp.read_text(encoding="utf-8", errors="replace")
             if "```mermaid" not in text.lower():
                 continue

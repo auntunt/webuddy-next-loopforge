@@ -624,7 +624,7 @@ async function renderApprovals(background=false){
   }
   const items=(await Promise.all(approvalItems().map(async summary=>{
     const cached=cachedRun(summary.id);
-    if(cached?.workflowSnapshot?.id)return {...cached,...summary,workflowSnapshot:cached.workflowSnapshot};
+    if(cached?.workflowSnapshot?.nodes?.length)return {...cached,...summary,workflowSnapshot:cached.workflowSnapshot};
     try{
       const full=await api(`/api/runs/${encodeURIComponent(summary.id)}`,{silent:true});
       if(full?.id){

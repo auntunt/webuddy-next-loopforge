@@ -200,7 +200,15 @@
       const rawPid = currentProjectId();
       crState.issues = (Array.isArray(issuesData) ? issuesData : []).filter(x => !rawPid || x.projectId === rawPid).slice(0, 30);
       crState.tasks = Array.isArray(tasksData) ? tasksData : [];
-      crState.runs = (Array.isArray(runsData) ? runsData : []).filter(x => !rawPid || x.projectId === rawPid).slice(0, 30);
+      const projectIssueIds = new Set(crState.issues.map(i => i.id));
+      const projectRunIds = new Set(crState.tasks.filter(t => t.runId && projectIssueIds.has(t.issueId)).map(t => t.runId));
+      crState.runs = (Array.isArray(runsData) ? runsData : []).filter(x => {
+        if (!rawPid) return true;
+        return x.projectId === rawPid
+          || (x.executionContext && x.executionContext.projectId === rawPid)
+          || (x.repository && x.repository.projectId === rawPid)
+          || projectRunIds.has(x.id);
+      }).slice(0, 30);
       const matchActive = rawPid && crState.repos.find(r => r.projectId === rawPid && r.exists);
       if (matchActive && crState.selectedRepoPath !== matchActive.localPath) {
         crState.selectedRepoPath = matchActive.localPath;

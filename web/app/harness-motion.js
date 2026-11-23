@@ -1245,7 +1245,7 @@
       pending.frame = requestAnimationFrame(() => {
         if (!svg.isConnected || reduced.matches || disabled(host)) { reset(svg); return; }
         svg.dataset.iconMotion = "once";
-        pending.timer = setTimeout(() => reset(svg), definitions[svg.dataset.icon].duration + 360);
+        pending.timer = setTimeout(() => reset(svg), (definitions[svg.dataset.icon]?.duration ?? 600) + 360);
       });
       playback.set(svg, pending);
     }
