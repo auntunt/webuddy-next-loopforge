@@ -280,6 +280,7 @@ func ParseBatchDiagnosis(raw string) (BatchDiagnosis, error) {
 // RunAutomatedReviewInput triggers a real batched AI code review via a CLI executor.
 type RunAutomatedReviewInput struct {
 	ProjectID  string `json:"projectId"`
+	IssueID    string `json:"issueId"`
 	RunID      string `json:"runId"`
 	Title      string `json:"title"`
 	RepoPath   string `json:"repoPath"`
@@ -515,6 +516,7 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 	rec := domain.CodeReviewRecord{
 		ID:                s.newID(),
 		ProjectID:         strings.TrimSpace(input.ProjectID),
+		IssueID:           strings.TrimSpace(input.IssueID),
 		RunID:             strings.TrimSpace(input.RunID),
 		Title:             title,
 		RepoPath:          repoPath,

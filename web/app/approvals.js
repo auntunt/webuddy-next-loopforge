@@ -1,3 +1,24 @@
+async function renderWebuddyReviewApprovals(){
+  const host=$('#webuddyReviewApprovals');
+  if(!host)return;
+  try{
+    const pid=encodeURIComponent(state.projectFilter||'');
+    const data=await api('/api/codereview/reviews?projectId='+pid+'&limit=20',{silent:true});
+    const reviews=(data&&data.reviews)||[];
+    if(!reviews.length){host.innerHTML='';return}
+    host.innerHTML=`<div class="wb-panel"><div class="wb-item-top" style="margin-bottom:10px"><h3 style="margin:0">代码审查记录与待核对项（${reviews.length}）</h3><button type="button" class="button ghost small" id="wbApOpenCR">前往代码审查</button></div><div style="display:flex;flex-direction:column;gap:8px">${reviews.slice(0,8).map(r=>{
+      const badge=r.verdict==='pass'?'pass':r.verdict==='fail'?'fail':'unknown';
+      const label=r.verdict==='pass'?'通过 · 待核对/签收':r.verdict==='fail'?`阻断 ${(r.blocking||[]).length} 项`:'待核实';
+      const linkMeta=(r.issueId?`关联需求 ${escapeHTML(r.issueId)}`:r.runId?`关联运行 ${escapeHTML(r.runId.slice(0,12))}`:'独立审查');
+      return `<div class="wb-finding-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px"><div><div style="font-size:13px;font-weight:600">${escapeHTML(r.title)}</div><div class="wb-meta"><span>${linkMeta}</span><span>${escapeHTML(r.writer)} → ${escapeHTML(r.reviewer)}</span><span>${r.totalParts} 批</span></div></div><div class="wb-actions"><span class="wb-badge ${badge}">${label}</span><button type="button" class="button primary small" data-wb-open-review="${escapeHTML(r.id)}">打开处理 →</button></div></div>`;
+    }).join('')}</div></div>`;
+    host.querySelector('#wbApOpenCR')?.addEventListener('click',()=>switchView('codereview'));
+    host.querySelectorAll('[data-wb-open-review]').forEach(btn=>btn.addEventListener('click',()=>{
+      if(typeof window.openWebuddyCodeReview==='function')window.openWebuddyCodeReview(btn.dataset.wbOpenReview);
+    }));
+  }catch(_){host.innerHTML=''}
+}
+
 // ================= 待办验收 =================
 function waitingNodeId(run){return run.status==='queued'?undefined:Object.keys(run.nodes||{}).find(id=>run.nodes[id]?.status==='waiting_approval')}
 function turnsExhausted(nr){const t=`${nr?.error||''} ${nr?.activity||''}`;return /max turns|轮次用尽|是否重试/i.test(t)}
@@ -524,6 +545,7 @@ async function renderApprovals(background=false){
   const updated=$('#approvalLiveState [data-updated]');if(updated)updated.textContent=`更新于 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`;
   updateApprovalBadge();
   $('#approvalStats').innerHTML=`<span class="issue-stat"><b>${items.length}</b> 条待确认</span>`;
+  void renderWebuddyReviewApprovals();
   state.approvalItems=items;pruneApprovalSelection(items);
   const batch=$('#approvalBatch');
   if(batch){batch.innerHTML=approvalBatchBarHTML(items);batch.hidden=!batch.innerHTML;bindApprovalBatch()}

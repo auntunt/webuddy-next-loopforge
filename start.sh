@@ -31,7 +31,7 @@ compose() {
 cmd="${1:--d}"
 shift || true
 case "$cmd" in
-  up|-d|detach) bash scripts/install.sh ;;
+  up|-d|detach) LOOPFORGE_BUILD_FROM_SOURCE="${LOOPFORGE_BUILD_FROM_SOURCE:-1}" bash scripts/install.sh ;;
   dev) LOOPFORGE_BUILD_FROM_SOURCE=1 bash scripts/install.sh ;;
   release)
     [[ -f .env ]] && python3 - <<'PY'

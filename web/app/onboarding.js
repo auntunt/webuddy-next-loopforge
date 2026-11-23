@@ -51,7 +51,12 @@
       fetchChecked('/api/webuddy/kb/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }),
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'kb_search', arguments: { query: 'SM4', limit: 3 } },
+        }),
       }),
     ]);
 
@@ -81,10 +86,12 @@
       obState.reposError = repoR.reason.message;
     }
 
-    if (mcpR.status === 'fulfilled' && !mcpR.value.error) {
-      obState.mcp = { status: 'ok', detail: 'ping 校验通过' };
+    if (mcpR.status === 'fulfilled' && !mcpR.value.error && !mcpR.value.result?.isError) {
+      obState.mcp = { status: 'ok', detail: 'kb_search 实测调用通过（Python 引擎正常）' };
     } else {
-      const reason = mcpR.status === 'rejected' ? mcpR.reason.message : (mcpR.value.error?.message || 'MCP 返回错误');
+      const reason = mcpR.status === 'rejected'
+        ? mcpR.reason.message
+        : (mcpR.value.error?.message || mcpR.value.result?.content?.[0]?.text || 'MCP 返回错误');
       obState.mcp = { status: 'error', detail: reason };
     }
 

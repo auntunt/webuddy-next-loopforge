@@ -31,6 +31,7 @@ type CodeReviewScope struct {
 type CodeReviewRecord struct {
 	ID                string           `json:"id"`
 	ProjectID         string           `json:"projectId"`
+	IssueID           string           `json:"issueId,omitempty"`
 	RunID             string           `json:"runId,omitempty"`
 	Title             string           `json:"title"`
 	RepoPath          string           `json:"repoPath,omitempty"`

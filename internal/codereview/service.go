@@ -198,6 +198,7 @@ func NewService(store Store, newID func() string) *Service {
 // CreateReviewInput accepts either a raw unified diff or a local git repo + ref range.
 type CreateReviewInput struct {
 	ProjectID   string                `json:"projectId"`
+	IssueID     string                `json:"issueId"`
 	RunID       string                `json:"runId"`
 	Title       string                `json:"title"`
 	RepoPath    string                `json:"repoPath"`
@@ -330,6 +331,7 @@ func (s *Service) CreateReview(ctx context.Context, input CreateReviewInput, act
 	rec := domain.CodeReviewRecord{
 		ID:                s.newID(),
 		ProjectID:         strings.TrimSpace(input.ProjectID),
+		IssueID:           strings.TrimSpace(input.IssueID),
 		RunID:             strings.TrimSpace(input.RunID),
 		Title:             title,
 		RepoPath:          repoPath,

@@ -3,6 +3,8 @@
   function emptyDraft() {
     return {
       title: '',
+      issueId: '',
+      runId: '',
       writer: 'codex',
       reviewer: 'claude',
       model: '',
@@ -19,6 +21,8 @@
     executors: [],
     serverHost: '',
     repos: [],
+    issues: [],
+    runs: [],
     selectedRepoPath: '',
     gitRefs: { isGit: false, branches: [], commits: [] },
     diffSource: 'repo', // repo | paste
@@ -27,27 +31,42 @@
     summary: null,
     showCreate: false,
     createMode: 'auto', // auto | manual
-    draft: emptyDraft(),
+    draftsByProject: {},
     submitError: '',
     runningAI: false,
     loading: false,
   };
 
-  function syncDraftFromDOM() {
+  function draftKey() {
+    return currentProjectId() || '__all__';
+  }
+
+  function activeDraft() {
+    const k = draftKey();
+    if (!crState.draftsByProject[k]) crState.draftsByProject[k] = emptyDraft();
+    return crState.draftsByProject[k];
+  }
+
+  function syncDraftFromDOM(ev) {
     const form = document.getElementById('wbCreateReviewForm');
     if (!form) return;
+    const d = activeDraft();
+    const isRepoChange = ev && ev.target && ev.target.id === 'wbCrRepoSelect';
     const val = name => {
       const el = form.elements.namedItem(name);
       return el ? String(el.value || '') : undefined;
     };
-    ['title', 'writer', 'reviewer', 'model', 'baseRef', 'headRef', 'diff', 'blocking', 'advisory'].forEach(k => {
+    const keys = isRepoChange
+      ? ['title', 'issueId', 'runId', 'writer', 'reviewer', 'model', 'diff', 'blocking', 'advisory']
+      : ['title', 'issueId', 'runId', 'writer', 'reviewer', 'model', 'baseRef', 'headRef', 'diff', 'blocking', 'advisory'];
+    keys.forEach(k => {
       const v = val(k);
-      if (v !== undefined) crState.draft[k] = v;
+      if (v !== undefined) d[k] = v;
     });
   }
 
   function resetDraft() {
-    crState.draft = emptyDraft();
+    crState.draftsByProject[draftKey()] = emptyDraft();
     crState.submitError = '';
   }
 
@@ -115,23 +134,28 @@
     render();
     try {
       const pid = encodeURIComponent(currentProjectId());
-      const [listData, sumData, execData, repoData] = await Promise.all([
+      const [listData, sumData, execData, repoData, issuesData, runsData] = await Promise.all([
         reqJSON('/api/codereview/reviews?projectId=' + pid),
         reqJSON('/api/codereview/summary?projectId=' + pid),
         reqJSON('/api/codereview/executors').catch(() => ({ executors: [] })),
         reqJSON('/api/webuddy/kb/repos').catch(() => ({ repos: [] })),
+        reqJSON('/api/issues').catch(() => []),
+        reqJSON('/api/runs').catch(() => []),
       ]);
       crState.reviews = listData.reviews || [];
       crState.summary = sumData;
       crState.executors = execData.executors || [];
       crState.serverHost = execData.host || repoData.host || '';
       crState.repos = repoData.repos || [];
-      const activePid = currentProjectId();
-      const matchActive = activePid && crState.repos.find(r => r.projectId === activePid && r.exists);
+      const rawPid = currentProjectId();
+      crState.issues = (Array.isArray(issuesData) ? issuesData : []).filter(x => !rawPid || x.projectId === rawPid).slice(0, 30);
+      crState.runs = (Array.isArray(runsData) ? runsData : []).filter(x => !rawPid || x.projectId === rawPid).slice(0, 30);
+      const matchActive = rawPid && crState.repos.find(r => r.projectId === rawPid && r.exists);
       if (matchActive && crState.selectedRepoPath !== matchActive.localPath) {
         crState.selectedRepoPath = matchActive.localPath;
-        crState.draft.baseRef = 'HEAD~1';
-        crState.draft.headRef = 'HEAD';
+        const d = activeDraft();
+        d.baseRef = 'HEAD~1';
+        d.headRef = 'HEAD';
         await loadGitRefs(crState.selectedRepoPath);
       } else if (!crState.selectedRepoPath && crState.repos.length > 0) {
         const hit = crState.repos.find(r => r.exists && r.isGit) || crState.repos[0];
@@ -202,7 +226,7 @@
 
   function renderCreateForm() {
     const isAuto = crState.createMode === 'auto';
-    const d = crState.draft;
+    const d = activeDraft();
     const execList = crState.executors.length ? crState.executors : [
       { id: 'codex', name: 'Codex CLI', available: false },
       { id: 'claude', name: 'Claude Code CLI', available: false },
@@ -244,6 +268,16 @@
               ? '<div class="wb-field"><label>独立审查 CLI 执行器 (Reviewer)</label><select name="reviewer">' + execOpts + '</select></div>' +
                 '<div class="wb-field"><label>模型（可选，留空走 CLI 默认）</label><input type="text" name="model" value="' + esc(d.model) + '" placeholder="例如 gpt-5 / claude-sonnet-4"></div>'
               : '<div class="wb-field"><label>独立审查者 (Reviewer)</label><input type="text" name="reviewer" value="' + esc(d.reviewer) + '" placeholder="与编写者分离"></div>') +
+          '</div>' +
+          '<div class="wb-form-row">' +
+            '<div class="wb-field"><label>关联需求（可选，关联后可直达需求与签收）</label><select name="issueId">' +
+              '<option value="">独立审查（不关联需求）</option>' +
+              crState.issues.map(it => '<option value="' + esc(it.id) + '" ' + (it.id === d.issueId ? 'selected' : '') + '>' + esc((it.key || it.id) + ' · ' + (it.title || '')) + '</option>').join('') +
+            '</select></div>' +
+            '<div class="wb-field"><label>关联运行（可选）</label><select name="runId">' +
+              '<option value="">不关联运行</option>' +
+              crState.runs.map(rn => '<option value="' + esc(rn.id) + '" ' + (rn.id === d.runId ? 'selected' : '') + '>' + esc(rn.id.slice(0, 12) + ' · ' + (rn.status || '')) + '</option>').join('') +
+            '</select></div>' +
           '</div>' +
           '<div class="wb-form-row">' +
             '<div class="wb-field" style="grid-column:span 2"><label>选择项目仓库（位于服务端主机 ' + esc(crState.serverHost || 'local') + '）</label>' +
@@ -400,18 +434,26 @@
 
     const gateTrackHTML = window.WebuddyVisuals ? window.WebuddyVisuals.renderReviewGateTrack(r, crState.summary) : '';
     const hasCurrentFb = feedbacks.some(fb => fb.current);
+    const linkedTask = !!(r.issueId || r.runId);
     const nextActionText = r.verdict === 'fail'
       ? '存在 ' + (r.blocking || []).length + ' 项阻断问题：请先核对下方彩色 Diff 与阻断项，确认无误报后返工修复并重新发起审查。'
       : !r.complete
         ? '审查存在未覆盖批次或二进制文件：请人工重点核对未覆盖项后记录结论。'
         : hasCurrentFb
-          ? '本版本 AI 审查已通过且已完成人工复核反馈，可前往「待我确认」签收交付。'
-          : 'AI 审查已通过：下一步请核对下方改动并在本页提交人工复核反馈。';
+          ? (linkedTask
+              ? '本版本 AI 审查已通过且已完成人工复核反馈，已关联任务（' + (r.issueId ? '需求 ' + r.issueId : '运行 ' + r.runId) + '），可前往「待我确认」完成签收。'
+              : '独立审查记录（未关联需求或运行）：AI 审查已通过且已完成人工复核反馈，结论已计入项目有效率统计。')
+          : 'AI 审查已通过：下一步请核对下方改动并在本页提交人工复核反馈（本记录也会显示在「待我确认」的待核对列表中）。';
+
+    const nextButtons =
+      (r.issueId ? '<button type="button" class="button ghost small" id="wbCrOpenIssue">打开关联需求</button>' : '') +
+      (r.runId ? '<button type="button" class="button ghost small" id="wbCrOpenRun">打开关联运行</button>' : '') +
+      (linkedTask || !hasCurrentFb ? '<button type="button" class="button ghost small" id="wbCrOpenApprovals">查看待我确认</button>' : '');
 
     return (
       '<div style="display:flex;flex-direction:column;gap:14px">' +
         '<div class="wb-panel" style="border-left:4px solid ' + (r.verdict === 'fail' ? '#ef4444' : r.verdict === 'pass' ? '#10b981' : '#f59e0b') + '">' +
-          '<div class="wb-item-top"><strong>下一步动作</strong>' + verdictBadge(r.verdict) + '</div>' +
+          '<div class="wb-item-top"><strong>下一步动作</strong><div class="wb-actions">' + nextButtons + verdictBadge(r.verdict) + '</div></div>' +
           '<div style="font-size:13px;margin-top:4px">' + esc(nextActionText) + '</div>' +
         '</div>' +
         gateTrackHTML +
@@ -502,12 +544,28 @@
     root.querySelectorAll('[data-cr-mode]').forEach(btn => {
       btn.addEventListener('click', () => { syncDraftFromDOM(); crState.createMode = btn.dataset.crMode; render(); });
     });
+    root.querySelector('#wbCrOpenApprovals')?.addEventListener('click', () => { if (typeof window.switchView === 'function') window.switchView('approvals'); });
+    root.querySelector('#wbCrOpenIssue')?.addEventListener('click', () => {
+      const iid = crState.detail?.review?.issueId;
+      if (iid && typeof window.switchView === 'function') {
+        window.switchView('issues');
+        if (typeof window.openIssueDetail === 'function') setTimeout(() => window.openIssueDetail(iid), 200);
+      }
+    });
+    root.querySelector('#wbCrOpenRun')?.addEventListener('click', () => {
+      const rid = crState.detail?.review?.runId;
+      if (rid && typeof window.switchView === 'function') {
+        window.switchView('runs');
+        if (typeof window.showRunDetail === 'function') setTimeout(() => window.showRunDetail(rid), 200);
+      }
+    });
     root.querySelector('#wbCrPickRepoBtn')?.addEventListener('click', () => { syncDraftFromDOM(); pickRepoForReview(); });
     root.querySelector('#wbCrRepoSelect')?.addEventListener('change', async e => {
-      syncDraftFromDOM();
+      syncDraftFromDOM(e);
       crState.selectedRepoPath = e.target.value;
-      crState.draft.baseRef = 'HEAD~1';
-      crState.draft.headRef = 'HEAD';
+      const d = activeDraft();
+      d.baseRef = 'HEAD~1';
+      d.headRef = 'HEAD';
       await loadGitRefs(crState.selectedRepoPath);
       render();
     });
@@ -520,7 +578,7 @@
         e.preventDefault();
         syncDraftFromDOM();
         crState.submitError = '';
-        const d = crState.draft;
+        const d = activeDraft();
         const lines = s => String(s || '').split('\n').map(x => x.trim()).filter(Boolean);
         const isAuto = crState.createMode === 'auto';
         crState.runningAI = isAuto;
@@ -529,6 +587,8 @@
           const url = isAuto ? '/api/codereview/reviews/run' : '/api/codereview/reviews';
           const payload = {
             projectId: currentProjectId(),
+            issueId: d.issueId || '',
+            runId: d.runId || '',
             title: d.title,
             writer: d.writer,
             reviewer: d.reviewer,
@@ -597,4 +657,10 @@
   }
 
   window.loadCodeReviewView = loadCodeReviewView;
+  window.openWebuddyCodeReview = async function (reviewId) {
+    crState.selectedId = reviewId || '';
+    crState.showCreate = false;
+    if (typeof window.switchView === 'function') window.switchView('codereview');
+    else await loadCodeReviewView();
+  };
 })();
