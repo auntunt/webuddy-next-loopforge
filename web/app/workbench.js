@@ -829,19 +829,19 @@ async function loadWebuddyLocalExecutors(panel){
         </div>
         <div class="credential-row-end" style="display:flex;gap:6px;align-items:center">
           ${!r.isDefault?`<button type="button" class="credential-btn ghost" data-wb-set-def-runner="${escapeHTML(r.id)}">设为默认</button>`:''}
-          <button type="button" class="credential-btn ghost credential-row-link" data-wb-use-chat="1">去对话${credentialGlyph('chevron-right',14)}</button>
+          <button type="button" class="credential-btn ghost credential-row-link" data-wb-use-chat="1">去派活${credentialGlyph('chevron-right',14)}</button>
         </div>
       </div></div>`;
     }).join('');
 
     const srvClis=(server?.clis||[]).filter(c=>c.available);
-    const srvRow=srvClis.length?`<div class="credential-row"><div class="credential-row-main">
+    const srvRow=(!onlineRunners.length&&srvClis.length)?`<div class="credential-row"><div class="credential-row-main">
       ${credentialLogo({icon:'monitor'})}
       <div class="credential-row-who">
-        <b>服务器兜底 CLI（${escapeHTML(server.host||'server')}）</b>
+        <b>服务器本机 CLI（${escapeHTML(server.host||'server')}）</b>
         <small style="margin-top:4px;display:block">${srvClis.map(cliPill).join('')}</small>
       </div>
-      <div class="credential-row-end"><button type="button" class="credential-btn ghost credential-row-link" data-wb-use-local-exec="1">代码审查${credentialGlyph('chevron-right',14)}</button></div>
+      <div class="credential-row-end"><button type="button" class="credential-btn ghost credential-row-link" data-wb-use-chat="1">去派活${credentialGlyph('chevron-right',14)}</button></div>
     </div></div>`:'';
 
     const subCopy=onlineRunners.length
