@@ -782,11 +782,33 @@ async function loadWebuddyLocalExecutors(panel){
   if(!host)return;
   host.innerHTML='<div class="credential-row"><div class="credential-row-main"><div class="credential-row-who"><b>网页直调本地 CLI（免填 Key）</b><small>正在检测你的本地电脑与服务器 CLI…</small></div></div></div>';
   try{
-    const ov=await api('/api/webuddy/env/overview',{silent:true});
+    const [ov,builtin]=await Promise.all([
+      api('/api/webuddy/env/overview',{silent:true}),
+      api('/api/webuddy/builtin-agent/status',{silent:true}).catch(()=>null),
+    ]);
     if(!host.isConnected)return;
     const runners=Array.isArray(ov?.runners)?ov.runners:[];
     const onlineRunners=runners.filter(r=>r&&r.status==='online');
     const server=ov?.server||null;
+
+    const builtinCard=builtin?`<div class="credential-row" style="border-top:1px dashed var(--line,rgba(148,163,184,0.25));margin-top:6px;padding-top:8px"><div class="credential-row-main" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div class="credential-row-who">
+          <b>🤖 Webuddy 内置 Agent <span class="wb-badge ${builtin.ready?'pass':'unknown'}" style="margin-left:6px">${builtin.mode==='custom'?'自定义模型':builtin.mode==='openrouter_free'?'OpenRouter 免费大模型':builtin.ready?'已就绪':'未配置'}</span></b>
+          <small>${escapeHTML(builtin.modeLabel||'')} ${builtin.activeModel?`· 当前优选 <code>${escapeHTML(builtin.activeModel)}</code>`:''}</small>
+        </div>
+      </div>
+      <details>
+        <summary style="cursor:pointer;font-size:12px;color:var(--muted,#6b7280)">接入自己的模型（可选，不填默认免费）</summary>
+        <form id="wbBuiltinLlmForm" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center">
+          <input type="url" name="baseUrl" value="${escapeHTML(builtin.custom?.baseUrl||'')}" placeholder="Base URL（如 https://api.deepseek.com/v1）" style="flex:2;min-width:200px;height:32px;padding:0 8px">
+          <input type="password" name="apiKey" value="" placeholder="${builtin.customHasKey?'已保存 Key（留空保持不变）':'API Key'}" style="flex:1;min-width:140px;height:32px;padding:0 8px">
+          <input type="text" name="model" value="${escapeHTML(builtin.custom?.model||'')}" placeholder="模型名（如 deepseek-chat）" style="flex:1;min-width:140px;height:32px;padding:0 8px">
+          <button type="submit" class="credential-btn primary">保存</button>
+          ${builtin.mode==='custom'?'<button type="button" class="credential-btn ghost" id="wbBuiltinResetFree">恢复免费默认</button>':''}
+        </form>
+      </details>
+    </div></div>`:'';
 
     const cliPill=(c)=>{
       if(!c.available)return '';
@@ -826,13 +848,34 @@ async function loadWebuddyLocalExecutors(panel){
       ? `已有 ${onlineRunners.length} 台本地机器在线：在网页点对话/SOP，直接调你本机装好的 CLI，无需填 Key。`
       : '想用网页直接调你 Mac / Windows 上的 Codex / Claude？点右侧「+ 连接我的电脑」复制 1 行命令即可。';
 
-    host.innerHTML=`<div class="credential-row" style="border-top:1px dashed var(--line,rgba(148,163,184,0.25));margin-top:6px;padding-top:6px"><div class="credential-row-main">
+    host.innerHTML=`${builtinCard}<div class="credential-row" style="border-top:1px dashed var(--line,rgba(148,163,184,0.25));margin-top:6px;padding-top:6px"><div class="credential-row-main">
       <div class="credential-row-who"><b>网页直调本地 CLI（免填 Key）</b><small>${subCopy}</small></div>
       <div class="credential-row-end" style="display:flex;gap:6px">
         <button type="button" class="credential-btn ghost" data-wb-open-runners="1">+ 连接我的电脑</button>
         <button type="button" class="credential-btn ghost" id="wbRescanLocalExecs">刷新</button>
       </div>
     </div></div>${runnerRows}${srvRow}`;
+
+    host.querySelector('#wbBuiltinLlmForm')?.addEventListener('submit',async(e)=>{
+      e.preventDefault();
+      const fd=new FormData(e.currentTarget);
+      try{
+        await api('/api/webuddy/builtin-agent/config',{method:'PUT',body:JSON.stringify({
+          baseUrl:String(fd.get('baseUrl')||'').trim(),
+          apiKey:String(fd.get('apiKey')||'').trim(),
+          model:String(fd.get('model')||'').trim(),
+        })});
+        if(typeof toast==='function')toast('内置 Agent 模型配置已保存');
+        loadWebuddyLocalExecutors(panel);
+      }catch(err){if(typeof toast==='function')toast(err.message,'err');}
+    });
+    host.querySelector('#wbBuiltinResetFree')?.addEventListener('click',async()=>{
+      try{
+        await api('/api/webuddy/builtin-agent/config',{method:'PUT',body:JSON.stringify({baseUrl:'',apiKey:'',model:''})});
+        if(typeof toast==='function')toast('已恢复 OpenRouter 免费大模型默认模式');
+        loadWebuddyLocalExecutors(panel);
+      }catch(err){if(typeof toast==='function')toast(err.message,'err');}
+    });
 
     host.querySelector('#wbRescanLocalExecs')?.addEventListener('click',()=>loadWebuddyLocalExecutors(panel));
     host.querySelectorAll('[data-wb-set-def-runner]').forEach(btn=>btn.addEventListener('click',async()=>{
