@@ -81,6 +81,7 @@ export default function SopDesigner({ search = location.search, canvas = window.
   const [context, setContext] = useState({ projectId: initial.projectId, workflowId: initial.workflowId });
   const currentContext = useRef(context);
   const [catalog, setCatalog] = useState({ models: [], engines: [] });
+  const [defaultRunnerId, setDefaultRunnerId] = useState("");
   const [model, setModel] = useState(readModel);
   const [menu, setMenu] = useState(null);
   const [sessionId, setSessionId] = useState("");
@@ -128,9 +129,18 @@ export default function SopDesigner({ search = location.search, canvas = window.
 
   useEffect(() => {
     let current = true;
-    api("/api/assistant/models")
+    api("/api/assistant/models?runnerLogin=1")
       .then((data) => current && setCatalog(data || {}))
       .catch((e) => current && setError(e.message));
+    api("/api/runners")
+      .then((data) => {
+        if (!current || !data) return;
+        const list = Array.isArray(data) ? data : (data.runners || []);
+        const pref = data.defaultRunnerId || "";
+        const pick = list.find((r) => r.id === pref && r.status === "online") || list.find((r) => r.status === "online");
+        if (pick?.id) setDefaultRunnerId(pick.id);
+      })
+      .catch(() => {});
     return () => {
       current = false;
     };
@@ -327,6 +337,7 @@ export default function SopDesigner({ search = location.search, canvas = window.
         projectId: begun.projectId || context.projectId,
         sessionId: id,
         model,
+        executionRunnerId: defaultRunnerId || undefined,
         approvalMode: "confirm",
         requireExactModel: !!model,
         workflowId: begun.workflowId ?? context.workflowId,
@@ -430,7 +441,7 @@ export default function SopDesigner({ search = location.search, canvas = window.
                   ...item,
                   icon: "terminal",
                   label: item.name,
-                  detail: item.configured === false ? "未配置 API Key，先到个人配置里添加" : disabled ? "暂无可用模型" : `使用 ${item.name} 与个人 API Key`,
+                  detail: item.configured === false ? "未检测到执行机器 CLI 或个人凭证" : disabled ? "暂无可用模型" : `使用 ${item.name}（复用执行机器 CLI 或个人配置）`,
                   disabled,
                   glyph: hasProviderLogo(brand) ? <ModelProviderIcon brand={brand} size={16} /> : null,
                 };

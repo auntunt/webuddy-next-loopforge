@@ -257,7 +257,7 @@ func (h *assistantHandlers) models(c *gin.Context) {
 		}
 		catalog.Engines = assistantEngineOptions(user, usingSharedKey)
 		var runnerLogin map[string]bool
-		if c.Query("schedule") == "1" {
+		if c.Query("schedule") == "1" || c.Query("runnerLogin") == "1" {
 			runnerLogin = make(map[string]bool)
 			for i := range catalog.Engines {
 				engine := catalog.Engines[i].ID
