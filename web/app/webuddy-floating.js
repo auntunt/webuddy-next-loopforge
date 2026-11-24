@@ -59,11 +59,16 @@
     const failCount = fState.reviews.filter(r => r.verdict === 'fail').length;
 
     if (fState.mode === 'minimized') {
+      if (count === 0) {
+        host.className = '';
+        host.innerHTML = '';
+        return;
+      }
       host.className = 'wb-float-pill-wrap';
       host.innerHTML =
-        '<button type="button" class="wb-float-pill" id="wbFloatOpenBtn" title="打开 Webuddy 浮动代码复核面板（可在看架构图/对话时同步复核）">' +
+        '<button type="button" class="wb-float-pill" id="wbFloatOpenBtn" title="查看代码审查">' +
           '<span class="wb-float-pulse ' + (failCount > 0 ? 'fail' : 'pass') + '"></span>' +
-          '<span>代码复核浮层</span>' +
+          '<span>代码审查</span>' +
           '<span class="wb-badge ' + (failCount > 0 ? 'fail' : 'info') + '">' + (failCount > 0 ? ('阻断 ' + failCount) : (count + ' 条')) + '</span>' +
         '</button>';
       host.querySelector('#wbFloatOpenBtn')?.addEventListener('click', () => {

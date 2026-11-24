@@ -1,9 +1,9 @@
-/* Webuddy 2.0 Unified Environment & Integration Hub (环境与接入中心) */
+/* Webuddy 2.0 Zero-Friction Environment Hub (红绿灯一键环境中心) */
 (function () {
   const envState = {
     overview: null,
     overviewError: '',
-    mcp: { status: 'checking', detail: '正在探测 /api/webuddy/kb/mcp…' },
+    mcp: { status: 'checking', detail: '检测中…' },
     loading: false,
     probing: false,
     busyKey: '',
@@ -27,7 +27,7 @@
       let msg = 'HTTP ' + res.status;
       try {
         const body = await res.json();
-        if (body && body.error) msg = body.error + ' (HTTP ' + res.status + ')';
+        if (body && body.error) msg = body.error;
       } catch (_) {}
       throw new Error(msg);
     }
@@ -38,7 +38,7 @@
     const root = document.getElementById('onboardingRoot');
     if (!root) return;
     envState.loading = true;
-    envState.mcp = { status: 'checking', detail: '正在探测知识库 MCP 接口…' };
+    envState.mcp = { status: 'checking', detail: '检测中…' };
     render();
 
     const [ovR, mcpR] = await Promise.allSettled([
@@ -50,7 +50,7 @@
           jsonrpc: '2.0',
           id: 1,
           method: 'tools/call',
-          params: { name: 'kb_search', arguments: { query: 'SM4', limit: 3 } },
+          params: { name: 'kb_search', arguments: { query: 'SM4', limit: 1 } },
         }),
       }),
     ]);
@@ -64,12 +64,9 @@
     }
 
     if (mcpR.status === 'fulfilled' && !mcpR.value.error && !mcpR.value.result?.isError) {
-      envState.mcp = { status: 'ok', detail: 'kb_search 实测调用通过（Python 知识库引擎正常）' };
+      envState.mcp = { status: 'ok', detail: '正常' };
     } else {
-      const reason = mcpR.status === 'rejected'
-        ? mcpR.reason.message
-        : (mcpR.value.error?.message || mcpR.value.result?.content?.[0]?.text || 'MCP 返回错误');
-      envState.mcp = { status: 'error', detail: reason };
+      envState.mcp = { status: 'error', detail: '异常' };
     }
 
     envState.loading = false;
@@ -78,109 +75,77 @@
 
   function fmtGB(mb) {
     if (!mb || mb <= 0) return '-';
-    return (mb / 1024).toFixed(1) + 'G';
+    return Math.round(mb / 1024) + 'G';
   }
 
-  function renderProbeBadge(cli) {
-    if (!cli.available) return '<span class="wb-badge unknown">未安装</span>';
-    if (cli.authMode === 'none') return '<span class="wb-badge unknown">未配置凭据</span>';
-    switch (cli.probeStatus) {
-      case 'ok':
-        return '<span class="wb-badge pass">✅ 实测可用' + (cli.probeLatencyMs ? ' (' + (cli.probeLatencyMs / 1000).toFixed(1) + 's)' : '') + '</span>';
-      case 'auth_error':
-        return '<span class="wb-badge fail">❌ 鉴权/封禁异常</span>';
-      case 'model_error':
-        return '<span class="wb-badge fail">⚠ 模型不可用</span>';
-      case 'error':
-        return '<span class="wb-badge fail">❌ 探活失败</span>';
-      case 'probing':
-        return '<span class="wb-badge info">⏳ 实测探活中…</span>';
-      default:
-        return '<span class="wb-badge info">○ 已配置 · 待探活</span>';
+  function cliTrafficPill(cli) {
+    if (!cli.available) return '';
+    if (cli.authMode === 'none') {
+      return '<span class="wb-badge unknown">' + esc(cli.id) + ' · 未登录</span>';
     }
-  }
-
-  function renderToolchainChip(label, tool) {
-    if (!tool || !tool.available) {
-      const tip = tool && tool.detail ? ' title="' + esc(tool.detail) + '"' : '';
-      return '<span class="wb-badge unknown" style="opacity:0.65"' + tip + '>' + esc(label) + ' 未就绪</span>';
+    if (cli.probeStatus === 'ok') {
+      const sec = cli.probeLatencyMs ? ' ' + (cli.probeLatencyMs / 1000).toFixed(1) + 's' : '';
+      return '<span class="wb-badge pass">✅ ' + esc(cli.id) + (cli.defaultModel ? ' (' + esc(cli.defaultModel) + ')' : '') + sec + '</span>';
     }
-    const ver = tool.version ? ' ' + tool.version.split(' ')[0] : (tool.detail ? ' ' + tool.detail : '');
-    return '<span class="wb-badge pass" title="' + esc(tool.path || '') + '">' + esc(label + ver) + '</span>';
+    if (cli.probeStatus === 'auth_error' || cli.probeStatus === 'model_error' || cli.probeStatus === 'error') {
+      const shortErr = cli.probeStatus === 'auth_error' ? '账号异常' : cli.probeStatus === 'model_error' ? '模型不可用' : '不可用';
+      return '<span class="wb-badge fail" title="' + esc(cli.probeError || '') + '">❌ ' + esc(cli.id) + ' · ' + shortErr + '</span>';
+    }
+    if (cli.probeStatus === 'probing') {
+      return '<span class="wb-badge info">⏳ ' + esc(cli.id) + ' 检测中</span>';
+    }
+    return '<span class="wb-badge info">● ' + esc(cli.id) + '</span>';
   }
 
-  function renderHostCard(title, subtitle, badgesHtml, actionHtml, prof) {
-    if (!prof) {
-      return (
-        '<div class="wb-panel" style="margin-bottom:12px">' +
-          '<div class="wb-item-top" style="margin-bottom:6px">' +
-            '<div><h4 style="margin:0;font-size:15px">' + esc(title) + '</h4><div class="wb-subtitle" style="margin:2px 0 0">' + esc(subtitle) + '</div></div>' +
-            '<div class="wb-actions">' + badgesHtml + actionHtml + '</div>' +
+  function renderMachineCard(name, online, isDefault, runnerId, prof) {
+    const hw = (prof && prof.hardware) || {};
+    const tc = (prof && prof.toolchains) || {};
+    const clis = ((prof && prof.clis) || []).filter(c => c.available);
+    const hasErr = clis.some(c => c.probeStatus === 'auth_error' || c.probeStatus === 'model_error' || c.probeStatus === 'error');
+    const light = !online ? '⚪' : hasErr ? '🟡' : '🟢';
+
+    const oneLineSpec = prof
+      ? (fmtGB(hw.memTotalMB) + ' 内存 · ' + (tc.docker && tc.docker.available ? 'Docker 正常' : '本地模式'))
+      : '等待连接上报…';
+
+    const errNotes = clis
+      .filter(c => c.probeError)
+      .map(c => '<div style="font-size:12px;color:#dc2626;margin-top:6px">❌ ' + esc(c.id) + '：' + esc(c.probeError) + '</div>')
+      .join('');
+
+    const detailsHtml = prof
+      ? '<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--muted,#6b7280)">查看详细参数（供排查）</summary>' +
+          '<div style="margin-top:6px;font-size:12px;color:var(--muted,#6b7280);display:flex;flex-wrap:wrap;gap:6px">' +
+            '<span>CPU ' + esc(hw.cpuCores || '?') + ' 核</span>' +
+            '<span>可用内存 ' + fmtGB(hw.memAvailMB) + '</span>' +
+            '<span>可用磁盘 ' + esc(hw.diskAvailGB || '-') + 'G</span>' +
+            (tc.git && tc.git.available ? '<span>Git ✓</span>' : '') +
+            (tc.node && tc.node.available ? '<span>Node ✓</span>' : '') +
+            (tc.python && tc.python.available ? '<span>Python ✓</span>' : '') +
+            (tc.playwright && tc.playwright.available ? '<span>Playwright ✓</span>' : '') +
           '</div>' +
-          '<div class="wb-subtitle">等待该机器心跳上报环境画像（重启/升级 Runner 后将在 30 秒内自动上报）。</div>' +
-        '</div>'
-      );
-    }
-
-    const hw = prof.hardware || {};
-    const tc = prof.toolchains || {};
-    const clis = prof.clis || [];
-    const installedCLIs = clis.filter(c => c.available);
-    const missingCLIs = clis.filter(c => !c.available);
-    const sandboxCls = hw.sandboxHint === 'docker_ready' ? 'pass' : 'info';
-
-    const cliRows = installedCLIs.length
-      ? installedCLIs.map(c => {
-          const modelsHtml = (c.models || []).slice(0, 6).map(m =>
-            '<span class="wb-badge ' + (m === c.defaultModel ? 'pass' : 'info') + '" style="font-size:11px;padding:1px 6px">' + esc(m) + '</span>'
-          ).join('');
-          const errHtml = c.probeError
-            ? '<div style="margin-top:4px;font-size:12px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:4px 8px;word-break:break-all">' + esc(c.probeError) + '</div>'
-            : '';
-          return (
-            '<div style="padding:8px 10px;border:1px solid var(--border,#e5e7eb);border-radius:8px;margin-bottom:6px;background:var(--surface-2,#fafafa)">' +
-              '<div class="wb-item-top" style="gap:8px;flex-wrap:wrap">' +
-                '<div>' +
-                  '<b style="font-size:13px">' + esc(c.name) + '</b> ' +
-                  (c.version ? '<span style="font-size:12px;color:var(--muted,#6b7280)">' + esc(c.version) + '</span> ' : '') +
-                  '<span style="font-size:12px;color:var(--muted,#6b7280)">' + esc(c.authHint || '') + '</span>' +
-                '</div>' +
-                '<div>' + renderProbeBadge(c) + '</div>' +
-              '</div>' +
-              (c.gatewayUrl || modelsHtml
-                ? '<div style="margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px">' +
-                    (c.gatewayUrl ? '<span style="color:var(--muted,#6b7280)">网关: <code>' + esc(c.gatewayUrl) + '</code></span>' : '') +
-                    (modelsHtml ? '<span style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center">模型: ' + modelsHtml + '</span>' : '') +
-                  '</div>'
-                : '') +
-              errHtml +
-            '</div>'
-          );
-        }).join('')
-      : '<div class="wb-subtitle">该机器未检测到已安装的 Coding CLI。</div>';
+          clis.map(c => '<div style="font-size:12px;margin-top:4px"><code>' + esc(c.id) + '</code> ' + esc(c.gatewayUrl || c.authHint || '') + (c.models && c.models.length ? ' · 模型: ' + esc(c.models.slice(0, 5).join(', ')) : '') + '</div>').join('') +
+        '</details>'
+      : '';
 
     return (
-      '<div class="wb-panel" style="margin-bottom:12px">' +
-        '<div class="wb-item-top" style="margin-bottom:10px;flex-wrap:wrap;gap:8px">' +
-          '<div>' +
-            '<h4 style="margin:0;font-size:15px">' + esc(title) + '</h4>' +
-            '<div class="wb-subtitle" style="margin:2px 0 0">' + esc(subtitle) + ' · ' + esc(prof.os + '/' + prof.arch) + ' · ' + esc(hw.cpuCores || '?') + ' 核 / 内存 ' + fmtGB(hw.memAvailMB) + ' 可用 (共 ' + fmtGB(hw.memTotalMB) + ') / 磁盘 ' + esc(hw.diskAvailGB || '-') + 'G 可用</div>' +
+      '<div class="wb-panel" style="margin-bottom:10px">' +
+        '<div class="wb-item-top" style="gap:8px;flex-wrap:wrap">' +
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+            '<span style="font-size:16px">' + light + '</span>' +
+            '<b style="font-size:15px">' + esc(name) + '</b>' +
+            (isDefault ? '<span class="wb-badge pass">★ 默认</span>' : '') +
+            '<span style="font-size:12px;color:var(--muted,#6b7280)">' + esc(oneLineSpec) + '</span>' +
           '</div>' +
-          '<div class="wb-actions">' + badgesHtml + actionHtml + '</div>' +
+          '<div class="wb-actions">' +
+            (runnerId && online && !isDefault
+              ? '<button type="button" class="button ghost small" data-set-default-runner="' + esc(runnerId) + '">设为默认</button>'
+              : '') +
+          '</div>' +
         '</div>' +
-        '<div class="wb-meta" style="margin-bottom:10px;gap:6px;flex-wrap:wrap">' +
-          '<span class="wb-badge ' + sandboxCls + '">' + esc(hw.sandboxLabel || '本地直跑') + '</span>' +
-          renderToolchainChip('Docker', tc.docker) +
-          renderToolchainChip('Git', tc.git) +
-          renderToolchainChip('Node', tc.node) +
-          renderToolchainChip('Python', tc.python) +
-          renderToolchainChip('Go', tc.go) +
-          renderToolchainChip('Playwright', tc.playwright) +
-        '</div>' +
-        cliRows +
-        (missingCLIs.length
-          ? '<div style="font-size:12px;color:var(--muted,#6b7280);margin-top:4px">未安装 CLI：' + esc(missingCLIs.map(c => c.binary).join(' / ')) + '</div>'
-          : '') +
+        (clis.length ? '<div class="wb-meta" style="margin-top:8px;gap:6px;flex-wrap:wrap">' + clis.map(cliTrafficPill).join('') + '</div>' : '') +
+        errNotes +
+        detailsHtml +
       '</div>'
     );
   }
@@ -193,50 +158,30 @@
     const server = ov ? ov.server : null;
     const runners = (ov && Array.isArray(ov.runners)) ? ov.runners : [];
     const onlineRunners = runners.filter(r => r.status === 'online');
-    const defaultRunner = runners.find(r => r.isDefault);
     const importedMcpSet = new Set((ov && ov.importedMcps) || []);
 
-    // Collect all profiles for KPI & aggregation
     const hostEntries = [];
-    runners.forEach(r => {
-      if (r.hostProfile) {
-        hostEntries.push({ hostLabel: r.name, isServer: false, prof: r.hostProfile });
-      }
-    });
-    if (server) {
-      hostEntries.push({ hostLabel: '控制面 (' + (server.host || 'server') + ')', isServer: true, prof: server });
-    }
+    runners.forEach(r => { if (r.hostProfile) hostEntries.push({ hostLabel: r.name, isServer: false, prof: r.hostProfile }); });
+    if (server) hostEntries.push({ hostLabel: '服务器', isServer: true, prof: server });
 
-    let totalCLIs = 0;
-    let errorCLIs = 0;
+    let okCLIs = 0;
+    let badCLIs = 0;
     const allKBs = [];
     const kbSeen = new Set();
-    const allGitRemotes = [];
-    const gitSeen = new Set();
     const allMCPs = [];
     const mcpSeen = new Set();
 
     hostEntries.forEach(entry => {
       (entry.prof.clis || []).forEach(c => {
-        if (c.available) {
-          totalCLIs++;
-          if (c.probeStatus === 'auth_error' || c.probeStatus === 'model_error' || c.probeStatus === 'error') {
-            errorCLIs++;
-          }
-        }
+        if (!c.available) return;
+        if (c.probeStatus === 'ok') okCLIs++;
+        if (c.probeStatus === 'auth_error' || c.probeStatus === 'model_error' || c.probeStatus === 'error') badCLIs++;
       });
       (entry.prof.knowledgeBases || []).forEach(kb => {
         const key = (entry.isServer ? 'srv:' : entry.hostLabel + ':') + kb.path;
         if (!kbSeen.has(key)) {
           kbSeen.add(key);
           allKBs.push({ ...kb, hostLabel: entry.hostLabel, isServer: entry.isServer });
-        }
-      });
-      (entry.prof.gitRemotes || []).forEach(g => {
-        const key = entry.hostLabel + '|' + g.url;
-        if (!gitSeen.has(key)) {
-          gitSeen.add(key);
-          allGitRemotes.push({ ...g, hostLabel: entry.hostLabel });
         }
       });
       (entry.prof.externalMcps || []).forEach(m => {
@@ -248,187 +193,109 @@
       });
     });
 
+    const unimportedMCPs = allMCPs.filter(m => !importedMcpSet.has(m.name.toLowerCase()) && !importedMcpSet.has(('ext-' + m.name).toLowerCase()));
+    const ready = !envState.overviewError && onlineRunners.length > 0 && (okCLIs > 0 || badCLIs === 0);
+
+    const statusBanner =
+      '<div class="wb-panel" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-color:' + (ready ? 'rgba(16,185,129,0.45)' : 'rgba(245,158,11,0.5)') + '">' +
+        '<div>' +
+          '<div style="font-size:17px;font-weight:700">' +
+            (envState.overviewError
+              ? '🔴 环境读取失败'
+              : ready
+                ? (badCLIs > 0 ? '🟡 可直接干活（有 ' + badCLIs + ' 个备用工具异常）' : '🟢 环境已就绪，可以直接干活')
+                : '🟡 请先连接一台执行机器') +
+          '</div>' +
+          '<div class="wb-subtitle" style="margin-top:2px">在线机器 ' + onlineRunners.length + ' 台 · 已挂载项目 ' + (ov ? ov.importedRepos : 0) + ' 个 · 知识库服务' + esc(envState.mcp.detail) + '</div>' +
+        '</div>' +
+        '<div class="wb-actions">' +
+          '<button type="button" class="button ghost" id="wbEnvProbeNow"' + (envState.probing ? ' disabled' : '') + '>' + (envState.probing ? '体检中…' : '⚡ 一键体检') + '</button>' +
+          '<button type="button" class="button primary" data-ob-jump="collaboration">去工作台干活 →</button>' +
+        '</div>' +
+      '</div>';
+
+    const machinesHtml =
+      runners.map(r => renderMachineCard(r.name, r.status === 'online', r.isDefault, r.id, r.hostProfile)).join('') +
+      (server ? renderMachineCard('服务器本机', true, false, '', server) : '');
+
+    const kbsHtml = allKBs.length
+      ? allKBs.map((kb, idx) => {
+          const btn = kb.alreadyImported
+            ? '<button type="button" class="button ghost small" data-open-kb="' + esc(kb.path) + '">打开 →</button>'
+            : '<button type="button" class="button primary small" data-mount-kb="' + idx + '" ' + (envState.busyKey === 'kb:' + idx ? 'disabled' : '') + '>' + (envState.busyKey === 'kb:' + idx ? '挂载中…' : '+ 一键挂载') + '</button>';
+          return (
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border,#e5e7eb);border-radius:8px;margin-bottom:6px">' +
+              '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap" title="' + esc(kb.path) + '">' +
+                '<b style="font-size:14px">' + esc(kb.name) + '</b>' +
+                (kb.alreadyImported ? '<span class="wb-badge pass">已挂载</span>' : '<span class="wb-badge unknown">未挂载</span>') +
+                (kb.hasGraph ? '<span class="wb-badge info">有图谱</span>' : '') +
+              '</div>' +
+              '<div class="wb-actions">' + btn + '</div>' +
+            '</div>'
+          );
+        }).join('')
+      : '<div class="wb-subtitle">未发现新项目</div>';
+
     const mcpUrl = location.origin + '/api/webuddy/kb/mcp';
     const mcpSnippet = JSON.stringify({
       mcpServers: {
         'webuddy-kb': {
           url: mcpUrl,
-          headers: {
-            Authorization: 'Bearer <替换为你在「访问密钥」生成的 Token>',
-          },
+          headers: { Authorization: 'Bearer <替换为访问密钥>' },
         },
       },
     }, null, 2);
 
-    const mcpCardVal = envState.mcp.status === 'ok'
-      ? '<span style="color:#059669">已连通</span>'
-      : envState.mcp.status === 'checking'
-        ? '检测中…'
-        : '<span style="color:#dc2626">不可用</span>';
-
-    const machinesHtml =
-      runners.map(r => {
-        const statusBadge = r.status === 'online'
-          ? '<span class="wb-badge pass">在线</span>'
-          : '<span class="wb-badge unknown">离线</span>';
-        const defBadge = r.isDefault
-          ? '<span class="wb-badge pass">★ 默认执行机</span>'
-          : '';
-        const setDefBtn = (r.status === 'online' && !r.isDefault)
-          ? '<button type="button" class="button ghost small" data-set-default-runner="' + esc(r.id) + '">设为默认</button>'
-          : '';
-        return renderHostCard(
-          '执行机 · ' + r.name,
-          'Runner ' + (r.version || '') + ' (' + r.id + ')',
-          statusBadge + defBadge,
-          setDefBtn,
-          r.hostProfile
-        );
-      }).join('') +
-      (server
-        ? renderHostCard(
-            '控制面主机 · ' + (server.host || 'local'),
-            'Webuddy 服务端本机（提供知识库扫描、MCP 网关与服务端代码审查）',
-            '<span class="wb-badge info">控制面</span>',
-            '',
-            server
-          )
-        : '');
-
-    const kbsHtml = allKBs.length
-      ? allKBs.map((kb, idx) => {
-          const btn = kb.alreadyImported
-            ? '<span class="wb-badge pass">✅ 已挂载</span><button type="button" class="button ghost small" data-open-kb="' + esc(kb.path) + '">打开知识库</button>'
-            : '<button type="button" class="button primary small" data-mount-kb="' + idx + '" ' + (envState.busyKey === 'kb:' + idx ? 'disabled' : '') + '>' + (envState.busyKey === 'kb:' + idx ? '挂载中…' : '+ 一键挂载为项目') + '</button>';
-          return (
-            '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border,#e5e7eb);border-radius:8px;margin-bottom:6px;flex-wrap:wrap">' +
-              '<div>' +
-                '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-                  '<b style="font-size:13px">' + esc(kb.name) + '</b>' +
-                  '<span class="wb-badge info" style="font-size:11px">' + esc(kb.hostLabel) + '</span>' +
-                  (kb.hasGraph ? '<span class="wb-badge pass" style="font-size:11px">图谱</span>' : '') +
-                  (kb.hasKb ? '<span class="wb-badge pass" style="font-size:11px">知识库</span>' : '') +
-                  (kb.defaultBranch ? '<span class="wb-badge unknown" style="font-size:11px">' + esc(kb.defaultBranch) + '</span>' : '') +
-                '</div>' +
-                '<div style="font-size:12px;color:var(--muted,#6b7280);margin-top:2px"><code>' + esc(kb.path) + '</code>' + (kb.gitRemote ? ' · Git: <code>' + esc(kb.gitRemote) + '</code>' : '') + '</div>' +
-              '</div>' +
-              '<div class="wb-actions">' + btn + '</div>' +
-            '</div>'
-          );
-        }).join('')
-      : '<div class="wb-subtitle">暂未在扫描目录中发现含 <code>.tmh</code> 的代码仓库。</div>';
-
-    const gitHtml = allGitRemotes.length
-      ? '<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;margin-bottom:6px">已自动识别的私有 Git 远端与凭证（已脱敏）</div><div class="wb-meta" style="gap:6px;flex-wrap:wrap">' +
-          allGitRemotes.map(g => {
-            const cls = g.reachable === true ? 'pass' : (g.reachable === false ? 'fail' : 'info');
-            const tag = g.reachable === true ? '✅ ' : (g.reachable === false ? '❌ ' : '');
-            return '<span class="wb-badge ' + cls + '" title="' + esc(g.error || g.source) + '">' + tag + esc(g.url) + ' (' + esc(g.hostLabel) + ')</span>';
-          }).join('') +
-        '</div></div>'
-      : '';
-
-    const extMcpsHtml = allMCPs.length
-      ? allMCPs.map((m, idx) => {
-          const isImported = importedMcpSet.has(m.name.toLowerCase()) || importedMcpSet.has(('ext-' + m.name).toLowerCase());
-          const btn = isImported
-            ? '<span class="wb-badge pass">✅ 已导入平台</span>'
-            : '<button type="button" class="button primary small" data-import-mcp="' + idx + '" ' + (envState.busyKey === 'mcp:' + idx ? 'disabled' : '') + '>' + (envState.busyKey === 'mcp:' + idx ? '导入中…' : '+ 一键导入平台') + '</button>';
-          return (
-            '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border,#e5e7eb);border-radius:8px;margin-bottom:6px;flex-wrap:wrap">' +
-              '<div>' +
-                '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-                  '<b style="font-size:13px">' + esc(m.name) + '</b>' +
-                  '<span class="wb-badge info" style="font-size:11px">' + esc(m.transport) + '</span>' +
-                  '<span class="wb-badge unknown" style="font-size:11px">' + esc(m.hostLabel + ' · ' + m.source) + '</span>' +
-                '</div>' +
-                '<div style="font-size:12px;color:var(--muted,#6b7280);margin-top:2px"><code>' + esc(m.target + (m.args && m.args.length ? ' ' + m.args.join(' ') : '')) + '</code></div>' +
-              '</div>' +
-              '<div class="wb-actions">' + btn + '</div>' +
-            '</div>'
-          );
-        }).join('')
-      : '<div class="wb-subtitle">暂未在 <code>~/.codex/config.toml</code> 或 <code>~/.claude/settings.json</code> 中发现外部 MCP 配置。</div>';
-
     root.innerHTML =
       '<div class="wb-page">' +
         '<div class="wb-header">' +
-          '<div>' +
-            '<h1>环境与接入中心 · 外部组件自动发现与探活</h1>' +
-            '<p class="wb-subtitle">统一查看控制面与所有执行机器的硬件/Docker 能力、Coding CLI 实测状态、私有 Git、本机知识库（.tmh）及外部 MCP，全部支持一键挂载与切换。</p>' +
-          '</div>' +
+          '<div><h1>环境接入</h1><p class="wb-subtitle">看红绿灯，点一下就能挂载项目和切换机器。</p></div>' +
           '<div class="wb-actions">' +
-            '<button type="button" class="button ghost" id="wbEnvRefresh"' + (envState.loading ? ' disabled' : '') + '>' + (envState.loading ? '扫描中…' : '刷新扫描') + '</button>' +
-            '<button type="button" class="button primary" id="wbEnvProbeNow"' + (envState.probing ? ' disabled' : '') + '>' + (envState.probing ? '正在 1-Token 实测探活…' : '⚡ 立即实测探活') + '</button>' +
+            '<button type="button" class="button ghost" data-ob-jump="runners">+ 连接新电脑</button>' +
+            '<button type="button" class="button ghost" id="wbEnvRefresh"' + (envState.loading ? ' disabled' : '') + '>' + (envState.loading ? '刷新中…' : '刷新') + '</button>' +
           '</div>' +
         '</div>' +
 
-        (envState.overviewError ? '<div class="wb-badge fail" style="margin-bottom:12px">读取环境总览失败：' + esc(envState.overviewError) + '</div>' : '') +
+        statusBanner +
 
-        '<div class="wb-kpi-grid">' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">在线执行机器</span><span class="wb-kpi-val">' + onlineRunners.length + ' / ' + runners.length + '</span><span style="font-size:11px;color:var(--muted,#6b7280)">默认: ' + esc(defaultRunner ? defaultRunner.name : '未指定') + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">已扫 Coding CLI</span><span class="wb-kpi-val">' + totalCLIs + (errorCLIs ? ' <span style="font-size:13px;color:#dc2626">(' + errorCLIs + ' 异常)</span>' : '') + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">已发现知识库 (.tmh)</span><span class="wb-kpi-val">' + allKBs.length + '</span><span style="font-size:11px;color:var(--muted,#6b7280)">已挂载项目: ' + esc(ov ? ov.importedRepos : 0) + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">外部 MCP / 知识库 MCP</span><span class="wb-kpi-val" style="font-size:16px">' + allMCPs.length + ' 个 · ' + mcpCardVal + '</span></div>' +
-        '</div>' +
+        '<div><h3 style="margin:6px 0 10px">1. 我的电脑与 AI 工具</h3>' + machinesHtml + '</div>' +
 
-        '<div style="margin-top:16px">' +
-          '<div class="wb-item-top" style="margin-bottom:8px">' +
-            '<h3 style="margin:0">1. 多机能力画像与 Coding CLI 实测探活</h3>' +
-            '<div class="wb-actions">' +
-              '<button type="button" class="button ghost small" data-ob-jump="runners">+ 绑定新执行机</button>' +
-              '<button type="button" class="button ghost small" data-ob-jump="settings">个人 API Key 配置</button>' +
-            '</div>' +
-          '</div>' +
-          machinesHtml +
-        '</div>' +
-
-        '<div class="wb-panel" style="margin-top:14px">' +
-          '<div class="wb-item-top" style="margin-bottom:10px">' +
-            '<div><h3 style="margin:0">2. 本机知识库（.tmh）与私有 Git 自动发现</h3><p class="wb-subtitle" style="margin:2px 0 0">自动扫描服务器与工作区目录，无需手填路径或依赖 GitHub，一键挂载即可用于架构蓝图、影响面分析与代码审查。</p></div>' +
-            '<div class="wb-actions">' +
-              '<button type="button" class="button ghost small" data-ob-jump="knowledgebase">打开知识库 →</button>' +
-            '</div>' +
-          '</div>' +
+        '<div class="wb-panel">' +
+          '<div class="wb-item-top" style="margin-bottom:10px"><h3 style="margin:0">2. 一键挂载项目（' + allKBs.length + '）</h3><button type="button" class="button ghost small" data-ob-jump="knowledgebase">看知识库 →</button></div>' +
           kbsHtml +
-          gitHtml +
         '</div>' +
 
-        '<div class="wb-panel" style="margin-top:14px">' +
-          '<div class="wb-item-top" style="margin-bottom:10px">' +
-            '<div><h3 style="margin:0">3. 外部 MCP 自动发现 & Webuddy 知识库 MCP 自检</h3><p class="wb-subtitle" style="margin:2px 0 0">知识库 MCP 状态：<b>' + esc(envState.mcp.detail) + '</b></p></div>' +
-            '<div class="wb-actions">' +
-              '<button type="button" class="button ghost small" data-ob-jump="guide">生成访问密钥</button>' +
-              '<button type="button" class="button primary small" id="wbObCopyMcp">复制知识库 MCP 配置</button>' +
-            '</div>' +
-          '</div>' +
-          extMcpsHtml +
-          '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--muted,#6b7280)">查看给外部 Codex / Claude Code / Cursor 使用的 Webuddy 知识库 MCP JSON</summary><pre class="wb-code" style="margin-top:6px">' + esc(mcpSnippet) + '</pre></details>' +
-        '</div>' +
+        (unimportedMCPs.length
+          ? '<div class="wb-panel"><h3 style="margin:0 0 8px">3. 发现可导入工具（' + unimportedMCPs.length + '）</h3>' +
+              unimportedMCPs.map((m, idx) =>
+                '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0">' +
+                  '<b>' + esc(m.name) + '</b>' +
+                  '<button type="button" class="button primary small" data-import-mcp="' + idx + '">+ 一键导入</button>' +
+                '</div>'
+              ).join('') +
+            '</div>'
+          : '') +
 
-        '<div class="wb-panel" style="margin-top:14px">' +
-          '<div class="wb-item-top">' +
-            '<div><h3 style="margin:0">4. 快速开始工作</h3><p class="wb-subtitle" style="margin:2px 0 0">环境与组件就绪后，可直接进入工作台提需求、编排 SOP 或提交独立代码审查。</p></div>' +
-            '<div class="wb-actions">' +
-              '<button type="button" class="button primary" data-ob-jump="collaboration">前往工作台 →</button>' +
-              '<button type="button" class="button ghost" data-ob-jump="codereview">代码审查</button>' +
-              '<button type="button" class="button ghost" data-ob-jump="approvals">待我确认</button>' +
-            '</div>' +
+        '<details class="wb-panel" style="cursor:pointer">' +
+          '<summary style="font-weight:600;font-size:13px">高级：给外部 AI 工具接入知识库（普通使用无需配置）</summary>' +
+          '<div style="margin-top:10px;display:flex;gap:8px;margin-bottom:8px">' +
+            '<button type="button" class="button ghost small" data-ob-jump="guide">生成密钥</button>' +
+            '<button type="button" class="button primary small" id="wbObCopyMcp">复制配置</button>' +
           '</div>' +
-        '</div>' +
+          '<pre class="wb-code">' + esc(mcpSnippet) + '</pre>' +
+        '</details>' +
       '</div>';
 
-    // Wire actions
     root.querySelector('#wbEnvRefresh')?.addEventListener('click', loadOnboardingView);
     root.querySelector('#wbEnvProbeNow')?.addEventListener('click', async () => {
       envState.probing = true;
       render();
       try {
         await fetchChecked('/api/webuddy/env/probe?sync=1', { method: 'POST' });
-        notify('实测探活完成，已更新最新状态');
+        notify('体检完成');
         await loadOnboardingView();
       } catch (err) {
-        notify('探活失败：' + err.message);
+        notify('体检失败：' + err.message);
       } finally {
         envState.probing = false;
         render();
@@ -437,17 +304,16 @@
 
     root.querySelectorAll('[data-set-default-runner]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const rid = btn.dataset.setDefaultRunner;
         try {
           await fetchChecked('/api/webuddy/env/set-default-runner', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ runnerId: rid }),
+            body: JSON.stringify({ runnerId: btn.dataset.setDefaultRunner }),
           });
-          notify('已切换默认执行机器');
+          notify('已设为默认机器');
           await loadOnboardingView();
         } catch (err) {
-          notify('切换失败：' + err.message);
+          notify(err.message);
         }
       });
     });
@@ -460,7 +326,7 @@
         envState.busyKey = 'kb:' + idx;
         render();
         try {
-          const res = await fetchChecked('/api/webuddy/env/mount-kb', {
+          await fetchChecked('/api/webuddy/env/mount-kb', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -471,10 +337,10 @@
               allowRemote: !kb.isServer,
             }),
           });
-          notify((res.reused ? '项目已存在：' : '已一键挂载项目：') + (res.projectName || kb.name));
+          notify('已挂载：' + kb.name);
           await loadOnboardingView();
         } catch (err) {
-          notify('挂载失败：' + err.message);
+          notify(err.message);
         } finally {
           envState.busyKey = '';
           render();
@@ -491,30 +357,18 @@
 
     root.querySelectorAll('[data-import-mcp]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const idx = Number(btn.dataset.importMcp);
-        const m = allMCPs[idx];
+        const m = unimportedMCPs[Number(btn.dataset.importMcp)];
         if (!m) return;
-        envState.busyKey = 'mcp:' + idx;
-        render();
         try {
           await fetchChecked('/api/webuddy/env/import-mcp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: m.name,
-              transport: m.transport,
-              target: m.target,
-              args: m.args || [],
-              source: m.source,
-            }),
+            body: JSON.stringify({ name: m.name, transport: m.transport, target: m.target, args: m.args || [], source: m.source }),
           });
-          notify('已导入外部 MCP：' + m.name);
+          notify('已导入：' + m.name);
           await loadOnboardingView();
         } catch (err) {
-          notify('导入失败：' + err.message);
-        } finally {
-          envState.busyKey = '';
-          render();
+          notify(err.message);
         }
       });
     });
@@ -526,7 +380,7 @@
     });
 
     root.querySelector('#wbObCopyMcp')?.addEventListener('click', () => {
-      navigator.clipboard?.writeText(mcpSnippet).then(() => notify('已复制含 Authorization 头的 MCP 配置 JSON')).catch(() => notify(mcpUrl));
+      navigator.clipboard?.writeText(mcpSnippet).then(() => notify('已复制配置')).catch(() => notify(mcpUrl));
     });
   }
 

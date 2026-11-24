@@ -51,11 +51,10 @@ function webuddyApprovalReviewHTML(r,issue,title){
   const borderColor=stale.isStale?'rgba(245,158,11,0.6)':rev.verdict==='fail'?'rgba(239,68,68,0.5)':'rgba(16,185,129,0.4)';
   return `<div class="wb-finding-card wb-ap-review-box" style="margin-bottom:10px;border-color:${borderColor}">`+
     `<div class="wb-item-top">`+
-      `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><strong style="font-size:12.5px">关联代码审查：${escapeHTML(rev.title)}</strong><span class="wb-badge ${badge}">${verdictLabel}</span>${stale.isStale?'<span class="wb-badge fail">旧版本审查已过期</span>':''}</div>`+
-      `<div class="wb-actions">${stale.isStale?`<button type="button" class="button primary small" data-wb-new-review-run="${escapeHTML(r.id)}" data-wb-new-review-issue="${escapeHTML(issue?.id||'')}" data-wb-new-review-title="${escapeHTML(rev.title.replace(/（返工复审）$/,'')+'（返工复审）')}">重新发起代码审查</button>`:''}<button type="button" class="button ghost small" data-wb-open-review="${escapeHTML(rev.id)}">查看完整审查与 Diff</button></div>`+
+      `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><strong style="font-size:12.5px">代码审查：${escapeHTML(rev.title)}</strong><span class="wb-badge ${badge}">${verdictLabel}</span>${stale.isStale?'<span class="wb-badge fail">已过期</span>':''}</div>`+
+      `<div class="wb-actions">${stale.isStale?`<button type="button" class="button primary small" data-wb-new-review-run="${escapeHTML(r.id)}" data-wb-new-review-issue="${escapeHTML(issue?.id||'')}" data-wb-new-review-title="${escapeHTML(rev.title.replace(/（返工复审）$/,'')+'（返工复审）')}">重新审查</button>`:''}<button type="button" class="button ghost small" data-wb-open-review="${escapeHTML(rev.id)}">看详情</button></div>`+
     `</div>`+
-    `<div class="wb-meta"><span>${escapeHTML(rev.writer)} → ${escapeHTML(rev.reviewer)}</span><span>Base: <code>${escapeHTML(baseShort)}</code></span><span>Head: <code>${escapeHTML(headShort)}</code></span><span>Diff: <code>${escapeHTML(diffShort)}</code></span><span>Binding: <code>${escapeHTML(bindShort)}</code></span><span>${rev.totalParts} 批</span></div>`+
-    (stale.isStale?`<div style="font-size:12px;color:#b45309;margin-top:4px">⚠️ 本轮上游节点完成于 ${escapeHTML(new Date(stale.latestGateTs).toLocaleString())}，晚于该审查创建时间（${escapeHTML(new Date(stale.revTs).toLocaleString())}）。退回重跑产生新改动后需重新审查，旧版本通过结论不自动代替新版本确认。</div>`:'')+
+    (stale.isStale?`<div style="font-size:12px;color:#b45309;margin-top:4px">⚠️ 代码有新改动，请点右侧重新审查。</div>`:'')+
   `</div>`;
 }
 function focusApprovalRunCard(runId){
@@ -83,7 +82,7 @@ async function renderWebuddyReviewApprovals(waitingRuns){
   try{
     const reviews=Array.isArray(state.webuddyReviews)?state.webuddyReviews:[];
     if(!reviews.length){host.innerHTML='';return}
-    host.innerHTML=`<div class="wb-panel"><div class="wb-item-top" style="margin-bottom:10px"><div><h3 style="margin:0">代码审查记录（${reviews.length}）</h3><p class="wb-subtitle" style="margin:2px 0 0">仅用于查看审查记录与快速定位；实际批准、退回请操作上方停在人工确认节点的运行卡片。</p></div><button type="button" class="button ghost small" id="wbApOpenCR">前往代码审查</button></div><div style="display:flex;flex-direction:column;gap:8px">${reviews.slice(0,8).map(r=>{
+    host.innerHTML=`<div class="wb-panel"><div class="wb-item-top" style="margin-bottom:10px"><div><h3 style="margin:0">代码审查记录（${reviews.length}）</h3><p class="wb-subtitle" style="margin:2px 0 0">审批请点上方卡片，这里仅看审查结果。</p></div><button type="button" class="button ghost small" id="wbApOpenCR">去代码审查</button></div><div style="display:flex;flex-direction:column;gap:8px">${reviews.slice(0,8).map(r=>{
       const badge=r.verdict==='pass'?'pass':r.verdict==='fail'?'fail':'unknown';
       const label=r.verdict==='pass'?'审查通过':r.verdict==='fail'?`阻断 ${(r.blocking||[]).length} 项`:'待核实';
       const wr=webuddyMatchWaitingRunForReview(r,waitingRuns);

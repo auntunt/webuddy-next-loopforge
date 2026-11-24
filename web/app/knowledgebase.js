@@ -558,8 +558,8 @@
       : '';
     return (
       '<div class="wb-panel">' +
-        '<h3>业务链路证据问答（Chain）</h3>' +
-        '<p class="wb-subtitle" style="margin-bottom:12px">输入业务需求或疑问，自动从代码图谱与知识页中串出「业务域 → 业务流程 → 数据实体 → 源码引用」完整证据链。</p>' +
+        '<h3>问业务链路</h3>' +
+        '<p class="wb-subtitle" style="margin-bottom:12px">输入一句业务问题，直接定位到相关流程和代码行。</p>' +
         '<div class="wb-toolbar" style="margin-bottom:12px">' +
           '<input type="text" id="wbChainQueryInput" value="' + esc(kbState.chainQuery) + '" placeholder="例如：单据审批驳回和撤回逻辑、支付回调如何更新状态…" style="min-width:360px;flex:1">' +
           '<button type="button" class="button primary" id="wbRunChainBtn" ' + (kbState.chainLoading ? 'disabled' : '') + '>' + (kbState.chainLoading ? '正在追溯链路…' : '追溯业务证据链') + '</button>' +
@@ -607,8 +607,8 @@
     }
     return (
       '<div class="wb-panel">' +
-        '<h3>变更影响面分析（Impact Analysis）</h3>' +
-        '<p class="wb-subtitle" style="margin-bottom:12px">改代码之前先看爆炸半径：定位某文件、接口、符号或数据表变动会影响哪些业务域、流程与上游调用方。</p>' +
+        '<h3>查改动影响</h3>' +
+        '<p class="wb-subtitle" style="margin-bottom:12px">输入要改的文件、接口或表名，先看会波及哪些业务。</p>' +
         '<div class="wb-toolbar" style="margin-bottom:12px">' +
           '<input type="text" id="wbImpactTargetInput" value="' + esc(kbState.impactTarget) + '" placeholder="例如：ApprovaController、approva、t_bill…" style="min-width:320px;flex:1">' +
           '<select id="wbImpactDepthSelect" style="width:110px">' +
@@ -753,36 +753,37 @@
             }).join('')) +
       '</select>';
 
+    const extraTabs = [
+      { id: 'statecharts', label: '业务状态图' },
+      { id: 'er', label: '数据 ER 图' },
+      { id: 'flows', label: '业务流程列表' },
+      { id: 'tables', label: '数据表清单' },
+      { id: 'questions', label: '待澄清问题' + (openQs ? ' (' + openQs + ')' : '') },
+      { id: 'docs', label: '知识文档（AI/参考）' },
+      { id: 'evidence', label: '源码行号核验' },
+    ];
+    const activeExtra = extraTabs.find(t => t.id === kbState.tab);
+
     root.innerHTML =
       '<div class="wb-page">' +
         '<div class="wb-header">' +
-          '<div><h1>知识库与代码图谱 · Webuddy Core</h1><p class="wb-subtitle">代码图谱解析（业务域 / 流程 / ER / CRUD / 状态图）+ 业务链路问答 + 变更影响分析 + 人工确认闭环 · MCP: <code>' + esc(location.origin + '/api/webuddy/kb/mcp') + '</code> <button type="button" class="button ghost small" id="wbCopyMcpBtn">复制 MCP 地址</button></p></div>' +
+          '<div><h1>知识库</h1><p class="wb-subtitle">看架构、查改动影响、问业务逻辑，3 秒定位到代码。</p></div>' +
           '<div class="wb-toolbar">' +
             repoSelectHTML +
-            '<button type="button" class="button ghost" id="wbKbPickFolderBtn" ' + (kbState.picking ? 'disabled' : '') + '>' + (kbState.picking ? '正在选择目录…' : '+ 选择本地文件夹导入') + '</button>' +
-            '<button type="button" class="button primary" id="wbKbScanBtn" ' + (kbState.scanning ? 'disabled' : '') + '>' + (kbState.scanning ? '正在扫描…' : (ov.built ? '更新代码图谱' : '扫描代码图谱')) + '</button>' +
-            '<input type="search" id="wbKbSearchInput" value="' + esc(kbState.searchQuery) + '" placeholder="搜索知识库 / 流程 / 表 / SM4…">' +
+            '<button type="button" class="button primary" id="wbKbScanBtn" ' + (kbState.scanning ? 'disabled' : '') + '>' + (kbState.scanning ? '扫描中…' : (ov.built ? '更新图谱' : '⚡ 扫描图谱')) + '</button>' +
+            '<input type="search" id="wbKbSearchInput" value="' + esc(kbState.searchQuery) + '" placeholder="搜业务 / 流程 / 表名…">' +
             '<button type="button" class="button ghost" id="wbKbSearchBtn">搜索</button>' +
           '</div>' +
         '</div>' +
-        '<div class="wb-kpi-grid">' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">图谱状态</span><span class="wb-kpi-val">' + (ov.built ? '已构建' : '未扫描') + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">业务域 / 流程</span><span class="wb-kpi-val">' + ((ov.domains || []).length) + ' / ' + (ov.flowCount || 0) + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">数据表</span><span class="wb-kpi-val">' + (ov.tableCount || 0) + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">知识页（已确认 / 总数）</span><span class="wb-kpi-val">' + confirmedPages + ' / ' + totalPages + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">待澄清问题 / 内置知识</span><span class="wb-kpi-val">' + openQs + ' / ' + ((ov.builtinDocs || []).length) + '</span></div>' +
-        '</div>' +
-        '<div class="wb-tabs">' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'blueprint' ? 'active' : '') + '" data-kb-tab="blueprint">空间架构蓝图</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'er' ? 'active' : '') + '" data-kb-tab="er">ER 实体关系图</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'statecharts' ? 'active' : '') + '" data-kb-tab="statecharts">业务状态图与源码定位</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'docs' ? 'active' : '') + '" data-kb-tab="docs">知识库与文档中心</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'chain' ? 'active' : '') + '" data-kb-tab="chain">业务链路问答</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'impact' ? 'active' : '') + '" data-kb-tab="impact">变更影响分析</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'questions' ? 'active' : '') + '" data-kb-tab="questions">待澄清问题池' + (openQs ? ' (' + openQs + ')' : '') + '</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'flows' ? 'active' : '') + '" data-kb-tab="flows">业务域与流程</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'tables' ? 'active' : '') + '" data-kb-tab="tables">数据表与 CRUD 矩阵</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'evidence' ? 'active' : '') + '" data-kb-tab="evidence">源码证据核验</button>' +
+        '<div class="wb-tabs" style="align-items:center">' +
+          '<button type="button" class="wb-tab ' + (kbState.tab === 'blueprint' ? 'active' : '') + '" data-kb-tab="blueprint">🗺️ 看架构</button>' +
+          '<button type="button" class="wb-tab ' + (kbState.tab === 'impact' ? 'active' : '') + '" data-kb-tab="impact">💥 查改动影响</button>' +
+          '<button type="button" class="wb-tab ' + (kbState.tab === 'chain' ? 'active' : '') + '" data-kb-tab="chain">❓ 问业务链路</button>' +
+          '<select id="wbKbMoreTabSelect" aria-label="更多视角" style="margin-left:auto;min-width:150px;height:32px;font-size:13px">' +
+            '<option value="">更多视角 ▾</option>' +
+            extraTabs.map(t => '<option value="' + t.id + '"' + (activeExtra && activeExtra.id === t.id ? ' selected' : '') + '>' + esc(t.label) + '</option>').join('') +
+          '</select>' +
+          '<span class="wb-meta" style="font-size:12px">' + ((ov.domains || []).length) + ' 域 · ' + (ov.flowCount || 0) + ' 流程 · ' + (ov.tableCount || 0) + ' 表</span>' +
         '</div>' +
         bodyHTML +
       '</div>';
@@ -820,6 +821,12 @@
         if (kbState.tab === 'questions' && kbState.questions === null) loadQuestions();
         else render();
       });
+    });
+    root.querySelector('#wbKbMoreTabSelect')?.addEventListener('change', e => {
+      if (!e.target.value) return;
+      kbState.tab = e.target.value;
+      if (kbState.tab === 'questions' && kbState.questions === null) loadQuestions();
+      else render();
     });
     root.querySelector('#wbDocScopeFilter')?.addEventListener('change', e => { kbState.docScopeFilter = e.target.value; render(); });
     root.querySelector('#wbDocStatusFilter')?.addEventListener('change', e => { kbState.docStatusFilter = e.target.value; render(); });

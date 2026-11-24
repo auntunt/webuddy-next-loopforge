@@ -317,64 +317,61 @@
 
     return (
       '<div class="wb-panel">' +
-        '<div class="wb-item-top" style="margin-bottom:12px">' +
-          '<div><h3 style="margin:0">发起代码审查</h3>' +
-            (crState.serverHost ? '<p class="wb-subtitle" style="margin:2px 0 0">执行与仓库读取主机：<code>' + esc(crState.serverHost) + '</code>（切换仓库时已填写草稿会自动保留）</p>' : '') +
-          '</div>' +
-          '<div class="wb-tabs" style="border:none;padding:0">' +
-            '<button type="button" class="wb-tab ' + (isAuto ? 'active' : '') + '" data-cr-mode="auto">自动 AI 分批审查（CLI）</button>' +
-            '<button type="button" class="wb-tab ' + (!isAuto ? 'active' : '') + '" data-cr-mode="manual">手动录入审查结果</button>' +
-          '</div>' +
+        '<div class="wb-item-top" style="margin-bottom:10px">' +
+          '<h3 style="margin:0">发起代码审查</h3>' +
+          '<button type="button" class="button ghost small" id="wbCancelCreateReview">关闭</button>' +
         '</div>' +
-        (crState.submitError ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(239,68,68,0.4)"><span class="wb-badge fail">提交失败（已保留你的草稿）：' + esc(crState.submitError) + '</span></div>' : '') +
+        (crState.submitError ? '<div class="wb-finding-card" style="margin-bottom:10px;border-color:rgba(239,68,68,0.4)"><span class="wb-badge fail">审查失败：' + esc(crState.submitError) + '</span></div>' : '') +
         '<form id="wbCreateReviewForm" class="wb-form">' +
-          '<div class="wb-form-row">' +
-            '<div class="wb-field"><label>审查标题</label><input type="text" name="title" value="' + esc(d.title) + '" placeholder="例如：订单支付权限边界审查"></div>' +
-            '<div class="wb-field"><label>编写者 (Writer)</label><input type="text" name="writer" value="' + esc(d.writer) + '" placeholder="codex / developer"></div>' +
-            (isAuto
-              ? '<div class="wb-field"><label>独立审查 CLI 执行器 (Reviewer)</label><select name="reviewer">' + execOpts + '</select></div>' +
-                '<div class="wb-field"><label>模型（可选，留空走 CLI 默认）</label><input type="text" name="model" list="wbCrModelList" value="' + esc(d.model) + '" placeholder="例如 codex-auto-review / gpt-6.2-astra / gpt-6-luna">' + modelDatalist + '</div>'
-              : '<div class="wb-field"><label>独立审查者 (Reviewer)</label><input type="text" name="reviewer" value="' + esc(d.reviewer) + '" placeholder="与编写者分离"></div>') +
-          '</div>' +
-          '<div class="wb-form-row">' +
-            '<div class="wb-field"><label>关联需求（可选，关联后可直达需求与签收）</label><select name="issueId">' +
-              '<option value="">独立审查（不关联需求）</option>' +
-              crState.issues.map(it => '<option value="' + esc(it.id) + '" ' + (it.id === d.issueId ? 'selected' : '') + '>' + esc((it.key || it.id) + ' · ' + (it.title || '')) + '</option>').join('') +
-            '</select></div>' +
-            '<div class="wb-field"><label>关联运行（可选）</label><select name="runId">' +
-              '<option value="">不关联运行</option>' +
-              crState.runs.map(rn => '<option value="' + esc(rn.id) + '" ' + (rn.id === d.runId ? 'selected' : '') + '>' + esc(rn.id.slice(0, 12) + ' · ' + (rn.status || '')) + '</option>').join('') +
-            '</select></div>' +
-          '</div>' +
-          '<div class="wb-form-row">' +
-            '<div class="wb-field" style="grid-column:span 2"><label>选择项目仓库（位于服务端主机 ' + esc(crState.serverHost || 'local') + '）</label>' +
-              '<div class="wb-toolbar">' +
-                '<select name="repoPath" id="wbCrRepoSelect" style="flex:1;min-width:220px">' +
-                  '<option value="">不使用本地仓库（改用下方粘贴 Diff）</option>' +
-                  crState.repos.map(r => '<option value="' + esc(r.localPath) + '" ' + (r.localPath === crState.selectedRepoPath ? 'selected' : '') + '>' + esc(r.projectName + (r.isGit ? ' · Git' : ' · 非 Git 目录')) + '</option>').join('') +
-                '</select>' +
-                '<button type="button" class="button ghost" id="wbCrPickRepoBtn">+ 选择本地目录</button>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-          (crState.gitRefs.isGit
-            ? '<div class="wb-form-row">' +
-                '<div class="wb-field"><label>基准提交 / 分支 (Base)</label><select name="baseRef">' + buildRefOptions('HEAD~1', 'HEAD~1（上一提交）', d.baseRef) + '</select></div>' +
-                '<div class="wb-field"><label>目标提交 / 分支 (Head)</label><select name="headRef">' + buildRefOptions('HEAD', 'HEAD（当前最新提交）', d.headRef) + '</select></div>' +
-              '</div>'
-            : '<div class="wb-meta">当前所选目录不是 Git 仓库（或未选择仓库），可直接在下方粘贴 Unified Diff 进行分批审查。</div>') +
-          '<div class="wb-field"><label>或直接粘贴 Unified Diff（留空则自动读取上方所选仓库的 Git Diff）</label><textarea name="diff" rows="5" placeholder="diff --git a/... b/...">' + esc(d.diff) + '</textarea></div>' +
-          (isAuto ? '' :
-            '<div class="wb-form-row">' +
-              '<div class="wb-field"><label>阻断项（每行一条：文件:行号 + 触发条件与影响）</label><textarea name="blocking" rows="3" placeholder="auth.go:42 缺少租户隔离校验">' + esc(d.blocking) + '</textarea></div>' +
-              '<div class="wb-field"><label>建议项（每行一条，不阻断交付）</label><textarea name="advisory" rows="3" placeholder="建议补充边界测试">' + esc(d.advisory) + '</textarea></div>' +
-            '</div>') +
-          '<div class="wb-actions">' +
+          '<div class="wb-toolbar" style="gap:8px;flex-wrap:wrap">' +
+            '<select name="repoPath" id="wbCrRepoSelect" style="flex:1;min-width:200px">' +
+              '<option value="">选一个项目仓库…</option>' +
+              crState.repos.map(r => '<option value="' + esc(r.localPath) + '" ' + (r.localPath === crState.selectedRepoPath ? 'selected' : '') + '>' + esc(r.projectName) + '</option>').join('') +
+            '</select>' +
+            '<input type="text" name="title" value="' + esc(d.title) + '" placeholder="一句话说明改了啥（可不填）" style="flex:1;min-width:200px">' +
             '<button type="submit" class="button primary" ' + (crState.runningAI ? 'disabled' : '') + '>' +
-              (crState.runningAI ? '正在分批调用 CLI 审查…' : (isAuto ? '运行自动分批 AI 审查' : '提交并生成防篡改审查快照')) +
+              (crState.runningAI ? 'AI 正在审查…' : (isAuto ? '⚡ 一键审查最新改动' : '提交审查记录')) +
             '</button>' +
-            '<button type="button" class="button ghost" id="wbCancelCreateReview">取消并清空草稿</button>' +
           '</div>' +
+          '<details style="margin-top:10px"' + (!isAuto || d.diff || d.issueId || d.runId ? ' open' : '') + '>' +
+            '<summary style="cursor:pointer;font-size:12.5px;color:var(--muted,#6b7280)">高级选项（换 AI / 选分支 / 关联需求 / 粘贴 Diff）</summary>' +
+            '<div style="margin-top:10px;display:flex;flex-direction:column;gap:10px">' +
+              '<div class="wb-tabs" style="border:none;padding:0">' +
+                '<button type="button" class="wb-tab ' + (isAuto ? 'active' : '') + '" data-cr-mode="auto">AI 自动审查</button>' +
+                '<button type="button" class="wb-tab ' + (!isAuto ? 'active' : '') + '" data-cr-mode="manual">手动录入</button>' +
+                '<button type="button" class="button ghost small" id="wbCrPickRepoBtn" style="margin-left:auto">+ 选本地目录</button>' +
+              '</div>' +
+              '<div class="wb-form-row">' +
+                '<div class="wb-field"><label>编写者</label><input type="text" name="writer" value="' + esc(d.writer) + '" placeholder="codex"></div>' +
+                (isAuto
+                  ? '<div class="wb-field"><label>审查 AI</label><select name="reviewer">' + execOpts + '</select></div>' +
+                    '<div class="wb-field"><label>模型（留空自动）</label><input type="text" name="model" list="wbCrModelList" value="' + esc(d.model) + '" placeholder="自动默认">' + modelDatalist + '</div>'
+                  : '<div class="wb-field"><label>审查者</label><input type="text" name="reviewer" value="' + esc(d.reviewer) + '" placeholder="reviewer"></div>') +
+              '</div>' +
+              '<div class="wb-form-row">' +
+                '<div class="wb-field"><label>关联需求</label><select name="issueId">' +
+                  '<option value="">不关联</option>' +
+                  crState.issues.map(it => '<option value="' + esc(it.id) + '" ' + (it.id === d.issueId ? 'selected' : '') + '>' + esc((it.key || it.id) + ' · ' + (it.title || '')) + '</option>').join('') +
+                '</select></div>' +
+                '<div class="wb-field"><label>关联运行</label><select name="runId">' +
+                  '<option value="">不关联</option>' +
+                  crState.runs.map(rn => '<option value="' + esc(rn.id) + '" ' + (rn.id === d.runId ? 'selected' : '') + '>' + esc(rn.id.slice(0, 12) + ' · ' + (rn.status || '')) + '</option>').join('') +
+                '</select></div>' +
+              '</div>' +
+              (crState.gitRefs.isGit
+                ? '<div class="wb-form-row">' +
+                    '<div class="wb-field"><label>对比起点 (Base)</label><select name="baseRef">' + buildRefOptions('HEAD~1', '上一提交 (HEAD~1)', d.baseRef) + '</select></div>' +
+                    '<div class="wb-field"><label>对比终点 (Head)</label><select name="headRef">' + buildRefOptions('HEAD', '最新提交 (HEAD)', d.headRef) + '</select></div>' +
+                  '</div>'
+                : '') +
+              '<div class="wb-field"><label>手动粘贴 Diff（留空自动读取仓库）</label><textarea name="diff" rows="4" placeholder="diff --git a/... b/...">' + esc(d.diff) + '</textarea></div>' +
+              (isAuto ? '' :
+                '<div class="wb-form-row">' +
+                  '<div class="wb-field"><label>阻断项（每行一条）</label><textarea name="blocking" rows="3" placeholder="auth.go:42 缺少校验">' + esc(d.blocking) + '</textarea></div>' +
+                  '<div class="wb-field"><label>建议项（每行一条）</label><textarea name="advisory" rows="3" placeholder="建议补充测试">' + esc(d.advisory) + '</textarea></div>' +
+                '</div>') +
+            '</div>' +
+          '</details>' +
         '</form>' +
       '</div>'
     );
@@ -618,10 +615,10 @@
     root.innerHTML =
       '<div class="wb-page">' +
         '<div class="wb-header">' +
-          '<div><h1>代码审查 · Webuddy Core</h1><p class="wb-subtitle">完整 Diff 14k 分批独立审查（Writer≠Reviewer）+ 防篡改快照 + 人工有效率反馈闭环</p></div>' +
+          '<div><h1>代码审查</h1><p class="wb-subtitle">选好项目，点一下让 AI 自动检查最新代码改动。</p></div>' +
           '<div class="wb-actions">' +
             '<button type="button" class="button ghost" id="wbRefreshCR">刷新</button>' +
-            '<button type="button" class="button primary" id="wbNewCRBtn">发起代码审查</button>' +
+            '<button type="button" class="button primary" id="wbNewCRBtn">⚡ 发起审查</button>' +
           '</div>' +
         '</div>' +
         renderSummary() +
@@ -702,8 +699,8 @@
             projectId: currentProjectId(),
             issueId: d.issueId || '',
             runId: d.runId || '',
-            title: d.title,
-            writer: d.writer,
+            title: (d.title || '').trim() || '最新代码改动审查',
+            writer: d.writer || 'developer',
             reviewer: d.reviewer,
             model: d.model || '',
             repoPath: crState.selectedRepoPath,
