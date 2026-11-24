@@ -105,6 +105,14 @@ func detectLocalAuth(id string) (bool, string) {
 		if fileExists(filepath.Join(home, ".claude", ".credentials.json")) || fileExists(filepath.Join(home, ".claude.json")) {
 			return true, "复用本机 Claude 登录态"
 		}
+		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil {
+			var parsed struct {
+				Env map[string]string `json:"env"`
+			}
+			if json.Unmarshal(raw, &parsed) == nil && (strings.TrimSpace(parsed.Env["ANTHROPIC_AUTH_TOKEN"]) != "" || strings.TrimSpace(parsed.Env["ANTHROPIC_API_KEY"]) != "") {
+				return true, "复用本机 ~/.claude/settings.json 网关配置"
+			}
+		}
 		if strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" {
 			return true, "复用环境变量 ANTHROPIC_API_KEY"
 		}

@@ -118,6 +118,11 @@ func prepareRunnerLogin(home AgentCLIHome, login conversationLoginSpec, enabled 
 				return err
 			}
 		}
+		if login.binding == BindClaudeCode {
+			if err := dir.Remove("settings.json"); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
 		return nil
 	}
 	// A runner restart can interrupt cleanup. Remove any previous copy even
@@ -164,11 +169,32 @@ func prepareRunnerLogin(home AgentCLIHome, login conversationLoginSpec, enabled 
 				return cleanupCfg, nil, nil
 			}
 		}
+		if login.binding == BindClaudeCode {
+			if cfgData, cfgErr := readRunnerConfigFile(configDir, "settings.json"); cfgErr == nil && claudeSettingsHasCustomAuth(cfgData) {
+				if writeErr := target.WriteFile("settings.json", cfgData, 0600); writeErr != nil {
+					return nil, nil, writeErr
+				}
+				cleanupCfg := func() error {
+					dir, openErr := openAgentCLIHome(home)
+					if openErr != nil {
+						return openErr
+					}
+					defer dir.Close()
+					return remove(dir)
+				}
+				return cleanupCfg, nil, nil
+			}
+		}
 		return nil, nil, fmt.Errorf("执行机器上的 %s 本机登录态不可用，请检查 Runner 账户的 CLI 登录", login.label)
 	}
 	if login.binding == BindCodex {
 		if cfgData, cfgErr := readRunnerConfigFile(configDir, "config.toml"); cfgErr == nil {
 			_ = target.WriteFile("config.toml", cfgData, 0600)
+		}
+	}
+	if login.binding == BindClaudeCode {
+		if cfgData, cfgErr := readRunnerConfigFile(configDir, "settings.json"); cfgErr == nil {
+			_ = target.WriteFile("settings.json", cfgData, 0600)
 		}
 	}
 	if login.binding == BindCodex || login.binding == BindClaudeCode {
@@ -403,4 +429,18 @@ func codexConfigHasCustomAuth(data []byte) bool {
 	return strings.Contains(text, "experimental_bearer_token") ||
 		strings.Contains(text, "requires_openai_auth = false") ||
 		strings.Contains(text, "requires_openai_auth=false")
+}
+
+// claudeSettingsHasCustomAuth reports whether ~/.claude/settings.json configures
+// custom Anthropic gateway credentials (ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY)
+// so Claude Code can authenticate without ~/.claude/.credentials.json.
+func claudeSettingsHasCustomAuth(data []byte) bool {
+	var parsed struct {
+		Env map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return false
+	}
+	return strings.TrimSpace(parsed.Env["ANTHROPIC_AUTH_TOKEN"]) != "" ||
+		strings.TrimSpace(parsed.Env["ANTHROPIC_API_KEY"]) != ""
 }
