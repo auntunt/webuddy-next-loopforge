@@ -695,7 +695,7 @@ var (
 	codexGwUntil   time.Time
 )
 
-func parseCodexGatewayConfig(raw string) (baseURL, token string, ok bool) {
+func parseCodexGatewayConfig(raw string) (baseURL, token, defaultModel string, ok bool) {
 	var activeProvider string
 	section := ""
 	providers := map[string][2]string{}
@@ -720,6 +720,8 @@ func parseCodexGatewayConfig(raw string) (baseURL, token string, ok bool) {
 		v = strings.Trim(v, `"'`)
 		if section == "" && k == "model_provider" {
 			activeProvider = v
+		} else if section == "" && k == "model" {
+			defaultModel = v
 		} else if strings.HasPrefix(section, "model_providers.") {
 			pname := strings.TrimPrefix(section, "model_providers.")
 			pair := providers[pname]
@@ -733,15 +735,15 @@ func parseCodexGatewayConfig(raw string) (baseURL, token string, ok bool) {
 	}
 	if activeProvider != "" {
 		if pair, exists := providers[activeProvider]; exists && pair[0] != "" && pair[1] != "" {
-			return pair[0], pair[1], true
+			return pair[0], pair[1], defaultModel, true
 		}
 	}
 	for _, pair := range providers {
 		if pair[0] != "" && pair[1] != "" {
-			return pair[0], pair[1], true
+			return pair[0], pair[1], defaultModel, true
 		}
 	}
-	return "", "", false
+	return "", "", defaultModel, false
 }
 
 // DiscoverCodexGatewayModels queries the custom Codex gateway configured in
@@ -770,7 +772,7 @@ func DiscoverCodexGatewayModels(ctx context.Context) []string {
 	if err != nil {
 		return nil
 	}
-	baseURL, token, ok := parseCodexGatewayConfig(string(raw))
+	baseURL, token, defaultModel, ok := parseCodexGatewayConfig(string(raw))
 	if !ok {
 		return nil
 	}
@@ -797,8 +799,12 @@ func DiscoverCodexGatewayModels(ctx context.Context) []string {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil
 	}
-	seen := make(map[string]struct{}, len(payload.Data))
-	models := make([]string, 0, len(payload.Data))
+	seen := make(map[string]struct{}, len(payload.Data)+1)
+	models := make([]string, 0, len(payload.Data)+1)
+	if defaultModel != "" {
+		seen[defaultModel] = struct{}{}
+		models = append(models, defaultModel)
+	}
 	for _, item := range payload.Data {
 		id := strings.TrimSpace(item.ID)
 		if id == "" || strings.HasPrefix(strings.ToLower(id), "gpt-image") {

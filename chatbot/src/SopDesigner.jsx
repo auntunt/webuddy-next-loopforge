@@ -132,15 +132,16 @@ export default function SopDesigner({ search = location.search, canvas = window.
     api("/api/assistant/models?runnerLogin=1")
       .then((data) => current && setCatalog(data || {}))
       .catch((e) => current && setError(e.message));
-    api("/api/runners")
-      .then((data) => {
-        if (!current || !data) return;
-        const list = Array.isArray(data) ? data : (data.runners || []);
-        const pref = data.defaultRunnerId || "";
-        const pick = list.find((r) => r.id === pref && r.status === "online") || list.find((r) => r.status === "online");
-        if (pick?.id) setDefaultRunnerId(pick.id);
-      })
-      .catch(() => {});
+    Promise.all([
+      api("/api/runners").catch(() => []),
+      api("/api/runners/default").catch(() => null),
+    ]).then(([data, def]) => {
+      if (!current) return;
+      const list = Array.isArray(data) ? data : (data?.runners || []);
+      const pref = def?.defaultRunnerId || def?.runnerId || def?.id || data?.defaultRunnerId || "";
+      const pick = list.find((r) => r.id === pref && r.status === "online") || list.find((r) => r.status === "online");
+      if (pick?.id) setDefaultRunnerId(pick.id);
+    });
     return () => {
       current = false;
     };
