@@ -776,6 +776,18 @@ func DiscoverCodexGatewayModels(ctx context.Context) []string {
 	if !ok {
 		return nil
 	}
+	// When ~/.codex/config.toml pins a verified default model (e.g. "gpt-6-luna"),
+	// prefer it exclusively instead of exposing every /v1/models entry from the
+	// proxy gateway (many of which Codex CLI rejects with "not supported when
+	// using Codex with a ChatGPT account", such as gpt-6.2-astra).
+	if defaultModel != "" {
+		models := []string{defaultModel}
+		codexGwCacheMu.Lock()
+		codexGwModels = append([]string(nil), models...)
+		codexGwUntil = time.Now().Add(5 * time.Minute)
+		codexGwCacheMu.Unlock()
+		return models
+	}
 	cctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, baseURL+"/models", nil)
