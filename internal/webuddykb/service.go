@@ -162,3 +162,77 @@ func (s *Service) Statecharts(ctx context.Context, repoPath string) (json.RawMes
 	}
 	return s.runJSON(ctx, args...)
 }
+
+func (s *Service) Impact(ctx context.Context, repoPath, target string, depth int) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	t := strings.TrimSpace(target)
+	if p == "" || t == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径和变更影响分析目标（文件/符号/表名/接口）")
+	}
+	if depth <= 0 {
+		depth = 3
+	}
+	return s.runJSON(ctx, "impact", "--repo", p, "--target", t, "--depth", strconv.Itoa(depth))
+}
+
+func (s *Service) Chain(ctx context.Context, repoPath, query string, flows int) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	q := strings.TrimSpace(query)
+	if p == "" || q == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径和业务问题")
+	}
+	if flows <= 0 {
+		flows = 6
+	}
+	return s.runJSON(ctx, "chain", "--repo", p, "--query", q, "--flows", strconv.Itoa(flows))
+}
+
+func (s *Service) Questions(ctx context.Context, repoPath string) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	if p == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径")
+	}
+	return s.runJSON(ctx, "questions", "--repo", p)
+}
+
+func (s *Service) AskQuestion(ctx context.Context, repoPath, question, pages, who string) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	q := strings.TrimSpace(question)
+	if p == "" || q == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径与问题内容")
+	}
+	args := []string{"ask", "--repo", p, "--question", q}
+	if strings.TrimSpace(pages) != "" {
+		args = append(args, "--pages", strings.TrimSpace(pages))
+	}
+	if strings.TrimSpace(who) != "" {
+		args = append(args, "--who", strings.TrimSpace(who))
+	}
+	return s.runJSON(ctx, args...)
+}
+
+func (s *Service) AnswerQuestion(ctx context.Context, repoPath string, num int, text, by string) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	t := strings.TrimSpace(text)
+	if p == "" || num <= 0 || t == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径、问题编号与回答内容")
+	}
+	args := []string{"answer", "--repo", p, "--num", strconv.Itoa(num), "--text", t}
+	if strings.TrimSpace(by) != "" {
+		args = append(args, "--by", strings.TrimSpace(by))
+	}
+	return s.runJSON(ctx, args...)
+}
+
+func (s *Service) ConfirmPage(ctx context.Context, repoPath, pageID, by string) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	pid := strings.TrimSpace(pageID)
+	if p == "" || pid == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径与知识页 ID")
+	}
+	args := []string{"confirm-page", "--repo", p, "--page-id", pid}
+	if strings.TrimSpace(by) != "" {
+		args = append(args, "--by", strings.TrimSpace(by))
+	}
+	return s.runJSON(ctx, args...)
+}

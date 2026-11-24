@@ -3,16 +3,30 @@
   const kbState = {
     repos: [],
     repoPath: localStorage.getItem('webuddy.kb.repoPath') || '',
-    tab: 'blueprint', // blueprint | er | statecharts | docs | flows | tables | evidence
+    tab: 'blueprint', // blueprint | er | statecharts | docs | chain | impact | questions | flows | tables | evidence
     overview: null,
     statecharts: null,
     searchQuery: '',
     searchHits: null,
+    docScopeFilter: 'all',
+    docStatusFilter: 'all',
+    docQuickFilter: '',
     selectedDoc: null,
     docHistory: [],
     docRawMode: false,
     docContent: null,
     docInlinePin: null,
+    chainQuery: '',
+    chainLoading: false,
+    chainResult: null,
+    impactTarget: '',
+    impactDepth: 3,
+    impactLoading: false,
+    impactResult: null,
+    questions: null,
+    questionsLoading: false,
+    newQuestionText: '',
+    newQuestionPages: '',
     evidenceRef: '',
     evidenceResult: null,
     scanning: false,
@@ -303,10 +317,147 @@
     render();
   }
 
+  async function runChainQuery() {
+    if (!kbState.repoPath.trim() || !kbState.chainQuery.trim()) {
+      notify('请先选择仓库并输入业务问题或需求描述');
+      return;
+    }
+    kbState.chainLoading = true;
+    render();
+    try {
+      kbState.chainResult = await reqJSON('/api/webuddy/kb/chain', {
+        method: 'POST',
+        body: JSON.stringify({ repoPath: kbState.repoPath.trim(), query: kbState.chainQuery.trim(), flows: 6 }),
+      });
+    } catch (err) {
+      kbState.chainResult = { error: err.message };
+    } finally {
+      kbState.chainLoading = false;
+      render();
+    }
+  }
+
+  async function runImpactAnalysis() {
+    if (!kbState.repoPath.trim() || !kbState.impactTarget.trim()) {
+      notify('请先选择仓库并输入文件、表名、符号或接口关键词');
+      return;
+    }
+    kbState.impactLoading = true;
+    render();
+    try {
+      kbState.impactResult = await reqJSON('/api/webuddy/kb/impact', {
+        method: 'POST',
+        body: JSON.stringify({ repoPath: kbState.repoPath.trim(), target: kbState.impactTarget.trim(), depth: kbState.impactDepth || 3 }),
+      });
+    } catch (err) {
+      kbState.impactResult = { error: err.message };
+    } finally {
+      kbState.impactLoading = false;
+      render();
+    }
+  }
+
+  async function loadQuestions() {
+    if (!kbState.repoPath.trim()) {
+      kbState.questions = [];
+      return;
+    }
+    kbState.questionsLoading = true;
+    render();
+    try {
+      const data = await reqJSON('/api/webuddy/kb/questions?repoPath=' + encodeURIComponent(kbState.repoPath.trim()));
+      kbState.questions = data.questions || [];
+    } catch (err) {
+      notify(err.message);
+      kbState.questions = [];
+    } finally {
+      kbState.questionsLoading = false;
+      render();
+    }
+  }
+
+  async function submitNewQuestion() {
+    if (!kbState.repoPath.trim() || !kbState.newQuestionText.trim()) {
+      notify('请输入待澄清问题内容');
+      return;
+    }
+    try {
+      const data = await reqJSON('/api/webuddy/kb/questions/ask', {
+        method: 'POST',
+        body: JSON.stringify({
+          repoPath: kbState.repoPath.trim(),
+          question: kbState.newQuestionText.trim(),
+          pages: kbState.newQuestionPages.trim(),
+        }),
+      });
+      kbState.questions = data.questions || [];
+      kbState.newQuestionText = '';
+      kbState.newQuestionPages = '';
+      notify('已记录待澄清问题 #' + (data.id || ''));
+    } catch (err) {
+      notify(err.message);
+    }
+    render();
+  }
+
+  async function submitAnswerQuestion(num, text) {
+    if (!kbState.repoPath.trim() || !num || !String(text || '').trim()) {
+      notify('请输入回答内容');
+      return;
+    }
+    try {
+      const data = await reqJSON('/api/webuddy/kb/questions/answer', {
+        method: 'POST',
+        body: JSON.stringify({ repoPath: kbState.repoPath.trim(), num: Number(num), text: String(text).trim() }),
+      });
+      kbState.questions = data.questions || [];
+      notify('已保存问题 #' + num + ' 的人工澄清结论');
+    } catch (err) {
+      notify(err.message);
+    }
+    render();
+  }
+
+  async function confirmCurrentPage(pageId) {
+    if (!kbState.repoPath.trim() || !pageId) return;
+    try {
+      await reqJSON('/api/webuddy/kb/confirm-page', {
+        method: 'POST',
+        body: JSON.stringify({ repoPath: kbState.repoPath.trim(), pageId }),
+      });
+      notify('已人工确认知识页：' + pageId);
+      const q = '?repoPath=' + encodeURIComponent(kbState.repoPath.trim());
+      kbState.overview = await reqJSON('/api/webuddy/kb/overview' + q).catch(() => kbState.overview);
+    } catch (err) {
+      notify(err.message);
+    }
+    render();
+  }
+
   function renderDocsTab(ov) {
     const builtins = (ov && ov.builtinDocs) || [];
-    const pages = (ov && ov.pages) || [];
+    const allPages = (ov && ov.pages) || [];
+    const specialDocs = (ov && ov.specialDocs) || [];
     const hits = kbState.searchHits;
+
+    const filteredPages = allPages.filter(p => {
+      if (kbState.docScopeFilter !== 'all' && (p.scope || '') !== kbState.docScopeFilter) return false;
+      if (kbState.docStatusFilter !== 'all' && (p.status || '待确认') !== kbState.docStatusFilter) return false;
+      if (kbState.docQuickFilter.trim()) {
+        const q = kbState.docQuickFilter.trim().toLowerCase();
+        const hay = ((p.title || '') + ' ' + (p.name || '') + ' ' + (p.path || '') + ' ' + (p.summary || '')).toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const specialPills = specialDocs.length
+      ? '<div style="margin-bottom:12px"><div class="wb-meta" style="margin-bottom:6px"><strong>项目核心文档</strong></div><div style="display:flex;flex-wrap:wrap;gap:6px">' +
+          specialDocs.map(sd =>
+            '<button type="button" class="button ghost small" data-kb-doc="' + esc(sd.path) + '">' + esc(sd.title) + '</button>'
+          ).join('') +
+        '</div></div>'
+      : '';
 
     let leftHTML = '';
     if (hits) {
@@ -323,17 +474,33 @@
         '</div>';
     } else {
       leftHTML =
-        '<h3>项目知识页 (' + (ov.pageCount || pages.length) + ')</h3>' +
-        '<div class="wb-list" style="max-height:28vh;margin-bottom:14px">' +
-        (pages.length === 0 ? '<div class="wb-empty" style="padding:12px">扫描仓库后展示 .tmh/knowledge 知识页</div>' : pages.map(p =>
+        specialPills +
+        '<div class="wb-item-top" style="margin-bottom:6px"><h3 style="margin:0">项目知识页 (' + filteredPages.length + '/' + (ov.pageCount || allPages.length) + ')</h3></div>' +
+        '<div class="wb-toolbar" style="margin-bottom:8px;gap:6px">' +
+          '<select id="wbDocScopeFilter" style="min-width:96px">' +
+            '<option value="all"' + (kbState.docScopeFilter === 'all' ? ' selected' : '') + '>全部类型</option>' +
+            '<option value="业务域"' + (kbState.docScopeFilter === '业务域' ? ' selected' : '') + '>业务域</option>' +
+            '<option value="业务流程"' + (kbState.docScopeFilter === '业务流程' ? ' selected' : '') + '>业务流程</option>' +
+            '<option value="数据实体"' + (kbState.docScopeFilter === '数据实体' ? ' selected' : '') + '>数据实体</option>' +
+            '<option value="总览与规范"' + (kbState.docScopeFilter === '总览与规范' ? ' selected' : '') + '>总览与规范</option>' +
+          '</select>' +
+          '<select id="wbDocStatusFilter" style="min-width:90px">' +
+            '<option value="all"' + (kbState.docStatusFilter === 'all' ? ' selected' : '') + '>全部状态</option>' +
+            '<option value="已确认"' + (kbState.docStatusFilter === '已确认' ? ' selected' : '') + '>已确认</option>' +
+            '<option value="待确认"' + (kbState.docStatusFilter === '待确认' ? ' selected' : '') + '>待确认</option>' +
+          '</select>' +
+          '<input type="search" id="wbDocQuickFilter" value="' + esc(kbState.docQuickFilter) + '" placeholder="过滤标题/路径…" style="flex:1;min-width:100px">' +
+        '</div>' +
+        '<div class="wb-list" style="max-height:32vh;margin-bottom:14px">' +
+        (filteredPages.length === 0 ? '<div class="wb-empty" style="padding:12px">当前筛选下无知识页</div>' : filteredPages.slice(0, 120).map(p =>
           '<button type="button" class="wb-list-item ' + (p.path === kbState.selectedDoc ? 'active' : '') + '" data-kb-doc="' + esc(p.path) + '">' +
-            '<div class="wb-item-top"><span class="wb-item-title">' + esc(p.name) + '</span><span class="wb-badge info">项目</span></div>' +
-            '<div class="wb-meta"><span>' + esc(p.path) + '</span></div>' +
+            '<div class="wb-item-top"><span class="wb-item-title">' + esc(p.title || p.name) + '</span><span class="wb-badge ' + (p.status === '已确认' ? 'pass' : 'info') + '">' + esc(p.status || '待确认') + '</span></div>' +
+            '<div class="wb-meta"><span>' + esc(p.scope || '项目') + '</span><span>' + esc(p.path) + '</span></div>' +
           '</button>'
         ).join('')) +
         '</div>' +
         '<h3>内置领域知识库 (' + builtins.length + ')</h3>' +
-        '<div class="wb-list" style="max-height:36vh">' +
+        '<div class="wb-list" style="max-height:26vh">' +
         builtins.map(d =>
           '<button type="button" class="wb-list-item ' + (d.path === kbState.selectedDoc ? 'active' : '') + '" data-kb-doc="' + esc(d.path) + '">' +
             '<div class="wb-item-top"><span class="wb-item-title">' + esc(d.title) + '</span><span class="wb-badge pass">内置</span></div>' +
@@ -344,6 +511,8 @@
     }
 
     const doc = kbState.docContent;
+    const currentPageMeta = doc ? allPages.find(p => p.path === doc.path) : null;
+    const canConfirm = Boolean(currentPageMeta && currentPageMeta.pageId && currentPageMeta.status !== '已确认');
     const inlinePin = kbState.docInlinePin;
     const pinBox = inlinePin
       ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(16,185,129,0.4)">' +
@@ -359,9 +528,11 @@
           '<div class="wb-item-top" style="margin-bottom:12px">' +
             '<div class="wb-actions">' +
               (kbState.docHistory.length ? '<button type="button" class="button ghost small" id="wbDocBackBtn">← 返回上一页</button>' : '') +
-              '<h3 style="margin:0">' + esc(doc.path) + '</h3>' +
+              '<h3 style="margin:0">' + esc((currentPageMeta && currentPageMeta.title) || doc.path) + '</h3>' +
+              (currentPageMeta ? '<span class="wb-badge ' + (currentPageMeta.status === '已确认' ? 'pass' : 'info') + '">' + esc(currentPageMeta.status || '待确认') + '</span>' : '') +
             '</div>' +
             '<div class="wb-actions">' +
+              (canConfirm ? '<button type="button" class="button primary small" id="wbConfirmPageBtn" data-page-id="' + esc(currentPageMeta.pageId) + '">✓ 人工确认此页知识</button>' : '') +
               '<span class="wb-meta">共 ' + doc.totalLines + ' 行</span>' +
               '<button type="button" class="button ghost small" id="wbToggleDocRaw">' + (kbState.docRawMode ? '富文本阅读' : '原始 Markdown') + '</button>' +
             '</div>' +
@@ -371,9 +542,126 @@
             ? '<pre class="wb-code">' + esc(doc.content) + '</pre>'
             : renderWikiMarkdown(doc.content, doc.path)) +
         '</div>'
-      : '<div class="wb-panel wb-empty">点击左侧项目知识页或内置领域知识文档（国密改造、数据库方言、信创 .NET 等）进行富文本 Wiki 阅读，支持内部相对链接跳转与源码行号直跳。</div>';
+      : '<div class="wb-panel wb-empty">点击左侧核心文档、项目知识页或内置领域知识（国密改造、数据库方言、信创 .NET 等）进行富文本 Wiki 阅读，支持人工确认、相对链接跳转与源码行号直跳。</div>';
 
     return '<div class="wb-split"><div class="wb-panel">' + leftHTML + '</div><div>' + rightHTML + '</div></div>';
+  }
+
+  function renderChainTab() {
+    const res = kbState.chainResult;
+    const inlinePin = kbState.docInlinePin;
+    const pinBox = inlinePin
+      ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(16,185,129,0.4)">' +
+          '<div class="wb-item-top"><strong>⌖ 源码定位：' + esc(inlinePin.where) + '</strong><button type="button" class="button ghost small" id="wbCloseDocPin">关闭</button></div>' +
+          (inlinePin.error ? '<span class="wb-badge fail">' + esc(inlinePin.error) + '</span>' : '<pre class="wb-code" style="max-height:220px">' + esc(inlinePin.snippet || '') + '</pre>') +
+        '</div>'
+      : '';
+    return (
+      '<div class="wb-panel">' +
+        '<h3>业务链路证据问答（Chain）</h3>' +
+        '<p class="wb-subtitle" style="margin-bottom:12px">输入业务需求或疑问，自动从代码图谱与知识页中串出「业务域 → 业务流程 → 数据实体 → 源码引用」完整证据链。</p>' +
+        '<div class="wb-toolbar" style="margin-bottom:12px">' +
+          '<input type="text" id="wbChainQueryInput" value="' + esc(kbState.chainQuery) + '" placeholder="例如：单据审批驳回和撤回逻辑、支付回调如何更新状态…" style="min-width:360px;flex:1">' +
+          '<button type="button" class="button primary" id="wbRunChainBtn" ' + (kbState.chainLoading ? 'disabled' : '') + '>' + (kbState.chainLoading ? '正在追溯链路…' : '追溯业务证据链') + '</button>' +
+        '</div>' +
+        pinBox +
+        (res ? (res.error
+          ? '<div class="wb-badge fail">追溯失败：' + esc(res.error) + '</div>'
+          : '<div style="margin-top:8px">' + renderWikiMarkdown(res.markdown || '未找到匹配链路', '.tmh/knowledge/index.md') + '</div>')
+          : '<div class="wb-empty" style="padding:20px">输入业务关键词即可生成带源码锚点的证据链，点击文中任意 <code>文件:行号</code> 可直接核验真实代码。</div>') +
+      '</div>'
+    );
+  }
+
+  function renderImpactTab() {
+    const res = kbState.impactResult;
+    let outHTML = '<div class="wb-empty" style="padding:20px">输入要修改的文件名、Controller、表名或接口关键词（例如 <code>ApprovaController</code> 或 <code>approva</code>），立即评估改动波及的业务域、流程与数据表。</div>';
+    if (res && res.error) {
+      outHTML = '<div class="wb-badge fail">分析失败：' + esc(res.error) + '</div>';
+    } else if (res) {
+      const doms = res.affectedDomains || [];
+      const flows = res.affectedFlows || [];
+      const tbls = res.affectedTables || [];
+      const ci = res.codeImpact || {};
+      const callers = Array.isArray(ci.callers) ? ci.callers : (Array.isArray(ci.files) ? ci.files : []);
+      outHTML =
+        '<div class="wb-kpi-grid" style="margin-bottom:14px">' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">波及业务域</span><span class="wb-kpi-val">' + doms.length + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">受影响业务流程</span><span class="wb-kpi-val">' + flows.length + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">关联数据表</span><span class="wb-kpi-val">' + tbls.length + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">调用链波及文件</span><span class="wb-kpi-val">' + callers.length + '</span></div>' +
+        '</div>' +
+        (doms.length ? '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px">' + doms.map(d => '<span class="wb-badge info">' + esc(d.domain) + ' (' + d.flowCount + ' 流程)</span>').join('') + '</div>' : '') +
+        (flows.length
+          ? '<table class="wb-table" style="margin-bottom:14px"><thead><tr><th>受影响流程</th><th>所属域</th><th>涉及数据表</th><th>源码定位</th></tr></thead><tbody>' +
+              flows.map(f =>
+                '<tr><td><b>' + esc(f.name) + '</b></td><td><span class="wb-badge info">' + esc(f.domain) + '</span></td><td><code>' + esc((f.tables || []).join(', ') || '—') + '</code></td><td>' +
+                (f.file && f.line ? '<button type="button" class="wb-cite-pill" data-impact-cite="' + esc(f.file + ':' + f.line) + '">⌖ ' + esc(f.file + ':' + f.line) + '</button>' : '—') +
+                '</td></tr>'
+              ).join('') +
+            '</tbody></table>'
+          : '<div class="wb-meta" style="margin-bottom:12px">未在业务流程图中直接命中该关键词。</div>') +
+        (callers.length
+          ? '<div><h4 style="margin:0 0 8px">调用链波及明细</h4><pre class="wb-code" style="max-height:240px">' + esc(JSON.stringify(callers.slice(0, 40), null, 2)) + '</pre></div>'
+          : '');
+    }
+    return (
+      '<div class="wb-panel">' +
+        '<h3>变更影响面分析（Impact Analysis）</h3>' +
+        '<p class="wb-subtitle" style="margin-bottom:12px">改代码之前先看爆炸半径：定位某文件、接口、符号或数据表变动会影响哪些业务域、流程与上游调用方。</p>' +
+        '<div class="wb-toolbar" style="margin-bottom:12px">' +
+          '<input type="text" id="wbImpactTargetInput" value="' + esc(kbState.impactTarget) + '" placeholder="例如：ApprovaController、approva、t_bill…" style="min-width:320px;flex:1">' +
+          '<select id="wbImpactDepthSelect" style="width:110px">' +
+            [1, 2, 3, 4].map(d => '<option value="' + d + '"' + (Number(kbState.impactDepth) === d ? ' selected' : '') + '>深度 ' + d + ' 层</option>').join('') +
+          '</select>' +
+          '<button type="button" class="button primary" id="wbRunImpactBtn" ' + (kbState.impactLoading ? 'disabled' : '') + '>' + (kbState.impactLoading ? '正在分析影响面…' : '分析变更影响') + '</button>' +
+        '</div>' +
+        outHTML +
+      '</div>'
+    );
+  }
+
+  function renderQuestionsTab() {
+    const qs = kbState.questions;
+    const listHTML = kbState.questionsLoading
+      ? '<div class="wb-empty">正在加载待澄清问题池…</div>'
+      : !qs || qs.length === 0
+        ? '<div class="wb-empty" style="padding:18px">当前项目暂无待澄清问题，可在上方新增一条供团队或业务方确认。</div>'
+        : '<div style="display:flex;flex-direction:column;gap:10px">' + qs.map((q, idx) => {
+            const num = q.id || q.num || (idx + 1);
+            const status = String(q.status || 'open');
+            const answered = status === 'answered' || status === '已回答' || status === '已确认' || Boolean(q.answer);
+            return (
+              '<div class="wb-finding-card">' +
+                '<div class="wb-item-top"><strong>#' + esc(num) + ' · ' + esc(q.question || q.text || '') + '</strong><span class="wb-badge ' + (answered ? 'pass' : 'fail') + '">' + (answered ? '已澄清' : '待澄清') + '</span></div>' +
+                '<div class="wb-meta">' +
+                  (q.pages ? '<span>关联页：<code>' + esc(Array.isArray(q.pages) ? q.pages.join(', ') : q.pages) + '</code></span>' : '') +
+                  (q.who ? '<span>提问人：' + esc(q.who) + '</span>' : '') +
+                '</div>' +
+                (q.answer ? '<div style="font-size:13px;margin-top:4px"><strong>澄清结论：</strong>' + esc(q.answer) + '</div>' : '') +
+                (!answered
+                  ? '<div class="wb-toolbar" style="margin-top:8px"><input type="text" data-answer-input="' + esc(num) + '" placeholder="输入业务确认结论…" style="flex:1"><button type="button" class="button primary small" data-answer-submit="' + esc(num) + '">保存人工回答</button></div>'
+                  : '') +
+              '</div>'
+            );
+          }).join('') + '</div>';
+
+    return (
+      '<div style="display:flex;flex-direction:column;gap:14px">' +
+        '<div class="wb-panel">' +
+          '<h3>新增待澄清问题（写入 .tmh/knowledge/open-questions.md）</h3>' +
+          '<div class="wb-toolbar">' +
+            '<input type="text" id="wbNewQText" value="' + esc(kbState.newQuestionText) + '" placeholder="例如：跨租户审批驳回后是否需要重置财务凭证状态？" style="flex:2;min-width:260px">' +
+            '<input type="text" id="wbNewQPages" value="' + esc(kbState.newQuestionPages) + '" placeholder="关联知识页（可选，逗号分隔）" style="flex:1;min-width:160px">' +
+            '<button type="button" class="button primary" id="wbAskQBtn">记录问题</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="wb-panel">' +
+          '<div class="wb-item-top" style="margin-bottom:10px"><h3 style="margin:0">项目待澄清问题池 (' + ((qs || []).length) + ')</h3><button type="button" class="button ghost small" id="wbReloadQBtn">刷新</button></div>' +
+          listHTML +
+        '</div>' +
+      '</div>'
+    );
   }
 
   function renderFlowsTab(ov) {
@@ -442,10 +730,18 @@
     if (kbState.tab === 'blueprint') bodyHTML = '<div id="wbBlueprintMount"></div>';
     else if (kbState.tab === 'er') bodyHTML = '<div id="wbERMount"></div>';
     else if (kbState.tab === 'statecharts') bodyHTML = '<div id="wbStatechartsMount"></div>';
+    else if (kbState.tab === 'chain') bodyHTML = renderChainTab();
+    else if (kbState.tab === 'impact') bodyHTML = renderImpactTab();
+    else if (kbState.tab === 'questions') bodyHTML = renderQuestionsTab();
     else if (kbState.tab === 'flows') bodyHTML = renderFlowsTab(ov);
     else if (kbState.tab === 'tables') bodyHTML = renderTablesTab(ov);
     else if (kbState.tab === 'evidence') bodyHTML = renderEvidenceTab();
     else bodyHTML = renderDocsTab(ov);
+
+    const ps = ov.pageStats || {};
+    const confirmedPages = ps.confirmed || 0;
+    const totalPages = ov.pageCount || (ov.pages || []).length;
+    const openQs = ov.openQuestionCount || 0;
 
     const repoSelectHTML =
       '<select id="wbKbProjectSelect" aria-label="选择已导入项目仓库" style="min-width:240px">' +
@@ -460,7 +756,7 @@
     root.innerHTML =
       '<div class="wb-page">' +
         '<div class="wb-header">' +
-          '<div><h1>知识库与代码图谱 · Webuddy Core</h1><p class="wb-subtitle">代码图谱解析（业务域 / 流程 / ER / CRUD）+ 源码证据防幻觉核验 + 内置领域知识库 · Streamable HTTP MCP: <code>' + esc(location.origin + '/api/webuddy/kb/mcp') + '</code> <button type="button" class="button ghost small" id="wbCopyMcpBtn">复制 MCP 地址</button></p></div>' +
+          '<div><h1>知识库与代码图谱 · Webuddy Core</h1><p class="wb-subtitle">代码图谱解析（业务域 / 流程 / ER / CRUD / 状态图）+ 业务链路问答 + 变更影响分析 + 人工确认闭环 · MCP: <code>' + esc(location.origin + '/api/webuddy/kb/mcp') + '</code> <button type="button" class="button ghost small" id="wbCopyMcpBtn">复制 MCP 地址</button></p></div>' +
           '<div class="wb-toolbar">' +
             repoSelectHTML +
             '<button type="button" class="button ghost" id="wbKbPickFolderBtn" ' + (kbState.picking ? 'disabled' : '') + '>' + (kbState.picking ? '正在选择目录…' : '+ 选择本地文件夹导入') + '</button>' +
@@ -471,16 +767,19 @@
         '</div>' +
         '<div class="wb-kpi-grid">' +
           '<div class="wb-kpi-card"><span class="wb-kpi-label">图谱状态</span><span class="wb-kpi-val">' + (ov.built ? '已构建' : '未扫描') + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">业务域</span><span class="wb-kpi-val">' + ((ov.domains || []).length) + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">业务流程</span><span class="wb-kpi-val">' + (ov.flowCount || 0) + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">数据表 / 项目知识页</span><span class="wb-kpi-val">' + (ov.tableCount || 0) + ' / ' + (ov.pageCount || (ov.pages || []).length) + '</span></div>' +
-          '<div class="wb-kpi-card"><span class="wb-kpi-label">内置领域知识</span><span class="wb-kpi-val">' + ((ov.builtinDocs || []).length) + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">业务域 / 流程</span><span class="wb-kpi-val">' + ((ov.domains || []).length) + ' / ' + (ov.flowCount || 0) + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">数据表</span><span class="wb-kpi-val">' + (ov.tableCount || 0) + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">知识页（已确认 / 总数）</span><span class="wb-kpi-val">' + confirmedPages + ' / ' + totalPages + '</span></div>' +
+          '<div class="wb-kpi-card"><span class="wb-kpi-label">待澄清问题 / 内置知识</span><span class="wb-kpi-val">' + openQs + ' / ' + ((ov.builtinDocs || []).length) + '</span></div>' +
         '</div>' +
         '<div class="wb-tabs">' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'blueprint' ? 'active' : '') + '" data-kb-tab="blueprint">空间架构蓝图</button>' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'er' ? 'active' : '') + '" data-kb-tab="er">ER 实体关系图</button>' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'statecharts' ? 'active' : '') + '" data-kb-tab="statecharts">业务状态图与源码定位</button>' +
-          '<button type="button" class="wb-tab ' + (kbState.tab === 'docs' ? 'active' : '') + '" data-kb-tab="docs">知识导览与搜索</button>' +
+          '<button type="button" class="wb-tab ' + (kbState.tab === 'docs' ? 'active' : '') + '" data-kb-tab="docs">知识库与文档中心</button>' +
+          '<button type="button" class="wb-tab ' + (kbState.tab === 'chain' ? 'active' : '') + '" data-kb-tab="chain">业务链路问答</button>' +
+          '<button type="button" class="wb-tab ' + (kbState.tab === 'impact' ? 'active' : '') + '" data-kb-tab="impact">变更影响分析</button>' +
+          '<button type="button" class="wb-tab ' + (kbState.tab === 'questions' ? 'active' : '') + '" data-kb-tab="questions">待澄清问题池' + (openQs ? ' (' + openQs + ')' : '') + '</button>' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'flows' ? 'active' : '') + '" data-kb-tab="flows">业务域与流程</button>' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'tables' ? 'active' : '') + '" data-kb-tab="tables">数据表与 CRUD 矩阵</button>' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'evidence' ? 'active' : '') + '" data-kb-tab="evidence">源码证据核验</button>' +
@@ -516,7 +815,49 @@
     root.querySelector('#wbKbSearchBtn')?.addEventListener('click', runSearch);
     root.querySelector('#wbClearSearch')?.addEventListener('click', () => { kbState.searchQuery = ''; kbState.searchHits = null; render(); });
     root.querySelectorAll('[data-kb-tab]').forEach(btn => {
-      btn.addEventListener('click', () => { kbState.tab = btn.dataset.kbTab; render(); });
+      btn.addEventListener('click', () => {
+        kbState.tab = btn.dataset.kbTab;
+        if (kbState.tab === 'questions' && kbState.questions === null) loadQuestions();
+        else render();
+      });
+    });
+    root.querySelector('#wbDocScopeFilter')?.addEventListener('change', e => { kbState.docScopeFilter = e.target.value; render(); });
+    root.querySelector('#wbDocStatusFilter')?.addEventListener('change', e => { kbState.docStatusFilter = e.target.value; render(); });
+    root.querySelector('#wbDocQuickFilter')?.addEventListener('input', e => { kbState.docQuickFilter = e.target.value; render(); });
+    root.querySelector('#wbConfirmPageBtn')?.addEventListener('click', e => confirmCurrentPage(e.currentTarget.dataset.pageId));
+
+    const chainInput = root.querySelector('#wbChainQueryInput');
+    if (chainInput) {
+      chainInput.addEventListener('input', e => { kbState.chainQuery = e.target.value; });
+      chainInput.addEventListener('keydown', e => { if (e.key === 'Enter') runChainQuery(); });
+    }
+    root.querySelector('#wbRunChainBtn')?.addEventListener('click', runChainQuery);
+
+    const impInput = root.querySelector('#wbImpactTargetInput');
+    if (impInput) {
+      impInput.addEventListener('input', e => { kbState.impactTarget = e.target.value; });
+      impInput.addEventListener('keydown', e => { if (e.key === 'Enter') runImpactAnalysis(); });
+    }
+    root.querySelector('#wbImpactDepthSelect')?.addEventListener('change', e => { kbState.impactDepth = Number(e.target.value) || 3; });
+    root.querySelector('#wbRunImpactBtn')?.addEventListener('click', runImpactAnalysis);
+    root.querySelectorAll('[data-impact-cite]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        kbState.evidenceRef = btn.dataset.impactCite;
+        kbState.tab = 'evidence';
+        verifyEvidence();
+      });
+    });
+
+    root.querySelector('#wbNewQText')?.addEventListener('input', e => { kbState.newQuestionText = e.target.value; });
+    root.querySelector('#wbNewQPages')?.addEventListener('input', e => { kbState.newQuestionPages = e.target.value; });
+    root.querySelector('#wbAskQBtn')?.addEventListener('click', submitNewQuestion);
+    root.querySelector('#wbReloadQBtn')?.addEventListener('click', loadQuestions);
+    root.querySelectorAll('[data-answer-submit]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const num = btn.dataset.answerSubmit;
+        const inp = root.querySelector('[data-answer-input="' + num + '"]');
+        submitAnswerQuestion(num, inp ? inp.value : '');
+      });
     });
     root.querySelectorAll('[data-kb-doc]').forEach(btn => {
       btn.addEventListener('click', () => openDoc(btn.dataset.kbDoc, true));

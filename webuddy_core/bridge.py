@@ -184,6 +184,74 @@ def _overview(repo_path: str | None) -> dict:
     tables_raw = g.nodes("tbl")
     dom_nodes = g.nodes("dom")
     reg = kb.load_registry(root)
+    path_to_meta = {}
+    page_stats = {"total": 0, "confirmed": 0, "pending": 0, "stale": 0}
+    if isinstance(reg, dict):
+        for pid, meta in reg.items():
+            if not isinstance(meta, dict):
+                continue
+            try:
+                rel_p = kb.page_path(root, pid).relative_to(root).as_posix()
+            except Exception:
+                rel_p = ""
+            st = str(meta.get("status") or "待确认")
+            page_stats["total"] += 1
+            if st == "已确认":
+                page_stats["confirmed"] += 1
+            elif st in ("已过期", "stale"):
+                page_stats["stale"] += 1
+            else:
+                page_stats["pending"] += 1
+            if rel_p:
+                path_to_meta[rel_p] = {
+                    "pageId": pid,
+                    "title": str(meta.get("title") or pid),
+                    "scope": str(meta.get("scope") or ""),
+                    "status": st,
+                    "summary": str(meta.get("summary") or "")[:180],
+                    "updated": str(meta.get("updated") or ""),
+                }
+
+    special_labels = [
+        ("index.md", "项目知识总览"),
+        ("glossary.md", "业务术语表"),
+        ("decisions.md", "架构决策记录 (ADR)"),
+        ("pitfalls.md", "历史踩坑与避坑"),
+        ("open-questions.md", "待澄清问题池"),
+    ]
+    special_docs = []
+    kb_dir = root / ".tmh" / "knowledge"
+    if kb_dir.is_dir():
+        for fname, label in special_labels:
+            fp = kb_dir / fname
+            if fp.is_file():
+                special_docs.append({
+                    "name": fname,
+                    "title": label,
+                    "path": fp.relative_to(root).as_posix(),
+                    "size": fp.stat().st_size,
+                })
+
+    for pg in pages:
+        m = path_to_meta.get(pg["path"])
+        if m:
+            pg.update(m)
+        else:
+            p = pg["path"]
+            pg["pageId"] = ""
+            pg["title"] = pg["name"].replace(".md", "")
+            pg["scope"] = "业务域" if "/domains/" in p else "业务流程" if "/flows/" in p else "数据实体" if "/entities/" in p else "总览与规范"
+            pg["status"] = "待确认"
+            pg["summary"] = ""
+            pg["updated"] = ""
+
+    open_q_count = 0
+    try:
+        from tmh import kbqa
+        qs = kbqa.questions(root)
+        open_q_count = sum(1 for q in qs if str(q.get("status") or "").strip() in ("", "open", "待确认", "待澄清"))
+    except Exception:
+        open_q_count = 0
 
     dom_title = {}
     for n in dom_nodes:
@@ -258,6 +326,9 @@ def _overview(repo_path: str | None) -> dict:
         "flowCount": len(flows),
         "tableCount": len(tables),
         "pageCount": len(pages),
+        "pageStats": page_stats,
+        "specialDocs": special_docs,
+        "openQuestionCount": open_q_count,
         "flowsWithTables": len(crud_matrix),
         "coverage": kb.coverage(reg),
         "domains": domains,
@@ -265,7 +336,7 @@ def _overview(repo_path: str | None) -> dict:
         "tables": tables[:200],
         "erEdges": er_edges[:300],
         "crudMatrix": crud_matrix[:200],
-        "pages": pages[:300],
+        "pages": pages[:500],
         "builtinDocs": builtins,
     }
 
@@ -628,6 +699,145 @@ def _statecharts(repo_path: str | None) -> dict:
     return {"repoPath": str(root), "charts": charts}
 
 
+def _impact(repo_path: str, target: str, depth: int = 3) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    t = (target or "").strip()
+    if not t:
+        raise ValueError("请输入要分析变更影响的文件路径、符号、表名或接口关键词")
+    from tmh import query as tmh_query
+    from tmh.graph import Graph, graph_path
+
+    raw_impact = {}
+    try:
+        raw_impact = tmh_query.impact(root, t, depth=max(1, min(depth or 3, 5)), limit=80) or {}
+    except Exception:
+        raw_impact = {}
+
+    affected_flows = []
+    affected_domains: dict[str, int] = {}
+    affected_tables = []
+    gp = graph_path(root)
+    if gp.exists():
+        g = Graph(root)
+        tl = t.lower()
+        for f in g.nodes("flow"):
+            dd = f.get("data") or {}
+            crud = dd.get("crud") or {}
+            hay = " ".join([
+                str(f.get("name") or ""),
+                str(f.get("file") or ""),
+                str(dd.get("trigger") or ""),
+                str(dd.get("handler") or ""),
+                " ".join(crud.keys()),
+            ]).lower()
+            if tl in hay:
+                dom = f.get("domain") or "（未划分）"
+                affected_domains[dom] = affected_domains.get(dom, 0) + 1
+                affected_flows.append({
+                    "id": f["id"],
+                    "name": f.get("name") or f["id"],
+                    "domain": dom,
+                    "trigger": dd.get("trigger") or "",
+                    "file": f.get("file") or "",
+                    "line": f.get("line") or 0,
+                    "tables": list(crud.keys()),
+                })
+        for tbl in g.nodes("tbl"):
+            tname = str(tbl.get("name") or "")
+            if tl in tname.lower() or tl in str(tbl.get("file") or "").lower():
+                affected_tables.append({
+                    "name": tname,
+                    "file": tbl.get("file") or "",
+                    "line": tbl.get("line") or 0,
+                    "users": len(g.inn(tbl["id"], "uses")),
+                })
+
+    return {
+        "repoPath": str(root),
+        "target": t,
+        "depth": depth,
+        "codeImpact": raw_impact,
+        "affectedDomains": [
+            {"domain": k, "flowCount": v}
+            for k, v in sorted(affected_domains.items(), key=lambda kv: -kv[1])
+        ],
+        "affectedFlows": affected_flows[:60],
+        "affectedTables": affected_tables[:30],
+    }
+
+
+def _chain(repo_path: str, query: str, flows: int = 6) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    q = (query or "").strip()
+    if not q:
+        raise ValueError("请输入业务问题或需求描述")
+    from tmh import kbqa
+    c = kbqa.chain(root, q, budget=24000, flows=max(1, min(flows or 6, 12)))
+    text = kbqa.chain_text(root, c)
+    return {
+        "repoPath": str(root),
+        "query": q,
+        "chain": c,
+        "markdown": text,
+    }
+
+
+def _questions(repo_path: str) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    from tmh import kbqa
+    rows = kbqa.questions(root)
+    return {"repoPath": str(root), "questions": rows}
+
+
+def _ask_question(repo_path: str, question: str, pages: list[str], who: str) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    q = (question or "").strip()
+    if not q:
+        raise ValueError("问题内容不能为空")
+    from tmh import kbqa
+    num = kbqa.ask(root, q, [p for p in (pages or []) if p], who=who or "", by=who or "user")
+    return {"ok": True, "id": num, "questions": kbqa.questions(root)}
+
+
+def _answer_question(repo_path: str, num: int, text: str, by: str) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    if num <= 0 or not (text or "").strip():
+        raise ValueError("请提供有效的问题编号与回答内容")
+    from tmh import kbqa
+    res = kbqa.answer(root, num, text.strip(), by or "user")
+    return {"ok": True, "result": res, "questions": kbqa.questions(root)}
+
+
+def _confirm_page(repo_path: str, page_id: str, by: str) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    pid = (page_id or "").strip()
+    if not pid:
+        raise ValueError("pageId 不能为空")
+    from tmh import kb
+    reg = kb.load_registry(root)
+    entry = reg.get(pid)
+    if not isinstance(entry, dict):
+        raise ValueError(f"知识页注册表中未找到: {pid}")
+    entry["status"] = "已确认"
+    entry["confirmedBy"] = by or "user"
+    entry["confirmedAt"] = time.strftime("%Y-%m-%d %H:%M", time.localtime())
+    reg[pid] = entry
+    kb.save_registry(root, reg, _atomic=True)
+    return {"ok": True, "pageId": pid, "status": "已确认", "entry": entry}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Webuddy KB & Code Graph Bridge")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -656,6 +866,36 @@ def main() -> int:
     p_sc = sub.add_parser("statecharts")
     p_sc.add_argument("--repo", default="")
 
+    p_imp = sub.add_parser("impact")
+    p_imp.add_argument("--repo", required=True)
+    p_imp.add_argument("--target", required=True)
+    p_imp.add_argument("--depth", type=int, default=3)
+
+    p_ch = sub.add_parser("chain")
+    p_ch.add_argument("--repo", required=True)
+    p_ch.add_argument("--query", required=True)
+    p_ch.add_argument("--flows", type=int, default=6)
+
+    p_qs = sub.add_parser("questions")
+    p_qs.add_argument("--repo", required=True)
+
+    p_ask = sub.add_parser("ask")
+    p_ask.add_argument("--repo", required=True)
+    p_ask.add_argument("--question", required=True)
+    p_ask.add_argument("--pages", default="")
+    p_ask.add_argument("--who", default="user")
+
+    p_ans = sub.add_parser("answer")
+    p_ans.add_argument("--repo", required=True)
+    p_ans.add_argument("--num", type=int, required=True)
+    p_ans.add_argument("--text", required=True)
+    p_ans.add_argument("--by", default="user")
+
+    p_cf = sub.add_parser("confirm-page")
+    p_cf.add_argument("--repo", required=True)
+    p_cf.add_argument("--page-id", required=True)
+    p_cf.add_argument("--by", default="user")
+
     args = parser.parse_args()
     try:
         if args.cmd == "scan":
@@ -670,6 +910,19 @@ def main() -> int:
             out = _verify_evidence(args.repo, args.ref)
         elif args.cmd == "statecharts":
             out = _statecharts(args.repo or None)
+        elif args.cmd == "impact":
+            out = _impact(args.repo, args.target, args.depth)
+        elif args.cmd == "chain":
+            out = _chain(args.repo, args.query, args.flows)
+        elif args.cmd == "questions":
+            out = _questions(args.repo)
+        elif args.cmd == "ask":
+            pgs = [x.strip() for x in (args.pages or "").split(",") if x.strip()]
+            out = _ask_question(args.repo, args.question, pgs, args.who)
+        elif args.cmd == "answer":
+            out = _answer_question(args.repo, args.num, args.text, args.by)
+        elif args.cmd == "confirm-page":
+            out = _confirm_page(args.repo, args.page_id, args.by)
         else:
             raise ValueError(f"unknown command: {args.cmd}")
         sys.stdout.write(json.dumps(out, ensure_ascii=False))

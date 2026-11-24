@@ -133,6 +133,10 @@ func (h *webuddyKBHandlers) dispatchMCPTool(ctx context.Context, name string, ar
 		return h.svc.Overview(ctx, strArg("repoPath"))
 	case "kb_verify_evidence":
 		return h.svc.VerifyEvidence(ctx, strArg("repoPath"), strArg("ref"))
+	case "kb_impact":
+		return h.svc.Impact(ctx, strArg("repoPath"), strArg("target"), intArg("depth"))
+	case "kb_chain":
+		return h.svc.Chain(ctx, strArg("repoPath"), strArg("query"), intArg("flows"))
 	default:
 		return nil, &agentToolUnknownError{Name: name}
 	}
@@ -191,6 +195,32 @@ func webuddyKBToolSpecs() []map[string]any {
 					"ref":      map[string]any{"type": "string", "description": "源码引用，例如 internal/httpapi/server.go:1-20"},
 				},
 				"required": []string{"repoPath", "ref"},
+			},
+		},
+		{
+			"name":        "kb_impact",
+			"description": "变更影响面分析：输入文件路径、符号、表名或接口关键词，返回受影响的调用链、业务域、业务流程与数据表。",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repoPath": map[string]any{"type": "string", "description": "本地代码仓库路径"},
+					"target":   map[string]any{"type": "string", "description": "要分析影响的文件/符号/表名/接口"},
+					"depth":    map[string]any{"type": "integer", "description": "调用链深度，默认 3"},
+				},
+				"required": []string{"repoPath", "target"},
+			},
+		},
+		{
+			"name":        "kb_chain",
+			"description": "业务链路证据问答：输入业务需求或问题，自动追溯关联业务域、流程、实体与可核验源码证据链。",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repoPath": map[string]any{"type": "string", "description": "本地代码仓库路径"},
+					"query":    map[string]any{"type": "string", "description": "业务问题或需求描述"},
+					"flows":    map[string]any{"type": "integer", "description": "最多追踪流程数，默认 6"},
+				},
+				"required": []string{"repoPath", "query"},
 			},
 		},
 	}

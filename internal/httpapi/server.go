@@ -546,6 +546,12 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/webuddy/kb/file", api.webuddyKB.file)
 	g.POST("/api/webuddy/kb/verify-evidence", api.webuddyKB.verifyEvidence)
 	g.GET("/api/webuddy/kb/statecharts", api.webuddyKB.statecharts)
+	g.POST("/api/webuddy/kb/impact", api.webuddyKB.impact)
+	g.POST("/api/webuddy/kb/chain", api.webuddyKB.chain)
+	g.GET("/api/webuddy/kb/questions", api.webuddyKB.questions)
+	g.POST("/api/webuddy/kb/questions/ask", api.webuddyKB.askQuestion)
+	g.POST("/api/webuddy/kb/questions/answer", api.webuddyKB.answerQuestion)
+	g.POST("/api/webuddy/kb/confirm-page", api.webuddyKB.confirmPage)
 	g.POST("/api/webuddy/kb/mcp", api.webuddyKB.mcp)
 
 	// --- runs ---
