@@ -80,26 +80,44 @@
         <span class="rail-label">工作台</span>
       </button>
 
-      <!-- 2. 知识库与代码图谱 (Webuddy Core) -->
+      <!-- 2. 需求（工单） -->
+      <button class="rail-btn nav" data-view="issues" data-tooltip="需求" aria-label="需求">
+        <svg class="agent-icon harness-icon" data-icon="form" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M8 8h8"/><path class="form-fields" d="M8 12h8M8 16h5"/></svg>
+        <span class="rail-label">需求</span>
+      </button>
+
+      <!-- 3. 流程模板 (SOP) -->
+      <button class="rail-btn nav" data-view="sops" data-nav-match="flow" data-tooltip="流程模板 (SOP)" aria-label="流程模板">
+        <svg class="agent-icon harness-icon" data-icon="workflow" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle class="node-a" cx="6" cy="6" r="2.2" fill="currentColor" fill-opacity="0"/><circle class="node-b" cx="6" cy="18" r="2.2" fill="currentColor" fill-opacity="0"/><circle class="node-c" cx="18" cy="12" r="2.2" fill="currentColor" fill-opacity="0"/><path pathLength="1" d="M8.2 6C12 6 14 8.2 16.45 10.45M8.2 18C12 18 14 15.8 16.45 13.55"/><path class="signal" pathLength="1" d="M8.2 6C12 6 14 8.2 16.45 10.45M8.2 18C12 18 14 15.8 16.45 13.55" opacity="0" stroke-width="2.5"/></svg>
+        <span class="rail-label">SOP</span>
+      </button>
+
+      <!-- 4. 知识库与代码图谱 (Webuddy Core) -->
       <button class="rail-btn nav" data-view="knowledgebase" data-tooltip="知识库与图谱" aria-label="知识库">
         <svg class="agent-icon harness-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <span class="rail-label">知识库</span>
       </button>
 
-      <!-- 3. 代码审查 (Webuddy Core) -->
+      <!-- 5. 代码审查 (Webuddy Core) -->
       <button class="rail-btn nav" data-view="codereview" data-tooltip="代码审查" aria-label="代码审查">
         <svg class="agent-icon harness-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/><line x1="14" y1="4" x2="10" y2="20"/></svg>
         <span class="rail-label">代码审查</span>
       </button>
 
-      <!-- 4. 待我确认 (审批关口) -->
+      <!-- 6. 待我确认 (审批关口) -->
       <button class="rail-btn nav" data-view="approvals" data-tooltip="待我确认" aria-label="待我确认">
         <svg class="agent-icon harness-icon" data-icon="gate" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="gate-shield" d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path class="gate-check agent-check-draw" pathLength="1" d="m9 12 2 2 4-4"/></svg>
         <span class="rail-label">待我确认</span>
         <span id="approvalNavBadge" class="nav-badge" hidden></span>
       </button>
 
-      <!-- 5. 使用指引与官网 -->
+      <!-- 7. 效能统计 -->
+      <button class="rail-btn nav" data-view="observability" data-tooltip="效能统计" aria-label="效能统计">
+        <svg class="agent-icon harness-icon" data-icon="chart" data-icon-motion="idle" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 17V9"/><path d="M12 17V7"/><path d="M16 17v-5"/></svg>
+        <span class="rail-label">效能</span>
+      </button>
+
+      <!-- 8. 使用指引与官网 -->
       <button class="rail-btn nav" data-view="onboarding" data-tooltip="使用指引" aria-label="使用指引">
         <svg class="agent-icon harness-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <span class="rail-label">使用指引</span>
@@ -145,10 +163,7 @@
       <p>项目</p>
       <button class="nav" data-view="projects"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="users" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><g class="team-front"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/></g><g class="team-back"><path d="M16 5a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 5v1"/></g></svg></span><span class="nav-label">项目配置</span></button>
       <button class="nav" data-view="bots" aria-label="通道管理" title="通道管理"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="robot" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="8" width="16" height="11" rx="2"/><path class="antenna" d="M12 3v5"/><path class="eyes" d="M8 13h.01M16 13h.01"/><path class="mouth" d="M9 17h6"/></svg></span><span class="nav-label">通道管理</span></button>
-      <p>高级编排与统计</p>
-      <button class="nav" data-view="issues"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="form" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M8 8h8"/><path class="form-fields" d="M8 12h8M8 16h5"/></svg></span><span class="nav-label">需求列表</span></button>
-      <button class="nav" data-view="observability"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="chart" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 17V9"/><path d="M12 17V7"/><path d="M16 17v-5"/></svg></span><span class="nav-label">效能统计</span></button>
-      <button class="nav" data-view="sops" data-nav-match="flow"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="workflow" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle class="node-a" cx="6" cy="6" r="2.2" fill="currentColor" fill-opacity="0"/><circle class="node-b" cx="6" cy="18" r="2.2" fill="currentColor" fill-opacity="0"/><circle class="node-c" cx="18" cy="12" r="2.2" fill="currentColor" fill-opacity="0"/><path pathLength="1" d="M8.2 6C12 6 14 8.2 16.45 10.45M8.2 18C12 18 14 15.8 16.45 13.55"/><path class="signal" pathLength="1" d="M8.2 6C12 6 14 8.2 16.45 10.45M8.2 18C12 18 14 15.8 16.45 13.55" opacity="0" stroke-width="2.5"/></svg></span><span class="nav-label">流程模板</span></button>
+      <p>编排与运行</p>
       <button class="nav" data-view="runs"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="runs" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path class="motion-target" d="M10 9l5 3-5 3z"/></svg></span><span class="nav-label">运行记录</span></button>
       <button class="nav" data-view="aiSchedules"><span class="nav-icon"><svg class="agent-icon harness-icon" data-icon="clock" data-icon-motion="idle" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="nav-label">定时任务</span></button>
       <p>Agent 能力</p>
