@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/envprobe"
 
 	"github.com/gorilla/websocket"
 )
@@ -161,6 +162,7 @@ type HeartbeatRequest struct {
 	RunningTasks int                    `json:"runningTasks"`
 	Version      string                 `json:"version,omitempty"`
 	Runtimes     []domain.RunnerRuntime `json:"runtimes,omitempty"`
+	HostProfile  *envprobe.HostProfile  `json:"hostProfile,omitempty"`
 }
 
 type HeartbeatResponse struct {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/envprobe"
 	"agentflow/internal/gitwork"
 	"agentflow/internal/repo"
 
@@ -713,6 +714,7 @@ func (h *runnersHandlers) runnerHeartbeat(c *gin.Context) {
 		RunningTasks int                    `json:"runningTasks"`
 		Version      string                 `json:"version"`
 		Runtimes     []domain.RunnerRuntime `json:"runtimes"`
+		HostProfile  *envprobe.HostProfile  `json:"hostProfile"`
 	}
 	if !decode(c, &input) {
 		return
@@ -722,6 +724,9 @@ func (h *runnersHandlers) runnerHeartbeat(c *gin.Context) {
 	if err := h.repo.RunnerHeartbeat(runner.ID, input.Runtimes, strings.TrimSpace(input.Version), now, expires); err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	if input.HostProfile != nil && h.runnerProfiles != nil {
+		h.runnerProfiles.Store(runner.ID, *input.HostProfile)
 	}
 	c.JSON(http.StatusOK, map[string]any{"ok": true, "serverTime": now, "expiresAt": expires})
 }

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"agentflow/internal/domain"
+	"agentflow/internal/envprobe"
 	"agentflow/internal/gitwork"
 	"agentflow/internal/procwatch"
 	"agentflow/internal/runtime"
@@ -60,6 +61,7 @@ type Daemon struct {
 	workspaceTerminals   runtime.TerminalPool
 	checkpointTransfers  runtime.CheckpointTransfers
 	workspaceGates       sync.Map // run ID -> *sync.RWMutex; fences manual writes locally
+	envProber            *envprobe.ProbeManager
 }
 
 type Config struct {
@@ -136,7 +138,8 @@ func New(cfg Config) (*Daemon, error) {
 		cfg.Name = host
 	}
 	return &Daemon{cfg: cfg, client: NewClient(cfg.ServerURL), executor: runtime.NewExecutorRunner(),
-		controls: map[string]chan string{}, pendingControls: map[string]string{}, heartbeatWake: make(chan struct{}, 1)}, nil
+		controls: map[string]chan string{}, pendingControls: map[string]string{}, heartbeatWake: make(chan struct{}, 1),
+		envProber: envprobe.NewProbeManager(envprobe.DefaultProbeTTL)}, nil
 }
 
 func trimTrailingSlash(s string) string {
@@ -414,6 +417,13 @@ func (d *Daemon) heartbeatLoop(ctx context.Context) {
 			RunningTasks: int(atomic.LoadInt32(&d.running)),
 			Version:      runnerVersion,
 			Runtimes:     d.currentRuntimes(),
+		}
+		if d.envProber != nil && d.cfg.HeartbeatInterval >= 5*time.Second && os.Getenv("AGENTFLOW_DISABLE_ENV_PROBE") == "" {
+			d.envProber.TriggerProbeAsync(false)
+			snapCtx, snapCancel := context.WithTimeout(ctx, 5*time.Second)
+			prof := d.envProber.Snapshot(snapCtx)
+			snapCancel()
+			req.HostProfile = &prof
 		}
 		if req.RunningTasks > 0 {
 			req.Status = "busy"

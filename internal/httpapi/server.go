@@ -24,6 +24,7 @@ import (
 	"agentflow/internal/config"
 	"agentflow/internal/domain"
 	"agentflow/internal/engine"
+	"agentflow/internal/envprobe"
 	"agentflow/internal/knowledge"
 	"agentflow/internal/mcpserver"
 	"agentflow/internal/notification"
@@ -48,6 +49,8 @@ type deps struct {
 	api        http.Handler
 	// passwordAttempts is this server's brute-force budget (auth_password.go).
 	passwordAttempts *passwordLimiter
+	envProber        *envprobe.ProbeManager
+	runnerProfiles   *stdsync.Map
 }
 
 // configureSync 是跨领域共享的依赖配置行为（mcp/issues/sync 都调用）。
@@ -98,6 +101,7 @@ type Server struct {
 	know            *knowledgeHandlers   // knowledge.go / knowledge_proxy.go
 	codeReview      *codeReviewHandlers  // codereview.go
 	webuddyKB       *webuddyKBHandlers   // webuddy_kb.go
+	webuddyEnv      *webuddyEnvHandlers  // webuddy_env.go
 }
 
 func New(s *repo.Store, e *engine.Engine, syncSvc *tracker.Service, basicUser, basicPass string) *gin.Engine {
@@ -128,7 +132,15 @@ func NewWithNotificationsAndBackground(ctx context.Context, s *repo.Store, e *en
 }
 
 func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Service, basicUser, basicPass string, notifications *notification.Service, bg *Background, startBackground func(*assistantHandlers, *runsHandlers)) *gin.Engine {
-	d := &deps{repo: s, engine: e, sync: syncSvc, authClient: auth.NewClientFromEnv(), passwordAttempts: newPasswordLimiter()}
+	d := &deps{
+		repo:             s,
+		engine:           e,
+		sync:             syncSvc,
+		authClient:       auth.NewClientFromEnv(),
+		passwordAttempts: newPasswordLimiter(),
+		envProber:        envprobe.NewProbeManager(envprobe.DefaultProbeTTL),
+		runnerProfiles:   &stdsync.Map{},
+	}
 	if trustGatewayIdentityHeaders() && strings.TrimSpace(os.Getenv("AGENTFLOW_IDENTITY_HEADER_SECRET")) == "" {
 		log.Printf("warning: AGENTFLOW_TRUST_IDENTITY_HEADERS is on without AGENTFLOW_IDENTITY_HEADER_SECRET; any loopback caller without forwarding headers, including a proxy that passes client headers through, can sign in as any user")
 	}
@@ -181,6 +193,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		know:            &knowledgeHandlers{deps: d, svc: knowledge.NewService(d.repo, randomID), activity: &knowledgeActivityLog{}},
 		codeReview:      &codeReviewHandlers{deps: d, svc: codereview.NewService(d.repo, randomID)},
 		webuddyKB:       &webuddyKBHandlers{deps: d, svc: webuddykb.NewService()},
+		webuddyEnv:      &webuddyEnvHandlers{deps: d},
 	}
 	e.WorkspaceActive = func(run domain.Run) bool { return api.runs.terminals.HasRunScope(run.ID) }
 	api.catalog.notifications = api.notifications
@@ -553,6 +566,11 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/webuddy/kb/questions/answer", api.webuddyKB.answerQuestion)
 	g.POST("/api/webuddy/kb/confirm-page", api.webuddyKB.confirmPage)
 	g.POST("/api/webuddy/kb/mcp", api.webuddyKB.mcp)
+	g.GET("/api/webuddy/env/overview", api.webuddyEnv.overview)
+	g.POST("/api/webuddy/env/probe", api.webuddyEnv.probe)
+	g.POST("/api/webuddy/env/mount-kb", api.webuddyEnv.mountKB)
+	g.POST("/api/webuddy/env/import-mcp", api.webuddyEnv.importMCP)
+	g.POST("/api/webuddy/env/set-default-runner", api.webuddyEnv.setDefaultRunner)
 
 	// --- runs ---
 	g.GET("/api/runs", api.runs.runs)
