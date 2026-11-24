@@ -554,6 +554,18 @@ def _statecharts(repo_path: str | None) -> dict:
 
     charts: list[dict] = []
 
+    from tmh.graph import Graph, graph_path
+    gp = graph_path(root)
+    dom_title: dict[str, str] = {}
+    if gp.exists():
+        g_pre = Graph(root)
+        for dn in g_pre.nodes("dom"):
+            t_lbl = dn.get("label") or dn.get("name") or ""
+            if dn.get("name"):
+                dom_title[dn["name"]] = t_lbl
+            if dn["id"].startswith("dom:"):
+                dom_title[dn["id"][4:]] = t_lbl
+
     # 1. Native .tmh/knowledge/statecharts/*.json
     sc_dir = root / ".tmh" / "knowledge" / "statecharts"
     if sc_dir.is_dir():
@@ -570,10 +582,14 @@ def _statecharts(repo_path: str | None) -> dict:
                 if isinstance(meta, dict):
                     n["where"] = str(meta.get("where") or "")
                     n["summary"] = str(meta.get("summary") or "")
+            dom_key = str(data.get("domain") or fp.stem)
+            raw_title = str(data.get("title") or fp.stem)
+            cn_title = dom_title.get(dom_key) or dom_title.get(fp.stem) or ""
+            display_title = f"{cn_title} ({raw_title})" if cn_title and cn_title != raw_title else raw_title
             charts.append({
                 "id": fp.stem,
-                "title": str(data.get("title") or fp.stem),
-                "domain": str(data.get("domain") or ""),
+                "title": display_title,
+                "domain": dom_key,
                 "sourceKind": "native",
                 "sourceLabel": "状态图文件 (.tmh/knowledge/statecharts)",
                 "status": str(data.get("status") or "待确认"),

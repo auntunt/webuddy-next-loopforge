@@ -543,6 +543,9 @@
 
   /**
    * Renders interactive Business Statecharts + live StatechartCodePinpoint viewer.
+   * Uses clean non-overlapping routing: adjacent forward edges run in generous gaps
+   * with pill labels; skip-forward edges arc above nodes; backward/cycle edges arc
+   * below nodes; node cards use opaque panel fills so edges never bleed through.
    */
   function renderStatechartsView(container, data, opts) {
     if (!container) return;
@@ -552,7 +555,14 @@
       return;
     }
 
-    const scState = container._wbScState || { selectedChartId: charts[0].id, selectedNodeId: '', pinpoint: null, loadingPin: false };
+    const scState = container._wbScState || {
+      selectedChartId: charts[0].id,
+      selectedNodeId: '',
+      filter: '',
+      zoom: 1,
+      pinpoint: null,
+      loadingPin: false,
+    };
     if (!charts.some(c => c.id === scState.selectedChartId)) scState.selectedChartId = charts[0].id;
     container._wbScState = scState;
 
@@ -586,28 +596,115 @@
       const nodes = chart.nodes || [];
       const edges = chart.edges || [];
       const rules = chart.rules || [];
+      const nodeLabelMap = { '[*]': '开始 / 结束' };
+      nodes.forEach(n => { nodeLabelMap[n.id] = n.label || n.id; });
 
-      // Layout state nodes left-to-right with clean curved transitions
-      const nodeW = 210, nodeH = 68, gapX = 54;
-      const startX = 74, centerY = 96;
-      const W = Math.max(760, startX + nodes.length * (nodeW + gapX) + 40);
-      const H = 200;
+      // Generous horizontal spacing so labels fit cleanly between cards
+      const nodeW = 224, nodeH = 84, gapX = 124;
+      const startX = 96;
+      const idxMap = { '[*]': -1 };
+      nodes.forEach((n, i) => { idxMap[n.id] = i; });
 
-      const nPos = { '[*]': { x: 24, y: centerY - 12, w: 24, h: 24 } };
+      // Count skip-forward (above) & backward/cycle (below) arcs to size vertical margins cleanly
+      let topArcCount = 0;
+      let bottomArcCount = 0;
+      const routedEdges = edges.map(e => {
+        const i1 = idxMap[e.from];
+        const i2 = idxMap[e.to];
+        if (i1 === undefined || i2 === undefined) return null;
+        if (e.from === '[*]' && i2 === 0) return { edge: e, kind: 'start', lane: 0 };
+        if (e.to === '[*]') return { edge: e, kind: 'end', lane: 0 };
+        if (i2 === i1 + 1) return { edge: e, kind: 'adjacent', lane: 0 };
+        if (i2 > i1 + 1) {
+          topArcCount++;
+          return { edge: e, kind: 'skip', lane: topArcCount };
+        }
+        bottomArcCount++;
+        return { edge: e, kind: 'back', lane: bottomArcCount };
+      }).filter(Boolean);
+
+      const topMargin = 48 + topArcCount * 46;
+      const bottomMargin = 48 + bottomArcCount * 46;
+      const nodeY = topMargin;
+      const centerY = nodeY + nodeH / 2;
+      const hasEndMarker = routedEdges.some(r => r.kind === 'end');
+      const W = Math.max(820, startX + nodes.length * (nodeW + gapX) - gapX + (hasEndMarker ? 110 : 60));
+      const H = Math.max(240, topMargin + nodeH + bottomMargin);
+
+      const nPos = {
+        '[*]': { x: 24, y: centerY - 10, w: 20, h: 20 },
+      };
       nodes.forEach((n, i) => {
-        nPos[n.id] = { x: startX + i * (nodeW + gapX), y: centerY - nodeH / 2, w: nodeW, h: nodeH, tone: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length] };
+        nPos[n.id] = {
+          x: startX + i * (nodeW + gapX),
+          y: nodeY,
+          w: nodeW,
+          h: nodeH,
+          tone: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length],
+        };
       });
+      const endPos = { x: startX + nodes.length * (nodeW + gapX) - gapX + 56, y: centerY - 10, w: 20, h: 20 };
 
-      const edgeSVG = edges.map(e => {
-        const p1 = nPos[e.from], p2 = nPos[e.to];
-        if (!p1 || !p2) return '';
-        const x1 = p1.x + p1.w, y1 = p1.y + p1.h / 2;
-        const x2 = p2.x, y2 = p2.y + p2.h / 2;
-        const mx = (x1 + x2) / 2;
+      function pillLabel(x, y, text, toneColor) {
+        if (!text) return '';
+        const clean = trunc(text, 16);
+        const estW = Math.max(44, clean.length * 10.5 + 18);
         return (
           '<g>' +
-            '<path d="M ' + x1 + ' ' + y1 + ' C ' + mx + ' ' + y1 + ', ' + mx + ' ' + y2 + ', ' + x2 + ' ' + y2 + '" fill="none" stroke="rgba(148,163,184,0.55)" stroke-width="1.8" marker-end="url(#wbScArrow)"/>' +
-            (e.label ? '<text x="' + mx + '" y="' + (y1 - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted,#64748b)">' + esc(trunc(e.label, 14)) + '</text>' : '') +
+            '<rect x="' + (x - estW / 2) + '" y="' + (y - 11) + '" width="' + estW + '" height="20" rx="10" fill="var(--panel, #ffffff)" stroke="' + (toneColor || 'rgba(148,163,184,0.38)') + '" stroke-width="1"/>' +
+            '<text x="' + x + '" y="' + (y + 3) + '" text-anchor="middle" font-size="10.5" font-weight="500" fill="var(--text, #334155)">' + esc(clean) + '</text>' +
+          '</g>'
+        );
+      }
+
+      const edgeSVG = routedEdges.map(item => {
+        const e = item.edge;
+        const p1 = nPos[e.from];
+        const p2 = item.kind === 'end' ? endPos : nPos[e.to];
+        if (!p1 || !p2) return '';
+
+        if (item.kind === 'start' || item.kind === 'adjacent' || item.kind === 'end') {
+          const x1 = p1.x + p1.w;
+          const y1 = p1.y + p1.h / 2;
+          const x2 = p2.x - 2;
+          const y2 = p2.y + p2.h / 2;
+          const mx = (x1 + x2) / 2;
+          return (
+            '<g>' +
+              '<path d="M ' + x1 + ' ' + y1 + ' L ' + x2 + ' ' + y2 + '" fill="none" stroke="rgba(100,116,139,0.55)" stroke-width="1.8" marker-end="url(#wbScArrow)"/>' +
+              pillLabel(mx, y1 - 18, e.label, 'rgba(148,163,184,0.45)') +
+            '</g>'
+          );
+        }
+
+        if (item.kind === 'skip') {
+          const x1 = p1.x + p1.w * 0.65;
+          const y1 = p1.y;
+          const x2 = p2.x + p2.w * 0.35;
+          const y2 = p2.y - 2;
+          const arcY = nodeY - item.lane * 42;
+          const mx = (x1 + x2) / 2;
+          const labelY = 0.25 * y1 + 0.5 * arcY + 0.25 * y2;
+          return (
+            '<g>' +
+              '<path d="M ' + x1 + ' ' + y1 + ' Q ' + mx + ' ' + arcY + ' ' + x2 + ' ' + y2 + '" fill="none" stroke="rgba(59,130,246,0.58)" stroke-width="1.6" marker-end="url(#wbScArrowBlue)"/>' +
+              pillLabel(mx, labelY, e.label, 'rgba(59,130,246,0.38)') +
+            '</g>'
+          );
+        }
+
+        // Back / cycle edge routed cleanly below the cards
+        const x1 = p1.x + p1.w * 0.4;
+        const y1 = p1.y + p1.h;
+        const x2 = p2.x + p2.w * 0.6;
+        const y2 = p2.y + p2.h + 2;
+        const arcY = nodeY + nodeH + item.lane * 44;
+        const mx = (x1 + x2) / 2;
+        const labelY = 0.25 * y1 + 0.5 * arcY + 0.25 * y2;
+        return (
+          '<g>' +
+            '<path d="M ' + x1 + ' ' + y1 + ' Q ' + mx + ' ' + arcY + ' ' + x2 + ' ' + y2 + '" fill="none" stroke="rgba(139,92,246,0.58)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#wbScArrowPurple)"/>' +
+            pillLabel(mx, labelY, e.label, 'rgba(139,92,246,0.38)') +
           '</g>'
         );
       }).join('');
@@ -617,16 +714,21 @@
         const sel = scState.selectedNodeId === n.id;
         return (
           '<g class="wb-svg-node" data-sc-node="' + esc(n.id) + '" data-sc-where="' + esc(n.where || '') + '" data-sc-label="' + esc(n.label) + '" style="cursor:pointer">' +
-            '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="10" fill="' + p.tone.soft + '" stroke="' + p.tone.stroke + '" stroke-width="' + (sel ? '2.8' : '1.4') + '"/>' +
-            '<text x="' + (p.x + 12) + '" y="' + (p.y + 24) + '" font-size="12.5" font-weight="700" fill="currentColor">' + esc(trunc(n.label, 18)) + '</text>' +
-            '<text x="' + (p.x + 12) + '" y="' + (p.y + 42) + '" font-size="10.5" fill="var(--muted,#64748b)">' + esc(trunc(n.summary || '点击定位源码', 22)) + '</text>' +
-            '<text x="' + (p.x + 12) + '" y="' + (p.y + 58) + '" font-size="10" fill="' + p.tone.stroke + '">' + (n.where ? '⌖ ' + esc(trunc(n.where, 24)) : '无源码引用') + '</text>' +
+            '<rect x="' + p.x + '" y="' + p.y + '" width="' + p.w + '" height="' + p.h + '" rx="12" fill="var(--panel, #ffffff)" stroke="' + p.tone.stroke + '" stroke-width="' + (sel ? '2.6' : '1.4') + '"/>' +
+            '<rect x="' + p.x + '" y="' + p.y + '" width="6" height="' + p.h + '" rx="3" fill="' + p.tone.stroke + '"/>' +
+            '<text x="' + (p.x + 16) + '" y="' + (p.y + 25) + '" font-size="13" font-weight="700" fill="var(--text-strong, #0f172a)">' + esc(trunc(n.label, 16)) + '</text>' +
+            '<text x="' + (p.x + 16) + '" y="' + (p.y + 46) + '" font-size="11" fill="var(--muted, #64748b)">' + esc(trunc(n.summary || '点击查看关联源码', 20)) + '</text>' +
+            '<text x="' + (p.x + 16) + '" y="' + (p.y + 67) + '" font-size="10.5" fill="' + p.tone.stroke + '">' + (n.where ? '⌖ ' + esc(trunc(n.where, 24)) : '状态节点') + '</text>' +
           '</g>'
         );
       }).join('');
 
+      const endMarkerSVG = hasEndMarker
+        ? '<circle cx="' + (endPos.x + 10) + '" cy="' + centerY + '" r="9" fill="none" stroke="#10b981" stroke-width="2"/><circle cx="' + (endPos.x + 10) + '" cy="' + centerY + '" r="5" fill="#10b981"/>'
+        : '';
+
       // Code pinpoint viewer
-      let pinHTML = '<div class="wb-panel wb-empty" style="padding:18px">点击上方任意状态节点，或下方任意业务规则的 <code>文件:行号</code>，在此实时展开精准定位的源码上下文。</div>';
+      let pinHTML = '<div class="wb-panel wb-empty" style="padding:16px">点击上方任意状态节点，或下方任意业务规则的 <code>文件:行号</code>，在此实时展开精准定位的源码上下文。</div>';
       if (scState.loadingPin) {
         pinHTML = '<div class="wb-panel wb-empty">正在读取源码精准定位…</div>';
       } else if (scState.pinpoint) {
@@ -647,44 +749,93 @@
         }
       }
 
-      const listHTML = charts.map(c =>
+      const q = (scState.filter || '').trim().toLowerCase();
+      const filteredCharts = q
+        ? charts.filter(c => ((c.title || '') + ' ' + (c.domain || '') + ' ' + (c.id || '')).toLowerCase().includes(q))
+        : charts;
+
+      const listHTML = filteredCharts.map(c =>
         '<button type="button" class="wb-list-item ' + (c.id === chart.id ? 'active' : '') + '" data-sc-chart="' + esc(c.id) + '">' +
           '<div class="wb-item-top"><span class="wb-item-title">' + esc(c.title) + '</span><span class="wb-badge ' + (c.sourceKind === 'native' ? 'pass' : 'info') + '">' + esc(c.status) + '</span></div>' +
-          '<div class="wb-meta"><span>' + (c.nodes || []).length + ' 状态</span><span>' + (c.rules || []).length + ' 规则</span></div>' +
+          '<div class="wb-meta"><span>' + (c.nodes || []).length + ' 状态</span><span>' + (c.edges || []).length + ' 流转</span><span>' + (c.rules || []).length + ' 规则</span></div>' +
         '</button>'
-      ).join('');
+      ).join('') || '<div class="wb-empty" style="padding:12px">无匹配状态图</div>';
+
+      const transitionsHTML = edges.length
+        ? '<div class="wb-panel">' +
+            '<h3>状态流转清单 (' + edges.length + ')</h3>' +
+            '<table class="wb-table"><thead><tr><th>起始状态</th><th>触发条件 / 动作</th><th>目标状态</th></tr></thead><tbody>' +
+              edges.map(e =>
+                '<tr><td><b>' + esc(nodeLabelMap[e.from] || e.from) + '</b></td><td><span class="wb-badge info">' + esc(e.label || '流转') + '</span></td><td><b>' + esc(nodeLabelMap[e.to] || e.to) + '</b></td></tr>'
+              ).join('') +
+            '</tbody></table>' +
+          '</div>'
+        : '';
+
+      const scaledW = Math.round(W * scState.zoom);
+      const scaledH = Math.round(H * scState.zoom);
 
       container.innerHTML =
         '<div class="wb-split">' +
-          '<div class="wb-panel"><h3>业务状态图 (' + charts.length + ')</h3><div class="wb-list">' + listHTML + '</div></div>' +
-          '<div style="display:flex;flex-direction:column;gap:12px">' +
+          '<div class="wb-panel">' +
+            '<h3 style="margin:0 0 8px">业务状态图 (' + filteredCharts.length + '/' + charts.length + ')</h3>' +
+            '<input type="search" id="wbScFilterInput" value="' + esc(scState.filter) + '" placeholder="筛选业务域 / 状态图…" style="width:100%;margin-bottom:10px">' +
+            '<div class="wb-list" style="max-height:62vh">' + listHTML + '</div>' +
+          '</div>' +
+          '<div style="display:flex;flex-direction:column;gap:12px;min-width:0">' +
             '<div class="wb-panel">' +
-              '<div class="wb-item-top" style="margin-bottom:8px">' +
+              '<div class="wb-item-top" style="margin-bottom:10px">' +
                 '<div><h3 style="margin:0">' + esc(chart.title) + '</h3><p class="wb-subtitle" style="margin:2px 0 0">' + esc(chart.sourceLabel) + ' · 点击任意状态节点精准定位代码行</p></div>' +
-                '<span class="wb-badge ' + (chart.sourceKind === 'native' ? 'pass' : 'info') + '">' + esc(chart.sourceKind === 'native' ? '真实状态图文件' : '图谱实测推导') + '</span>' +
+                '<div class="wb-actions">' +
+                  '<button type="button" class="button ghost small" id="wbScZoomOut" title="缩小">−</button>' +
+                  '<span class="wb-meta">' + Math.round(scState.zoom * 100) + '%</span>' +
+                  '<button type="button" class="button ghost small" id="wbScZoomIn" title="放大">+</button>' +
+                  '<button type="button" class="button ghost small" id="wbScZoomReset">重置</button>' +
+                  '<span class="wb-badge ' + (chart.sourceKind === 'native' ? 'pass' : 'info') + '">' + esc(chart.sourceKind === 'native' ? '真实状态图文件' : '图谱实测推导') + '</span>' +
+                '</div>' +
               '</div>' +
-              '<div class="wb-dot-canvas" style="max-height:260px">' +
-                '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">' +
-                  '<defs><marker id="wbScArrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="rgba(148,163,184,0.75)"/></marker></defs>' +
-                  '<circle cx="36" cy="' + centerY + '" r="8" fill="#3b82f6"/>' +
+              '<div class="wb-dot-canvas" style="overflow:auto;max-height:460px;padding:8px">' +
+                '<svg width="' + scaledW + '" height="' + scaledH + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;min-width:' + scaledW + 'px">' +
+                  '<defs>' +
+                    '<marker id="wbScArrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto"><path d="M0,0.5 L0,6.5 L7.5,3.5 z" fill="rgba(100,116,139,0.8)"/></marker>' +
+                    '<marker id="wbScArrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto"><path d="M0,0.5 L0,6.5 L7.5,3.5 z" fill="rgba(59,130,246,0.8)"/></marker>' +
+                    '<marker id="wbScArrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto"><path d="M0,0.5 L0,6.5 L7.5,3.5 z" fill="rgba(139,92,246,0.8)"/></marker>' +
+                  '</defs>' +
+                  '<circle cx="34" cy="' + centerY + '" r="8" fill="#3b82f6"/>' +
+                  endMarkerSVG +
                   edgeSVG + nodeSVG +
                 '</svg>' +
               '</div>' +
             '</div>' +
             pinHTML +
-            '<div class="wb-panel">' +
-              '<h3>业务规则与代码锚点 (' + rules.length + ')</h3>' +
-              (rules.length
-                ? '<div style="display:flex;flex-direction:column;gap:6px">' + rules.map(rl =>
+            transitionsHTML +
+            (rules.length
+              ? '<div class="wb-panel">' +
+                  '<h3>业务规则与代码锚点 (' + rules.length + ')</h3>' +
+                  '<div style="display:flex;flex-direction:column;gap:6px">' + rules.map(rl =>
                     '<div class="wb-finding-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px">' +
                       '<span style="font-size:12.5px">' + esc(rl.text) + '</span>' +
                       (rl.where ? '<button type="button" class="button ghost small" data-sc-rule-where="' + esc(rl.where) + '" data-sc-rule-label="' + esc(rl.text) + '">⌖ ' + esc(rl.where) + '</button>' : '') +
                     '</div>'
-                  ).join('') + '</div>'
-                : '<div class="wb-empty" style="padding:12px">暂无规则锚点</div>') +
-            '</div>' +
+                  ).join('') + '</div>' +
+                '</div>'
+              : '') +
           '</div>' +
         '</div>';
+
+      const filterEl = container.querySelector('#wbScFilterInput');
+      if (filterEl) {
+        filterEl.addEventListener('input', e => {
+          scState.filter = e.target.value;
+          const caret = e.target.selectionStart;
+          draw();
+          const next = container.querySelector('#wbScFilterInput');
+          if (next) { next.focus(); if (caret != null) next.setSelectionRange(caret, caret); }
+        });
+      }
+      container.querySelector('#wbScZoomOut')?.addEventListener('click', () => { scState.zoom = Math.max(0.55, +(scState.zoom - 0.15).toFixed(2)); draw(); });
+      container.querySelector('#wbScZoomIn')?.addEventListener('click', () => { scState.zoom = Math.min(1.6, +(scState.zoom + 0.15).toFixed(2)); draw(); });
+      container.querySelector('#wbScZoomReset')?.addEventListener('click', () => { scState.zoom = 1; draw(); });
 
       container.querySelectorAll('[data-sc-chart]').forEach(btn => {
         btn.addEventListener('click', () => {
