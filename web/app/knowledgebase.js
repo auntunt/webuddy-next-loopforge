@@ -144,17 +144,9 @@
       render();
       return;
     }
-    try {
-      const data = await reqJSON('/api/webuddy/kb/search', {
-        method: 'POST',
-        body: JSON.stringify({ repoPath: kbState.repoPath.trim(), query: q, limit: 30 }),
-      });
-      kbState.searchHits = data.hits || [];
-      kbState.tab = 'docs';
-    } catch (err) {
-      notify(err.message);
-    }
-    render();
+    kbState.chainQuery = q;
+    kbState.tab = 'chain';
+    await runChain();
   }
 
   function resolveRelativePath(basePath, rel) {
@@ -556,19 +548,43 @@
           (inlinePin.error ? '<span class="wb-badge fail">' + esc(inlinePin.error) + '</span>' : '<pre class="wb-code" style="max-height:220px">' + esc(inlinePin.snippet || '') + '</pre>') +
         '</div>'
       : '';
+    let chainResultHTML = '<div class="wb-empty" style="padding:20px">输入一句业务问题，AI 结合代码图谱 3 句话直接回答，并附可点击的源码位置。</div>';
+    if (res && res.error) {
+      chainResultHTML = '<div class="wb-badge fail">查询失败：' + esc(res.error) + '</div>';
+    } else if (res) {
+      const cites = Array.isArray(res.aiCitations) ? res.aiCitations : [];
+      const aiBox = res.aiAnswer
+        ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(37,99,235,0.4);background:var(--panel)">' +
+            '<div class="wb-item-top" style="margin-bottom:6px">' +
+              '<strong style="font-size:14px">✨ AI 回答</strong>' +
+              '<span class="wb-meta" style="font-size:12px">' + esc(res.aiModel || 'AI') + (res.aiLatencyMs ? ' · ' + (res.aiLatencyMs / 1000).toFixed(1) + 's' : '') + '</span>' +
+            '</div>' +
+            '<div style="font-size:14px;line-height:1.65;white-space:pre-line">' + esc(res.aiAnswer) + '</div>' +
+            (cites.length
+              ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">' +
+                  '<span class="wb-meta" style="font-size:12px">对应源码：</span>' +
+                  cites.map(c => '<button type="button" class="wb-cite-pill" data-kb-cite="' + esc(c) + '">⌖ ' + esc(c) + '</button>').join('') +
+                '</div>'
+              : '') +
+          '</div>'
+        : (res.aiError ? '<div class="wb-badge unknown" style="margin-bottom:10px">AI 总结暂不可用（' + esc(res.aiError) + '），可展开下方原始证据查看。</div>' : '');
+      const rawDetails =
+        '<details style="margin-top:8px">' +
+          '<summary style="cursor:pointer;font-size:12.5px;color:var(--muted,#6b7280)">查看原始知识库证据（供核查 / AI 用）</summary>' +
+          '<div style="margin-top:10px">' + renderWikiMarkdown(res.markdown || '未找到匹配链路', '.tmh/knowledge/index.md') + '</div>' +
+        '</details>';
+      chainResultHTML = aiBox + rawDetails;
+    }
     return (
       '<div class="wb-panel">' +
         '<h3>问业务链路</h3>' +
-        '<p class="wb-subtitle" style="margin-bottom:12px">输入一句业务问题，直接定位到相关流程和代码行。</p>' +
+        '<p class="wb-subtitle" style="margin-bottom:12px">输入一句业务问题，AI 结合图谱 3 句话直答并定位源码。</p>' +
         '<div class="wb-toolbar" style="margin-bottom:12px">' +
-          '<input type="text" id="wbChainQueryInput" value="' + esc(kbState.chainQuery) + '" placeholder="例如：单据审批驳回和撤回逻辑、支付回调如何更新状态…" style="min-width:360px;flex:1">' +
-          '<button type="button" class="button primary" id="wbRunChainBtn" ' + (kbState.chainLoading ? 'disabled' : '') + '>' + (kbState.chainLoading ? '正在追溯链路…' : '追溯业务证据链') + '</button>' +
+          '<input type="text" id="wbChainQueryInput" value="' + esc(kbState.chainQuery) + '" placeholder="例如：怎么验证输入格式是对的、审批驳回怎么走…" style="min-width:320px;flex:1">' +
+          '<button type="button" class="button primary" id="wbRunChainBtn" ' + (kbState.chainLoading ? 'disabled' : '') + '>' + (kbState.chainLoading ? 'AI 思考中…' : '✨ 问 AI') + '</button>' +
         '</div>' +
         pinBox +
-        (res ? (res.error
-          ? '<div class="wb-badge fail">追溯失败：' + esc(res.error) + '</div>'
-          : '<div style="margin-top:8px">' + renderWikiMarkdown(res.markdown || '未找到匹配链路', '.tmh/knowledge/index.md') + '</div>')
-          : '<div class="wb-empty" style="padding:20px">输入业务关键词即可生成带源码锚点的证据链，点击文中任意 <code>文件:行号</code> 可直接核验真实代码。</div>') +
+        chainResultHTML +
       '</div>'
     );
   }
@@ -585,6 +601,12 @@
       const ci = res.codeImpact || {};
       const callers = Array.isArray(ci.callers) ? ci.callers : (Array.isArray(ci.files) ? ci.files : []);
       outHTML =
+        (res.aiSummary
+          ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(37,99,235,0.4);background:var(--panel)">' +
+              '<div class="wb-item-top" style="margin-bottom:4px"><strong style="font-size:13.5px">✨ AI 影响结论</strong><span class="wb-meta" style="font-size:12px">' + esc(res.aiModel || 'AI') + '</span></div>' +
+              '<div style="font-size:13.5px;line-height:1.6;white-space:pre-line">' + esc(res.aiSummary) + '</div>' +
+            '</div>'
+          : '') +
         '<div class="wb-kpi-grid" style="margin-bottom:14px">' +
           '<div class="wb-kpi-card"><span class="wb-kpi-label">波及业务域</span><span class="wb-kpi-val">' + doms.length + '</span></div>' +
           '<div class="wb-kpi-card"><span class="wb-kpi-label">受影响业务流程</span><span class="wb-kpi-val">' + flows.length + '</span></div>' +

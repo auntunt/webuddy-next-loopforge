@@ -780,48 +780,73 @@ function credentialGitRowsHTML(http,ssh,showGitHub){
 async function loadWebuddyLocalExecutors(panel){
   const host=panel?.querySelector('[data-webuddy-local-executors]');
   if(!host)return;
-  host.innerHTML='<div class="credential-row"><div class="credential-row-main"><div class="credential-row-who"><b>服务端自动扫描的 CLI（免填 Key，复用本机登录）</b><small>正在扫描服务端已安装的 Codex / Claude / Cursor / CodeBuddy / OpenCode…</small></div></div></div>';
+  host.innerHTML='<div class="credential-row"><div class="credential-row-main"><div class="credential-row-who"><b>网页直调本地 CLI（免填 Key）</b><small>正在检测你的本地电脑与服务器 CLI…</small></div></div></div>';
   try{
-    const [data,runnersData]=await Promise.all([
-      api('/api/codereview/executors',{silent:true}),
-      api('/api/runners',{silent:true}).catch(()=>[]),
-    ]);
+    const ov=await api('/api/webuddy/env/overview',{silent:true});
     if(!host.isConnected)return;
-    const list=(data?.executors||[]);
-    const installed=list.filter(x=>x.available);
-    const runners=Array.isArray(runnersData)?runnersData:(runnersData?.runners||[]);
+    const runners=Array.isArray(ov?.runners)?ov.runners:[];
     const onlineRunners=runners.filter(r=>r&&r.status==='online');
-    const runnerReady=onlineRunners.length>0;
-    const rows=installed.map(ex=>`<div class="credential-row"><div class="credential-row-main">
+    const server=ov?.server||null;
+
+    const cliPill=(c)=>{
+      if(!c.available)return '';
+      if(c.probeStatus==='ok')return `<span class="wb-badge pass" style="margin-right:4px">✅ ${escapeHTML(c.id)}${c.defaultModel?` (${escapeHTML(c.defaultModel)})`:''}</span>`;
+      if(c.probeStatus==='auth_error'||c.probeStatus==='model_error'||c.probeStatus==='error')return `<span class="wb-badge fail" style="margin-right:4px" title="${escapeHTML(c.probeError||'')}">❌ ${escapeHTML(c.id)} 异常</span>`;
+      return `<span class="wb-badge info" style="margin-right:4px">● ${escapeHTML(c.id)}</span>`;
+    };
+
+    const runnerRows=onlineRunners.map(r=>{
+      const clis=(r.hostProfile?.clis||[]).filter(c=>c.available);
+      const fallbackRuntimes=!clis.length?(r.runtimes||[]).filter(rt=>rt.available).map(rt=>`<span class="wb-badge info" style="margin-right:4px">● ${escapeHTML(rt.kind||rt.name)}</span>`).join(''):'';
+      const pills=clis.map(cliPill).join('')||fallbackRuntimes||'<span class="wb-badge unknown">未检测到 CLI</span>';
+      return `<div class="credential-row"><div class="credential-row-main">
+        ${credentialLogo({icon:'monitor'})}
+        <div class="credential-row-who">
+          <b>🟢 ${escapeHTML(r.name)} ${r.isDefault?'<span class="wb-badge pass" style="margin-left:6px">★ 默认 · 网页直接调这台电脑</span>':''}</b>
+          <small style="margin-top:4px;display:block">${pills}</small>
+        </div>
+        <div class="credential-row-end" style="display:flex;gap:6px;align-items:center">
+          ${!r.isDefault?`<button type="button" class="credential-btn ghost" data-wb-set-def-runner="${escapeHTML(r.id)}">设为默认</button>`:''}
+          <button type="button" class="credential-btn ghost credential-row-link" data-wb-use-chat="1">去对话${credentialGlyph('chevron-right',14)}</button>
+        </div>
+      </div></div>`;
+    }).join('');
+
+    const srvClis=(server?.clis||[]).filter(c=>c.available);
+    const srvRow=srvClis.length?`<div class="credential-row"><div class="credential-row-main">
       ${credentialLogo({icon:'monitor'})}
       <div class="credential-row-who">
-        <b>${escapeHTML(ex.name)} <span class="wb-badge ${ex.loggedIn?'pass':'info'}" style="margin-left:6px">${ex.loggedIn?'已检测到本机登录':'已安装'}</span>${runnerReady?'<span class="wb-badge pass" style="margin-left:6px">对话 / SOP / 审查通用</span>':''}</b>
-        <small><span>${escapeHTML(ex.authHint||'本机可用')} · <code>${escapeHTML(ex.path||'')}</code></span></small>
+        <b>服务器兜底 CLI（${escapeHTML(server.host||'server')}）</b>
+        <small style="margin-top:4px;display:block">${srvClis.map(cliPill).join('')}</small>
       </div>
-      <div class="credential-row-end" style="display:flex;gap:6px;align-items:center">
-        ${runnerReady
-          ? `<button type="button" class="credential-btn ghost credential-row-link" data-wb-use-chat="${escapeHTML(ex.id)}">对话 / SOP${credentialGlyph('chevron-right',14)}</button>`
-          : `<button type="button" class="credential-btn ghost credential-row-link" data-wb-open-runners="1">绑定执行机器（启用对话/SOP）${credentialGlyph('chevron-right',14)}</button>`}
-        <button type="button" class="credential-btn ghost credential-row-link" data-wb-use-local-exec="${escapeHTML(ex.id)}">代码审查${credentialGlyph('chevron-right',14)}</button>
-      </div>
-    </div></div>`).join('');
-    const hostLabel=data?.host?`（主机 ${escapeHTML(data.host)}）`:'';
-    const subCopy=runnerReady
-      ? `已有 ${onlineRunners.length} 台执行机器在线：已扫描的 CLI 可直接用于对话、SOP 交付与代码审查，无需重复填写 API Key。`
-      : '与上方手动 API Key 并存：绑定执行机器后即可在对话、SOP 与代码审查中统一复用本机订阅登录态。';
+      <div class="credential-row-end"><button type="button" class="credential-btn ghost credential-row-link" data-wb-use-local-exec="1">代码审查${credentialGlyph('chevron-right',14)}</button></div>
+    </div></div>`:'';
+
+    const subCopy=onlineRunners.length
+      ? `已有 ${onlineRunners.length} 台本地机器在线：在网页点对话/SOP，直接调你本机装好的 CLI，无需填 Key。`
+      : '想用网页直接调你 Mac / Windows 上的 Codex / Claude？点右侧「+ 连接我的电脑」复制 1 行命令即可。';
+
     host.innerHTML=`<div class="credential-row" style="border-top:1px dashed var(--line,rgba(148,163,184,0.25));margin-top:6px;padding-top:6px"><div class="credential-row-main">
-      <div class="credential-row-who"><b>服务端自动扫描的 CLI${hostLabel}（共检测到 ${installed.length} 个，无需填 Key）</b><small>${subCopy}</small></div>
-      <div class="credential-row-end"><button type="button" class="credential-btn ghost" id="wbRescanLocalExecs">重新扫描</button></div>
-    </div></div>${rows||'<div class="credential-row"><div class="credential-row-main"><div class="credential-row-who"><small>未在 PATH 或常见用户安装目录（~/.npm-global/bin、~/.nvm、~/.local/bin 等）中检测到已安装的 CLI</small></div></div></div>'}`;
+      <div class="credential-row-who"><b>网页直调本地 CLI（免填 Key）</b><small>${subCopy}</small></div>
+      <div class="credential-row-end" style="display:flex;gap:6px">
+        <button type="button" class="credential-btn ghost" data-wb-open-runners="1">+ 连接我的电脑</button>
+        <button type="button" class="credential-btn ghost" id="wbRescanLocalExecs">刷新</button>
+      </div>
+    </div></div>${runnerRows}${srvRow}`;
+
     host.querySelector('#wbRescanLocalExecs')?.addEventListener('click',()=>loadWebuddyLocalExecutors(panel));
+    host.querySelectorAll('[data-wb-set-def-runner]').forEach(btn=>btn.addEventListener('click',async()=>{
+      try{
+        await api('/api/webuddy/env/set-default-runner',{method:'POST',body:JSON.stringify({runnerId:btn.dataset.wbSetDefRunner})});
+        if(typeof toast==='function')toast('已切换默认执行电脑');
+        loadWebuddyLocalExecutors(panel);
+      }catch(err){if(typeof toast==='function')toast(err.message,'err');}
+    }));
     host.querySelectorAll('[data-wb-use-chat]').forEach(btn=>btn.addEventListener('click',()=>{
       if(typeof switchView==='function')switchView('collaboration');
     }));
     host.querySelectorAll('[data-wb-open-runners]').forEach(btn=>btn.addEventListener('click',()=>{
-      const trigger=panel?.querySelector('[data-credential-runners], .credential-row-link[data-open-runners]')||document.querySelector('[data-open-runners]');
-      if(trigger)trigger.click();
-      else if(typeof openRunnerManager==='function')openRunnerManager();
-      else if(typeof switchView==='function')switchView('runners');
+      if(typeof switchView==='function')switchView('runners');
     }));
     host.querySelectorAll('[data-wb-use-local-exec]').forEach(btn=>btn.addEventListener('click',()=>{
       if(typeof switchView==='function')switchView('codereview');

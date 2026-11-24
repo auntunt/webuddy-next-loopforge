@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"agentflow/internal/webuddykb"
 
@@ -89,12 +92,39 @@ func (h *webuddyKBHandlers) impact(c *gin.Context) {
 		RepoPath string `json:"repoPath"`
 		Target   string `json:"target"`
 		Depth    int    `json:"depth"`
+		NoAI     bool   `json:"noAi"`
 	}
 	if !decode(c, &input) {
 		return
 	}
 	raw, err := h.svc.Impact(c.Request.Context(), input.RepoPath, input.Target, input.Depth)
-	renderRawJSON(c, raw, err)
+	if err != nil {
+		respond(c, err)
+		return
+	}
+	if input.NoAI {
+		renderRawJSON(c, raw, nil)
+		return
+	}
+	var payload map[string]any
+	if json.Unmarshal(raw, &payload) != nil {
+		renderRawJSON(c, raw, nil)
+		return
+	}
+	compact, _ := json.Marshal(map[string]any{
+		"affectedDomains": payload["affectedDomains"],
+		"affectedFlows":   payload["affectedFlows"],
+		"affectedTables":  payload["affectedTables"],
+	})
+	qa := synthesizeKBAnswer(c.Request.Context(), "impact", input.Target, string(compact))
+	if qa.Answer != "" {
+		payload["aiSummary"] = qa.Answer
+		payload["aiModel"] = qa.Model
+		payload["aiLatencyMs"] = qa.LatencyMs
+	} else if qa.Error != "" {
+		payload["aiError"] = qa.Error
+	}
+	c.JSON(http.StatusOK, payload)
 }
 
 // POST /api/webuddy/kb/chain
@@ -103,12 +133,38 @@ func (h *webuddyKBHandlers) chain(c *gin.Context) {
 		RepoPath string `json:"repoPath"`
 		Query    string `json:"query"`
 		Flows    int    `json:"flows"`
+		NoAI     bool   `json:"noAi"`
 	}
 	if !decode(c, &input) {
 		return
 	}
 	raw, err := h.svc.Chain(c.Request.Context(), input.RepoPath, input.Query, input.Flows)
-	renderRawJSON(c, raw, err)
+	if err != nil {
+		respond(c, err)
+		return
+	}
+	if input.NoAI {
+		renderRawJSON(c, raw, nil)
+		return
+	}
+	var payload map[string]any
+	if json.Unmarshal(raw, &payload) != nil {
+		renderRawJSON(c, raw, nil)
+		return
+	}
+	md, _ := payload["markdown"].(string)
+	if strings.TrimSpace(md) != "" {
+		qa := synthesizeKBAnswer(c.Request.Context(), "chain", input.Query, fmt.Sprintf("%s", md))
+		if qa.Answer != "" {
+			payload["aiAnswer"] = qa.Answer
+			payload["aiCitations"] = qa.Citations
+			payload["aiModel"] = qa.Model
+			payload["aiLatencyMs"] = qa.LatencyMs
+		} else if qa.Error != "" {
+			payload["aiError"] = qa.Error
+		}
+	}
+	c.JSON(http.StatusOK, payload)
 }
 
 // GET /api/webuddy/kb/questions?repoPath=...
