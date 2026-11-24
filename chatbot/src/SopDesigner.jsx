@@ -337,7 +337,7 @@ export default function SopDesigner({ search = location.search, canvas = window.
         projectId: begun.projectId || context.projectId,
         sessionId: id,
         model,
-        executionRunnerId: defaultRunnerId || undefined,
+        executionTarget: defaultRunnerId ? { pool: "runner", runnerId: defaultRunnerId } : undefined,
         approvalMode: "confirm",
         requireExactModel: !!model,
         workflowId: begun.workflowId ?? context.workflowId,
