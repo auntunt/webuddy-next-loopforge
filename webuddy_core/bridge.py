@@ -485,12 +485,14 @@ def _auto_propose_js_structure(root: Path) -> bool:
             "domain": dom,
         })
 
-    proposal = {"flows": flows, "tables": tables}
-    draft_path = kb.page_path(root, "structure")
-    draft_path.parent.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text(json.dumps(proposal, ensure_ascii=False, indent=2), encoding="utf-8")
-    ok, _errs = kb.done(root, "structure", who="webuddy-js-parser")
-    return bool(ok)
+    proposal_text = json.dumps({"flows": flows, "tables": tables}, ensure_ascii=False, indent=2)
+    # Persist structure.json so subsequent graph.build(use_cache=True) keeps the verified structure
+    struct_path = root / ".tmh" / "knowledge" / "structure.json"
+    struct_path.parent.mkdir(parents=True, exist_ok=True)
+    struct_path.write_text(proposal_text, encoding="utf-8")
+    from tmh.graph import build as graph_build
+    res = graph_build(root, use_cache=False, proposal_text=proposal_text)
+    return not bool(res.get("structure_errors"))
 
 
 def _scan(repo_path: str) -> dict:
@@ -498,8 +500,9 @@ def _scan(repo_path: str) -> dict:
     if not root.is_dir():
         raise ValueError(f"仓库目录不存在: {repo_path}")
     from tmh import kb
+    from tmh.graph import build
 
-    stats = kb.build(root, use_cache=True)
+    stats = build(root, use_cache=True)
     if kb.needs_structure(root):
         try:
             _auto_propose_js_structure(root)
