@@ -180,34 +180,61 @@ type kbGeneratedPage struct {
 
 func parseKBGeneratedPage(raw string) (kbGeneratedPage, error) {
 	txt := strings.TrimSpace(raw)
-	if idx := strings.Index(txt, "```json"); idx >= 0 {
-		txt = txt[idx+7:]
-		if end := strings.Index(txt, "```"); end >= 0 {
+	// Strip outer markdown fence if the model wrapped the whole output
+	if strings.HasPrefix(txt, "```") {
+		if nl := strings.Index(txt, "\n"); nl >= 0 {
+			txt = txt[nl+1:]
+		}
+		if end := strings.LastIndex(txt, "```"); end >= 0 {
 			txt = txt[:end]
 		}
-	} else if idx := strings.Index(txt, "```"); idx >= 0 {
-		txt = txt[idx+3:]
-		if end := strings.Index(txt, "```"); end >= 0 {
-			txt = txt[:end]
+		txt = strings.TrimSpace(txt)
+	}
+
+	// Primary format: TITLE: ... / SUMMARY: ... / --- / ## ...
+	var out kbGeneratedPage
+	lines := strings.Split(txt, "\n")
+	bodyStart := -1
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		upper := strings.ToUpper(t)
+		switch {
+		case strings.HasPrefix(upper, "TITLE:") || strings.HasPrefix(t, "TITLE："):
+			val := strings.TrimSpace(t[strings.IndexAny(t, ":：")+1:])
+			out.Title = strings.Trim(val, "`\"' ")
+		case strings.HasPrefix(upper, "SUMMARY:") || strings.HasPrefix(t, "SUMMARY："):
+			val := strings.TrimSpace(t[strings.IndexAny(t, ":：")+1:])
+			out.Summary = strings.Trim(val, "`\"' ")
+		case t == "---" && i > 0:
+			bodyStart = i + 1
+		case strings.HasPrefix(t, "## "):
+			bodyStart = i
+		}
+		if bodyStart >= 0 {
+			break
 		}
 	}
-	txt = strings.TrimSpace(txt)
+	if bodyStart >= 0 && bodyStart < len(lines) {
+		out.Body = strings.TrimSpace(strings.Join(lines[bodyStart:], "\n"))
+	}
+	if out.Title != "" && out.Summary != "" && out.Body != "" {
+		return out, nil
+	}
+
+	// Fallback: JSON format
 	if start := strings.Index(txt, "{"); start >= 0 {
 		if end := strings.LastIndex(txt, "}"); end > start {
-			txt = txt[start : end+1]
+			if err := json.Unmarshal([]byte(txt[start:end+1]), &out); err == nil {
+				out.Title = strings.TrimSpace(out.Title)
+				out.Summary = strings.TrimSpace(out.Summary)
+				out.Body = strings.TrimSpace(out.Body)
+				if out.Title != "" && out.Summary != "" && out.Body != "" {
+					return out, nil
+				}
+			}
 		}
 	}
-	var out kbGeneratedPage
-	if err := json.Unmarshal([]byte(txt), &out); err != nil {
-		return out, fmt.Errorf("模型未返回合法 JSON: %w", err)
-	}
-	out.Title = strings.TrimSpace(out.Title)
-	out.Summary = strings.TrimSpace(out.Summary)
-	out.Body = strings.TrimSpace(out.Body)
-	if out.Title == "" || out.Summary == "" || out.Body == "" {
-		return out, fmt.Errorf("生成结果缺少 title / summary / body")
-	}
-	return out, nil
+	return out, fmt.Errorf("模型输出缺少 TITLE / SUMMARY / 正文结构")
 }
 
 func (d *deps) runWebuddyKBBatchUpdate(ctx context.Context, actor, projectID string, limit int, query string) (kbBatchUpdateReceipt, error) {
@@ -296,13 +323,15 @@ func (d *deps) runWebuddyKBBatchUpdate(ctx context.Context, actor, projectID str
 
 func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repoPath, actor string, job kbNextJob) (kbUpdatedPageReceipt, string, []string) {
 	secList := strings.Join(job.RequiredSections, "、")
-	sysPrompt := "你是严谨的代码知识库架构师，负责把源码上下文提炼成可信溯源的中文知识库页面。\n" +
-		"严格遵守以下规则：\n" +
-		"1. 只能输出一个合法 JSON 对象，格式：{\"title\":\"简洁中文业务名称\",\"summary\":\"一句话业务说明，不超过55字\",\"body\":\"Markdown正文\"}\n" +
-		"2. body 必须严格包含以下所有二级标题（一个都不能少，也不能重复）：" + secList + "。某节无内容写“无”。\n" +
-		"3. 每个核心结论必须附带真实的源码位置证据，格式严格为 `相对路径:行号` 或 `相对路径:起行-止行`（只能原样使用下方源码上下文里出现过的真实文件路径和行号范围，严禁编造任何路径或超出范围的行号！）。\n" +
-		"4. body 不要包含 YAML frontmatter（---）也不要包含 tmh:facts 块，只写二级标题及正文。\n" +
-		"5. 信息不确定处标【推断】，严禁胡编外部系统名称。"
+	sysPrompt := "你是严谨的代码知识库架构师，负责把源码上下文提炼成简洁、可信溯源的中文知识库页面。\n" +
+		"严格遵守以下输出格式（不要输出 JSON，不要用代码块包裹全文）：\n" +
+		"TITLE: <简洁中文业务名称>\n" +
+		"SUMMARY: <一句话业务说明，不超过55字>\n" +
+		"---\n" +
+		"接下来直接写 Markdown 正文：\n" +
+		"1. 必须严格包含以下所有二级标题（一个都不能少，也不能重复）：" + secList + "。每节精炼在 1-3 句，无内容写“无”。\n" +
+		"2. 每个核心结论必须附带真实源码证据，格式严格为 `相对路径:行号` 或 `相对路径:起行-止行`（只能原样使用下方源码上下文里出现过的真实文件路径和行号，严禁编造！）。\n" +
+		"3. 不要写 YAML frontmatter 或 tmh:facts 块；不确定处标【推断】。"
 
 	pack := job.PackText
 	if len(pack) > 6500 {
@@ -319,7 +348,7 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 		res := builtinagent.Default().Complete(ctx, builtinagent.CompletionRequest{
 			SystemPrompt: sysPrompt,
 			UserPrompt:   userPrompt,
-			MaxTokens:    1000,
+			MaxTokens:    1600,
 			Temperature:  0.15,
 			Timeout:      65 * time.Second,
 		})
@@ -333,7 +362,7 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 		gen, err := parseKBGeneratedPage(res.Text)
 		if err != nil {
 			lastErrs = []string{err.Error()}
-			userPrompt = baseUserPrompt + "\n\n上次输出格式校验失败：" + err.Error() + "\n请严格只输出一个合法 JSON 对象。"
+			userPrompt = baseUserPrompt + "\n\n上次输出格式校验失败：" + err.Error() + "\n请严格按 TITLE: / SUMMARY: / --- / ## 标题 格式输出。"
 			continue
 		}
 		commitRaw, err := svc.KBCommit(ctx, repoPath, job.PageID, gen.Title, gen.Summary, gen.Body, actor)
