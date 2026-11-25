@@ -191,7 +191,9 @@ func (h *webuddyEnvHandlers) activeTasks(c *gin.Context) {
 
 // startAsyncKBBatchUpdate launches a non-blocking background KB update and registers it
 // in defaultTaskRegistry so the floating pill tracks live progress across all views.
-func (d *deps) startAsyncKBBatchUpdate(actor, projectID string, limit int, query string) WebuddyLiveTask {
+// When runAll is true, it loops continuously in 3-page batches until all remaining pages
+// are analyzed (capped at 20 batches / 60 pages per click for safety).
+func (d *deps) startAsyncKBBatchUpdate(actor, projectID string, limit int, query string, runAll bool) WebuddyLiveTask {
 	pid, projName, _ := d.resolveProjectAndRepoPath(projectID)
 	if limit <= 0 {
 		limit = 3
@@ -199,48 +201,87 @@ func (d *deps) startAsyncKBBatchUpdate(actor, projectID string, limit int, query
 	if limit > 5 {
 		limit = 5
 	}
-	title := fmt.Sprintf("知识库增量更新（%s）", projName)
+	title := fmt.Sprintf("知识库%s（%s）", func() string {
+		if runAll {
+			return "全量持续分析"
+		}
+		return "增量更新"
+	}(), projName)
 	if projName == "" {
-		title = "知识库增量更新"
+		title = "知识库后台分析"
+	}
+	initProgress := fmt.Sprintf("正在分析源码并做溯源校验（每批 %d 页）...", limit)
+	if runAll {
+		initProgress = "已启动全量持续分析，逐批写入并实时更新进度..."
 	}
 	task := defaultTaskRegistry.start(
 		"kb_update",
 		pid,
 		projName,
 		title,
-		fmt.Sprintf("正在分析源码并做溯源校验（计划 %d 页）...", limit),
+		initProgress,
 		"#/knowledgebase",
 	)
 	taskID := task.ID
 
 	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
-		receipt, err := d.runWebuddyKBBatchUpdate(bgCtx, actor, pid, limit, query)
-		if err != nil {
-			defaultTaskRegistry.finish(taskID, "error", "更新失败", err.Error())
-			return
+		maxBatches := 1
+		if runAll {
+			maxBatches = 20
 		}
-		if len(receipt.UpdatedPages) > 0 {
-			defaultTaskRegistry.finish(
-				taskID,
-				"done",
-				fmt.Sprintf("已完成 +%d 页（总已分析 %d/%d 页）", len(receipt.UpdatedPages), receipt.CoverageAfter.Analyzed, receipt.CoverageAfter.Total),
-				receipt.UpdatedPages[0].Title,
-			)
-		} else if len(receipt.FailedPages) > 0 {
-			errMsg := ""
-			if len(receipt.FailedPages[0].Errors) > 0 {
-				errMsg = receipt.FailedPages[0].Errors[0]
+		totalAdded := 0
+		lastTitle := ""
+		var lastCov kbCoverageSnapshot
+		zeroStreak := 0
+
+		for batch := 1; batch <= maxBatches; batch++ {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			receipt, err := d.runWebuddyKBBatchUpdate(bgCtx, actor, pid, limit, query)
+			cancel()
+			if err != nil {
+				if totalAdded > 0 {
+					defaultTaskRegistry.finish(taskID, "done", fmt.Sprintf("已完成 +%d 页（%d/%d 页）", totalAdded, lastCov.Analyzed, lastCov.Total), "部分批次中断："+err.Error())
+				} else {
+					defaultTaskRegistry.finish(taskID, "error", "更新失败", err.Error())
+				}
+				return
 			}
-			defaultTaskRegistry.finish(taskID, "error", "本次未写入新页面", errMsg)
-		} else {
+			lastCov = receipt.CoverageAfter
+			added := len(receipt.UpdatedPages)
+			totalAdded += added
+			if added > 0 {
+				zeroStreak = 0
+				lastTitle = receipt.UpdatedPages[len(receipt.UpdatedPages)-1].Title
+			} else {
+				zeroStreak++
+			}
+			if !runAll || receipt.Remaining <= 0 || zeroStreak >= 2 {
+				break
+			}
+			defaultTaskRegistry.update(
+				taskID,
+				fmt.Sprintf("持续分析中：本轮已新增 +%d 页（总进度 %d/%d 页，剩余 %d 页）", totalAdded, lastCov.Analyzed, lastCov.Total, receipt.Remaining),
+				lastTitle,
+			)
+			time.Sleep(2 * time.Second)
+		}
+
+		if totalAdded > 0 {
 			defaultTaskRegistry.finish(
 				taskID,
 				"done",
-				fmt.Sprintf("知识库已是最新（%d/%d 页）", receipt.CoverageAfter.Analyzed, receipt.CoverageAfter.Total),
+				fmt.Sprintf("已完成 +%d 页（总已分析 %d/%d 页）", totalAdded, lastCov.Analyzed, lastCov.Total),
+				lastTitle,
+			)
+		} else if lastCov.Pending+lastCov.Stale == 0 {
+			defaultTaskRegistry.finish(
+				taskID,
+				"done",
+				fmt.Sprintf("全部页面已完成分析（%d/%d 页）", lastCov.Analyzed, lastCov.Total),
 				"",
 			)
+		} else {
+			defaultTaskRegistry.finish(taskID, "error", "本次未写入新页面", "模型校验未通过或上游限流，可稍后重试")
 		}
 	}()
 

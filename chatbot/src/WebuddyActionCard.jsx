@@ -288,10 +288,11 @@ function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
           limit: 3,
           query: (spec && spec.query) || "",
           async: true,
+          all: true,
         }),
       });
       if (res?.ok) {
-        setBgNotice("已转入后台持续执行（右下角浮动任务胶囊实时显示进度），你可以随时继续聊其他工作！");
+        setBgNotice("已启动后台全量持续分析（右下角浮动任务胶囊实时显示进度），完成后自动通知，你可以自由切换做其他工作！");
         window.dispatchEvent(new CustomEvent("webuddy:tasks-changed"));
       }
     } catch (err) {
@@ -609,7 +610,7 @@ function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
                 boxShadow: "0 1px 3px rgba(79, 70, 229, 0.28)",
               }}
             >
-              🚀 后台持续更新 3 页（不阻塞工作）
+              🚀 后台全部分析（剩余 {remaining} 页 · 不阻塞）
             </button>
             <button
               type="button"
