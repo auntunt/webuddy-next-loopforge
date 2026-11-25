@@ -319,6 +319,30 @@ def _overview(repo_path: str | None) -> dict:
         for k, v in sorted(dom_counts.items(), key=lambda x: -x[1])
     ]
 
+    source_files = []
+    readme_excerpt = ""
+    skip_dirs = {".git", ".tmh", "node_modules", "__pycache__", "dist", "build", "target", ".venv", "venv"}
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in sorted(dirnames) if d not in skip_dirs and not d.startswith(".")]
+            for fn in sorted(filenames):
+                if fn.startswith("."):
+                    continue
+                fp = Path(dirpath) / fn
+                rel = fp.relative_to(root).as_posix()
+                source_files.append(rel)
+                if not readme_excerpt and fn.lower() in ("readme.md", "readme.txt", "readme"):
+                    try:
+                        readme_excerpt = fp.read_text(encoding="utf-8", errors="replace")[:1500]
+                    except Exception:
+                        pass
+                if len(source_files) >= 200:
+                    break
+            if len(source_files) >= 200:
+                break
+    except Exception:
+        pass
+
     return {
         "built": True,
         "repoPath": str(root),
@@ -326,6 +350,9 @@ def _overview(repo_path: str | None) -> dict:
         "flowCount": len(flows),
         "tableCount": len(tables),
         "pageCount": len(pages),
+        "sourceFileCount": len(source_files),
+        "sourceFiles": source_files[:80],
+        "readmeExcerpt": readme_excerpt,
         "pageStats": page_stats,
         "specialDocs": special_docs,
         "openQuestionCount": open_q_count,

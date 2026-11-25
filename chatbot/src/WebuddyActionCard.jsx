@@ -158,7 +158,9 @@ function UploadArchiveCard({ spec = null, projectId = "", autoDetected = false }
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 11.5 }}>
             <span style={{ background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: 6 }}>
               {receipt.kbBuilt
-                ? `✅ 知识库代码图谱已生成（${receipt.flowCount || 0} 条流程 · ${receipt.tableCount || 0} 张表）`
+                ? receipt.flowCount > 0 || receipt.tableCount > 0
+                  ? `✅ 知识库代码图谱已生成（${receipt.flowCount || 0} 条流程 · ${receipt.tableCount || 0} 张表）`
+                  : `✅ 源码索引与知识库已就绪（共收录 ${receipt.fileCount || 0} 个文件，可直接问答与代码审查）`
                 : "⚠️ 知识库待扫描"}
             </span>
             {receipt.sandboxId ? (

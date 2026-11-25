@@ -1821,7 +1821,7 @@ function platformGovernanceHTML(){
             <div style="font-weight:600;font-size:14px">新成员默认平台角色</div>
             <div style="font-size:12.5px;color:var(--muted,#64748b);margin-top:2px">新注册或新创建的普通账号默认获得的权限级别（只读访客无法新建项目）。</div>
           </div>
-          <select data-policy-default-role style="padding:6px 10px;border-radius:8px;border:1px solid var(--line,#cbd5e1);font-size:13px;min-width:170px">
+          <select data-policy-default-role style="appearance:none;-webkit-appearance:none;padding:6px 28px 6px 10px;border-radius:8px;border:1px solid var(--line,#cbd5e1);font-size:13px;min-width:170px">
             <option value="member">普通成员（协作开发）</option>
             <option value="project_creator">项目创建者（可建项目）</option>
             <option value="viewer">只读访客（仅查看/问答）</option>
@@ -1976,7 +1976,7 @@ async function loadPlatformAccounts(host){
   const card=host.querySelector('#platformAccountsCard');if(!card)return;
   const list=card.querySelector('#platformAccountList'),form=card.querySelector('#platformAccountForm'),created=card.querySelector('[data-account-created]'),search=card.querySelector('[data-account-search]');
   let accounts=[],allProjects=[],query='',resetting=null,editingProjects=null;
-  const meId=Number(state.auth?.user?.id||0);
+  const meId=Number(state.currentUser?.id||state.auth?.user?.id||0);
   const showCreated=(action,login,password)=>{
     created.innerHTML=platformAccountCreatedHTML(action,login,password);created.hidden=false;
     created.querySelector('[data-copy-login]').onclick=()=>copyText(lfT(`登录地址：${location.origin}\n用户名：${login}\n密码：${password}`,`Sign in at: ${location.origin}\nLogin: ${login}\nPassword: ${password}`),'已复制登录信息');
@@ -2000,7 +2000,7 @@ async function loadPlatformAccounts(host){
       ].join('');
       const editing=resetting===uid;
       const projOpen=editingProjects===uid;
-      const roleSelect=`<select data-rbac-role="${uid}" ${isSelf?'disabled title="不能修改自己的平台角色"':''} style="padding:4px 8px;border-radius:7px;border:1px solid var(--line,#cbd5e1);font-size:12px;background:var(--surface,#fff)">${RBAC_ROLE_OPTIONS.map(r=>`<option value="${r.value}"${r.value===role?' selected':''}>${escapeHTML(r.label)}</option>`).join('')}</select>`;
+      const roleSelect=`<select data-rbac-role="${uid}" ${isSelf?'disabled title="不能修改自己的平台角色"':''} style="appearance:none;-webkit-appearance:none;padding:4px 24px 4px 8px;border-radius:7px;border:1px solid var(--line,#cbd5e1);font-size:12px;background:var(--surface,#fff)">${RBAC_ROLE_OPTIONS.map(r=>`<option value="${r.value}"${r.value===role?' selected':''}>${escapeHTML(r.label)}</option>`).join('')}</select>`;
       const disableBtn=isSelf?'':`<button type="button" class="button ghost small" data-rbac-toggle-disable="${uid}" style="${a.disabled?'color:#15803d':'color:#b91c1c'}">${a.disabled?'恢复启用':'停用账号'}</button>`;
       const projBtn=`<button type="button" class="button ghost small" data-rbac-projects="${uid}">${projOpen?'收起项目权限':'分配项目权限'}</button>`;
       const resetPart=a.password?(editing?`<form class="platform-account-reset" data-reset-form="${uid}"><input name="password" placeholder="新密码，至少 6 位" aria-label="新密码" maxlength="72" autocomplete="new-password" spellcheck="false"><button type="button" class="button ghost small" data-reset-generate>随机</button><button type="submit" class="button primary small">确认</button><button type="button" class="button ghost small" data-reset-cancel>取消</button></form>`:`<button type="button" class="button ghost small" data-reset-account="${uid}">重置密码</button>`):'';
@@ -2012,7 +2012,7 @@ async function loadPlatformAccounts(host){
           const isOwner=curRole==='owner';
           return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border-radius:8px;background:var(--surface,#fff);border:1px solid var(--line,#e2e8f0)">
             <span style="font-size:12.5px;font-weight:500">${escapeHTML(p.name)}</span>
-            ${isOwner?'<span class="platform-source-badge source-builtin">项目负责人 (Owner)</span>':`<select data-proj-role="${escapeHTML(p.id)}" style="padding:3px 8px;border-radius:6px;border:1px solid var(--line,#cbd5e1);font-size:12px">
+            ${isOwner?'<span class="platform-source-badge source-builtin">项目负责人 (Owner)</span>':`<select data-proj-role="${escapeHTML(p.id)}" style="appearance:none;-webkit-appearance:none;padding:3px 24px 3px 8px;border-radius:6px;border:1px solid var(--line,#cbd5e1);font-size:12px">
               <option value="none"${curRole==='none'?' selected':''}>无权限</option>
               <option value="viewer"${curRole==='viewer'?' selected':''}>只读 (Viewer)</option>
               <option value="member"${curRole==='member'?' selected':''}>成员 (Member)</option>

@@ -481,24 +481,33 @@ func (h *webuddyEnvHandlers) uploadProjectArchive(c *gin.Context) {
 	src.Close()
 	tmpFile.Close()
 
-	// Destination directory under workspaces or home
+	// Destination directory OUTSIDE workspaces/ so LoopForge's workspace retention cleaner never sweeps it
 	safeSlug := sanitizeProjectSlug(pid)
 	baseDir := filepath.Join(os.TempDir(), "webuddy-uploaded-repos")
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		baseDir = filepath.Join(home, ".webuddy-uploaded-repos")
 	}
 	if wd, err := os.Getwd(); err == nil && wd != "" {
-		if info, statErr := os.Stat(filepath.Join(wd, "workspaces")); statErr == nil && info.IsDir() {
-			baseDir = filepath.Join(wd, "workspaces", "uploaded-repos")
+		cand := filepath.Join(wd, "uploaded-repos")
+		if mkErr := os.MkdirAll(cand, 0o755); mkErr == nil {
+			baseDir = cand
 		}
 	}
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	destDir := filepath.Join(baseDir, safeSlug)
-	stageDir := destDir + ".stage-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	stageDir := filepath.Join(baseDir, ".stage-"+safeSlug+"-"+strconv.FormatInt(time.Now().UnixNano(), 10))
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer os.RemoveAll(stageDir)
+	defer func() {
+		if stageDir != "" {
+			_ = os.RemoveAll(stageDir)
+		}
+	}()
 
 	var fileCount int
 	if isZip {

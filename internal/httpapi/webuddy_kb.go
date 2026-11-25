@@ -44,6 +44,19 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 		return rp, true
 	}
 	if rp == "" {
+		if pid := strings.TrimSpace(c.Query("projectId")); pid != "" {
+			for _, r := range repos {
+				if r.ProjectID == pid {
+					if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
+						if requireWrite && authRequired() && !h.requireProjectWriter(c, r.ProjectID) {
+							return "", false
+						}
+						return lp, true
+					}
+				}
+			}
+			return "", true
+		}
 		for _, r := range repos {
 			if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
 				if requireWrite && authRequired() && r.ProjectID != "" && !h.requireProjectWriter(c, r.ProjectID) {
