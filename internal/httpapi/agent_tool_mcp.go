@@ -189,6 +189,9 @@ func (h *agentToolGateway) toolList(ctx context.Context, session *AgentToolSessi
 		}
 		out = append(out, item)
 	}
+	if session.Mode == AgentToolAssistant && !session.sopDesigner() {
+		out = append(out, webuddyAssistantToolSpecs()...)
+	}
 	return out
 }
 
@@ -287,6 +290,9 @@ func (h *agentToolGateway) callTool(ctx context.Context, session *AgentToolSessi
 	}
 	if name == "workbench_publish_artifact" {
 		return h.publishArtifact(ctx, session, params.Arguments)
+	}
+	if session.Mode == AgentToolAssistant && isWebuddyAssistantTool(name) {
+		return h.callWebuddyAssistantTool(ctx, session, name, params.Arguments)
 	}
 	catalog := h.buildCatalog(ctx, session)
 	tool, ok := lookupAgentTool(catalog, name)

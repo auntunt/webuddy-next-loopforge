@@ -32,6 +32,7 @@ import {
   presentationTitle,
   exportPresentation,
 } from "./presentation.js";
+import WebuddyActionCard from "./WebuddyActionCard";
 import "./artifact-preview.css";
 
 const Check = (props) => <HarnessIcon name="check" {...props} />;
@@ -201,6 +202,16 @@ export function Slides({ source }) {
   );
 }
 export function CodeBlock({ language, source }) {
+  const { projectId } = useContext(MarkdownAssets);
+  if (language === "webuddy-card") {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(source);
+    } catch {
+      parsed = { title: "项目环境核验" };
+    }
+    return <WebuddyActionCard spec={parsed} projectId={projectId} />;
+  }
   const [preview, setPreview] = useState(
     ["svg", "mermaid", "html", "slides", "ppt"].includes(language),
   );
@@ -350,9 +361,16 @@ const markdownComponents = {
   ),
 };
 const emptyAssets = [];
+const missingSandboxRe =
+  /(local\s*沙箱|generic-docker|缺少可用的工作区|无法进入仓库读取|配置可用的\s*Docker\s*或\s*native|不能用于工作区)/i;
+
 export function RichContent({ message, assets = emptyAssets, projectId = "" }) {
   const text = typeof message === "string" ? message : visibleText(message);
   const context = useMemo(() => ({ assets, projectId }), [assets, projectId]);
+  const showAutoEnvCard =
+    Boolean(text) &&
+    !text.includes("```webuddy-card") &&
+    missingSandboxRe.test(text);
   const markdown = useMemo(() => (
     <Markdown
       remarkPlugins={[remarkGfm, remarkWorkspaceLinks]}
@@ -364,7 +382,12 @@ export function RichContent({ message, assets = emptyAssets, projectId = "" }) {
   ), [text]);
   return (
     <MarkdownAssets.Provider value={context}>
-      <div className="markdown">{markdown}</div>
+      <div className="markdown">
+        {markdown}
+        {showAutoEnvCard ? (
+          <WebuddyActionCard projectId={projectId} autoDetected />
+        ) : null}
+      </div>
     </MarkdownAssets.Provider>
   );
 }

@@ -571,6 +571,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/webuddy/env/mount-kb", api.webuddyEnv.mountKB)
 	g.POST("/api/webuddy/env/import-mcp", api.webuddyEnv.importMCP)
 	g.POST("/api/webuddy/env/set-default-runner", api.webuddyEnv.setDefaultRunner)
+	g.GET("/api/webuddy/env/project-readiness", api.webuddyEnv.projectReadiness)
+	g.POST("/api/webuddy/env/auto-configure", api.webuddyEnv.autoConfigure)
 	g.GET("/api/webuddy/builtin-agent/status", api.webuddyEnv.builtinStatus)
 	g.PUT("/api/webuddy/builtin-agent/config", api.webuddyEnv.builtinSaveConfig)
 	g.POST("/api/webuddy/builtin-agent/chat", api.webuddyKB.builtinChat)
