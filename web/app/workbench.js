@@ -819,7 +819,7 @@ async function loadWebuddyLocalExecutors(panel){
 
     const runnerRows=onlineRunners.map(r=>{
       const clis=(r.hostProfile?.clis||[]).filter(c=>c.available);
-      const fallbackRuntimes=!clis.length?(r.runtimes||[]).filter(rt=>rt.available).map(rt=>`<span class="wb-badge info" style="margin-right:4px">● ${escapeHTML(rt.kind||rt.name)}</span>`).join(''):'';
+      const fallbackRuntimes=!clis.length?(r.runtimes||[]).filter(rt=>rt&&(rt.status==='ready'||rt.status==='online'||rt.available)).map(rt=>`<span class="wb-badge info" style="margin-right:4px">● ${escapeHTML(rt.provider||rt.kind||rt.name||'CLI')}</span>`).join(''):'';
       const pills=clis.map(cliPill).join('')||fallbackRuntimes||'<span class="wb-badge unknown">未检测到 CLI</span>';
       return `<div class="credential-row"><div class="credential-row-main">
         ${credentialLogo({icon:'monitor'})}
@@ -871,8 +871,9 @@ async function loadWebuddyLocalExecutors(panel){
     });
     host.querySelector('#wbBuiltinResetFree')?.addEventListener('click',async()=>{
       try{
-        await api('/api/webuddy/builtin-agent/config',{method:'PUT',body:JSON.stringify({baseUrl:'',apiKey:'',model:''})});
-        if(typeof toast==='function')toast('已恢复 OpenRouter 免费大模型默认模式');
+        const res=await api('/api/webuddy/builtin-agent/config',{method:'PUT',body:JSON.stringify({baseUrl:'',apiKey:'',model:''})});
+        const label=res?.status?.modeLabel||'已清除自定义配置';
+        if(typeof toast==='function')toast('当前模式：'+label);
         loadWebuddyLocalExecutors(panel);
       }catch(err){if(typeof toast==='function')toast(err.message,'err');}
     });

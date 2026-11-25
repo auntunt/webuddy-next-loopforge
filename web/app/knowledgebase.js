@@ -31,6 +31,7 @@
     evidenceResult: null,
     scanning: false,
     picking: false,
+    reqSeq: 0,
   };
 
   function cleanPlainAI(text) {
@@ -104,13 +105,18 @@
     } catch (_) {
       kbState.repos = [];
     }
+    const storedPath = localStorage.getItem('webuddy.kb.repoPath') || '';
+    if (storedPath && kbState.repos.some(r => r.localPath === storedPath && r.exists)) {
+      kbState.repoPath = storedPath;
+    }
     const activePid = (window.state && window.state.projectFilter) || '';
+    const currentRepo = kbState.repos.find(r => r.localPath === kbState.repoPath && r.exists);
+    const currentMatchesActive = Boolean(currentRepo && (!activePid || currentRepo.projectId === activePid));
     const matchActive = activePid && kbState.repos.find(r => r.projectId === activePid && r.exists);
-    const currentValid = kbState.repoPath && kbState.repos.some(r => r.localPath === kbState.repoPath && r.exists);
-    if (matchActive) {
+    if (!currentMatchesActive && matchActive) {
       kbState.repoPath = matchActive.localPath;
       localStorage.setItem('webuddy.kb.repoPath', kbState.repoPath);
-    } else if (!currentValid && kbState.repos.length > 0) {
+    } else if (!currentRepo && kbState.repos.length > 0) {
       const preferred = kbState.repos.find(r => r.exists && r.hasGraph) || kbState.repos.find(r => r.exists) || kbState.repos[0];
       kbState.repoPath = preferred.localPath;
       localStorage.setItem('webuddy.kb.repoPath', kbState.repoPath);
@@ -160,7 +166,7 @@
     }
     kbState.chainQuery = q;
     kbState.tab = 'chain';
-    await runChain();
+    await runChainQuery();
   }
 
   function resolveRelativePath(basePath, rel) {
@@ -324,61 +330,75 @@
   }
 
   async function runChainQuery() {
-    if (!kbState.repoPath.trim() || !kbState.chainQuery.trim()) {
+    const repo = kbState.repoPath.trim();
+    if (!repo || !kbState.chainQuery.trim()) {
       notify('请先选择仓库并输入业务问题或需求描述');
       return;
     }
+    const seq = ++kbState.reqSeq;
     kbState.chainLoading = true;
     render();
     try {
-      kbState.chainResult = await reqJSON('/api/webuddy/kb/chain', {
+      const res = await reqJSON('/api/webuddy/kb/chain', {
         method: 'POST',
-        body: JSON.stringify({ repoPath: kbState.repoPath.trim(), query: kbState.chainQuery.trim(), flows: 6 }),
+        body: JSON.stringify({ repoPath: repo, query: kbState.chainQuery.trim(), flows: 6 }),
       });
+      if (seq === kbState.reqSeq && kbState.repoPath.trim() === repo) kbState.chainResult = res;
     } catch (err) {
-      kbState.chainResult = { error: err.message };
+      if (seq === kbState.reqSeq && kbState.repoPath.trim() === repo) kbState.chainResult = { error: err.message };
     } finally {
-      kbState.chainLoading = false;
-      render();
+      if (seq === kbState.reqSeq) {
+        kbState.chainLoading = false;
+        render();
+      }
     }
   }
 
   async function runImpactAnalysis() {
-    if (!kbState.repoPath.trim() || !kbState.impactTarget.trim()) {
+    const repo = kbState.repoPath.trim();
+    if (!repo || !kbState.impactTarget.trim()) {
       notify('请先选择仓库并输入文件、表名、符号或接口关键词');
       return;
     }
+    const seq = ++kbState.reqSeq;
     kbState.impactLoading = true;
     render();
     try {
-      kbState.impactResult = await reqJSON('/api/webuddy/kb/impact', {
+      const res = await reqJSON('/api/webuddy/kb/impact', {
         method: 'POST',
-        body: JSON.stringify({ repoPath: kbState.repoPath.trim(), target: kbState.impactTarget.trim(), depth: kbState.impactDepth || 3 }),
+        body: JSON.stringify({ repoPath: repo, target: kbState.impactTarget.trim(), depth: kbState.impactDepth || 3 }),
       });
+      if (seq === kbState.reqSeq && kbState.repoPath.trim() === repo) kbState.impactResult = res;
     } catch (err) {
-      kbState.impactResult = { error: err.message };
+      if (seq === kbState.reqSeq && kbState.repoPath.trim() === repo) kbState.impactResult = { error: err.message };
     } finally {
-      kbState.impactLoading = false;
-      render();
+      if (seq === kbState.reqSeq) {
+        kbState.impactLoading = false;
+        render();
+      }
     }
   }
 
   async function loadQuestions() {
-    if (!kbState.repoPath.trim()) {
+    const repo = kbState.repoPath.trim();
+    if (!repo) {
       kbState.questions = [];
       return;
     }
+    const seq = ++kbState.reqSeq;
     kbState.questionsLoading = true;
     render();
     try {
-      const data = await reqJSON('/api/webuddy/kb/questions?repoPath=' + encodeURIComponent(kbState.repoPath.trim()));
-      kbState.questions = data.questions || [];
+      const data = await reqJSON('/api/webuddy/kb/questions?repoPath=' + encodeURIComponent(repo));
+      if (seq === kbState.reqSeq && kbState.repoPath.trim() === repo) kbState.questions = data.questions || [];
     } catch (err) {
       notify(err.message);
-      kbState.questions = [];
+      if (seq === kbState.reqSeq && kbState.repoPath.trim() === repo) kbState.questions = [];
     } finally {
-      kbState.questionsLoading = false;
-      render();
+      if (seq === kbState.reqSeq) {
+        kbState.questionsLoading = false;
+        render();
+      }
     }
   }
 
@@ -613,7 +633,7 @@
       const flows = res.affectedFlows || [];
       const tbls = res.affectedTables || [];
       const ci = res.codeImpact || {};
-      const callers = Array.isArray(ci.callers) ? ci.callers : (Array.isArray(ci.files) ? ci.files : []);
+      const callers = Array.isArray(ci.referenced_by) ? ci.referenced_by : (Array.isArray(ci.callers) ? ci.callers : (Array.isArray(ci.files) ? ci.files : []));
       outHTML =
         (res.aiSummary
           ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(37,99,235,0.4);background:var(--panel)">' +
@@ -664,9 +684,10 @@
       : !qs || qs.length === 0
         ? '<div class="wb-empty" style="padding:18px">当前项目暂无待澄清问题，可在上方新增一条供团队或业务方确认。</div>'
         : '<div style="display:flex;flex-direction:column;gap:10px">' + qs.map((q, idx) => {
-            const num = q.id || q.num || (idx + 1);
-            const status = String(q.status || 'open');
-            const answered = status === 'answered' || status === '已回答' || status === '已确认' || Boolean(q.answer);
+            const num = q.n || q.id || q.num || (idx + 1);
+            const answered = typeof q.open === 'boolean'
+              ? !q.open
+              : (String(q.status || '') === 'answered' || String(q.status || '') === '已回答' || String(q.status || '') === '已确认');
             return (
               '<div class="wb-finding-card">' +
                 '<div class="wb-item-top"><strong>#' + esc(num) + ' · ' + esc(q.question || q.text || '') + '</strong><span class="wb-badge ' + (answered ? 'pass' : 'fail') + '">' + (answered ? '已澄清' : '待澄清') + '</span></div>' +
@@ -674,7 +695,7 @@
                   (q.pages ? '<span>关联页：<code>' + esc(Array.isArray(q.pages) ? q.pages.join(', ') : q.pages) + '</code></span>' : '') +
                   (q.who ? '<span>提问人：' + esc(q.who) + '</span>' : '') +
                 '</div>' +
-                (q.answer ? '<div style="font-size:13px;margin-top:4px"><strong>澄清结论：</strong>' + esc(q.answer) + '</div>' : '') +
+                (answered && q.answer ? '<div style="font-size:13px;margin-top:4px"><strong>澄清结论：</strong>' + esc(q.answer) + '</div>' : '') +
                 (!answered
                   ? '<div class="wb-toolbar" style="margin-top:8px"><input type="text" data-answer-input="' + esc(num) + '" placeholder="输入业务确认结论…" style="flex:1"><button type="button" class="button primary small" data-answer-submit="' + esc(num) + '">保存人工回答</button></div>'
                   : '') +
@@ -838,8 +859,14 @@
               globalSel.value = pickedRepo.projectId;
             }
           }
+          kbState.reqSeq++;
           kbState.searchHits = null;
           kbState.docContent = null;
+          kbState.docInlinePin = null;
+          kbState.chainResult = null;
+          kbState.impactResult = null;
+          kbState.evidenceResult = null;
+          kbState.questions = null;
           loadKnowledgeBaseView();
         }
       });
@@ -931,9 +958,9 @@
         openDoc(link.dataset.wikiOpen, true);
       });
     });
-    root.querySelectorAll('[data-wiki-cite]').forEach(btn => {
+    root.querySelectorAll('[data-wiki-cite], [data-kb-cite]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const ref = btn.dataset.wikiCite;
+        const ref = btn.dataset.wikiCite || btn.dataset.kbCite;
         if (!kbState.repoPath.trim()) { notify('请先选择仓库路径'); return; }
         try {
           kbState.docInlinePin = await reqJSON('/api/webuddy/kb/verify-evidence', {

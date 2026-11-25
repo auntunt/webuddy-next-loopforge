@@ -1,16 +1,20 @@
 function webuddyMatchWaitingRunForReview(rev,waitingRuns){
   const list=waitingRuns||[];
-  if(rev.runId){const direct=list.find(wr=>wr.id===rev.runId);if(direct)return direct}
+  if(rev.runId){
+    return list.find(wr=>wr.id===rev.runId)||null;
+  }
   if(rev.issueId){
     const runIds=new Set((state.data.tasks||[]).filter(t=>t.issueId===rev.issueId&&t.runId).map(t=>t.runId));
-    const byIssue=list.find(wr=>runIds.has(wr.id));
-    if(byIssue)return byIssue;
+    return list.find(wr=>runIds.has(wr.id))||null;
   }
   return null;
 }
 function webuddyReviewMatchForRun(r,issue,reviews){
   const list=Array.isArray(reviews)?reviews:[];
-  const matched=list.filter(rev=>(rev.runId&&rev.runId===r.id)||(issue&&rev.issueId&&rev.issueId===issue.id));
+  const matched=list.filter(rev=>{
+    if(rev.runId)return rev.runId===r.id;
+    return Boolean(issue&&rev.issueId&&rev.issueId===issue.id);
+  });
   if(!matched.length)return null;
   matched.sort((a,b)=>{
     const aDirect=a.runId===r.id?1:0,bDirect=b.runId===r.id?1:0;

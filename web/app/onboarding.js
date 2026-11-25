@@ -160,10 +160,11 @@
     const importedMcpSet = new Set((ov && ov.importedMcps) || []);
 
     const hostEntries = [];
-    runners.forEach(r => { if (r.hostProfile) hostEntries.push({ hostLabel: r.name, isServer: false, prof: r.hostProfile }); });
+    onlineRunners.forEach(r => { if (r.hostProfile) hostEntries.push({ hostLabel: r.name, isServer: false, prof: r.hostProfile }); });
     if (server) hostEntries.push({ hostLabel: '服务器', isServer: true, prof: server });
 
     let okCLIs = 0;
+    let totalCLIs = 0;
     let badCLIs = 0;
     const allKBs = [];
     const kbSeen = new Set();
@@ -173,6 +174,7 @@
     hostEntries.forEach(entry => {
       (entry.prof.clis || []).forEach(c => {
         if (!c.available) return;
+        totalCLIs++;
         if (c.probeStatus === 'ok') okCLIs++;
         if (c.probeStatus === 'auth_error' || c.probeStatus === 'model_error' || c.probeStatus === 'error') badCLIs++;
       });
@@ -193,7 +195,7 @@
     });
 
     const unimportedMCPs = allMCPs.filter(m => !importedMcpSet.has(m.name.toLowerCase()) && !importedMcpSet.has(('ext-' + m.name).toLowerCase()));
-    const ready = !envState.overviewError && onlineRunners.length > 0 && (okCLIs > 0 || badCLIs === 0);
+    const ready = !envState.overviewError && onlineRunners.length > 0 && totalCLIs > 0 && (okCLIs > 0 || badCLIs < totalCLIs);
 
     const statusBanner =
       '<div class="wb-panel" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-color:' + (ready ? 'rgba(16,185,129,0.45)' : 'rgba(245,158,11,0.5)') + '">' +

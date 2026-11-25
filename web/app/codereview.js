@@ -351,10 +351,16 @@
               '<div class="wb-form-row">' +
                 '<div class="wb-field"><label>关联需求</label><select name="issueId">' +
                   '<option value="">不关联</option>' +
+                  (d.issueId && !crState.issues.some(it => it.id === d.issueId)
+                    ? '<option value="' + esc(d.issueId) + '" selected>' + esc(d.issueId) + '（已关联）</option>'
+                    : '') +
                   crState.issues.map(it => '<option value="' + esc(it.id) + '" ' + (it.id === d.issueId ? 'selected' : '') + '>' + esc((it.key || it.id) + ' · ' + (it.title || '')) + '</option>').join('') +
                 '</select></div>' +
                 '<div class="wb-field"><label>关联运行</label><select name="runId">' +
                   '<option value="">不关联</option>' +
+                  (d.runId && !crState.runs.some(rn => rn.id === d.runId)
+                    ? '<option value="' + esc(d.runId) + '" selected>' + esc(d.runId.slice(0, 12)) + '（已关联）</option>'
+                    : '') +
                   crState.runs.map(rn => '<option value="' + esc(rn.id) + '" ' + (rn.id === d.runId ? 'selected' : '') + '>' + esc(rn.id.slice(0, 12) + ' · ' + (rn.status || '')) + '</option>').join('') +
                 '</select></div>' +
               '</div>' +
@@ -695,8 +701,9 @@
         if (isAuto) render();
         try {
           const url = isAuto ? '/api/codereview/reviews/run' : '/api/codereview/reviews';
+          const pickedRepo = crState.repos.find(r => r.localPath === crState.selectedRepoPath);
           const payload = {
-            projectId: currentProjectId(),
+            projectId: (pickedRepo && pickedRepo.projectId) || currentProjectId(),
             issueId: d.issueId || '',
             runId: d.runId || '',
             title: (d.title || '').trim() || '最新代码改动审查',
