@@ -259,6 +259,94 @@
           '</div>';
       }
 
+      // For non-Java/Go/Python repos (e.g. Node.js/TypeScript) where static flows/tables are 0
+      // but module knowledge pages or sourceFiles exist, render an interactive Module Knowledge Map
+      // instead of an empty dot grid.
+      const modPages = (ov.pages || []).filter(p => p && p.path);
+      if (domains.length === 0 && flows.length === 0 && (modPages.length > 0 || (ov.sourceFiles || []).length > 0)) {
+        const analyzedCount = modPages.filter(p => p.status && p.status !== '未分析').length;
+        const pid = (window.state && window.state.projectFilter) || '';
+        const cardsHTML = modPages.map(p => {
+          const isDone = p.status && p.status !== '未分析';
+          const badgeCls = p.status === '已确认' ? 'pass' : isDone ? 'info' : '';
+          const badgeStyle = !isDone ? 'background:#f1f5f9;color:#64748b' : '';
+          return (
+            '<div class="wb-finding-card" data-mod-open="' + esc(p.path) + '" style="cursor:pointer;display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-color:' + (isDone ? 'rgba(34,197,94,0.45)' : 'var(--line,#e2e8f0)') + ';background:' + (isDone ? 'linear-gradient(180deg,#f0fdf4 0%,#fff 100%)' : '#fff') + '">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+                '<strong style="font-size:13.5px;color:#0f172a">' + (isDone ? '✅ ' : '📄 ') + esc(p.title || p.name || p.path) + '</strong>' +
+                '<span class="wb-badge ' + badgeCls + '" style="' + badgeStyle + '">' + esc(p.status || '未分析') + '</span>' +
+              '</div>' +
+              (p.summary ? '<div style="font-size:12.5px;color:#334155;line-height:1.5">' + esc(p.summary) + '</div>' : '<div style="font-size:12px;color:#94a3b8">尚未分析，点击上方「后台继续分析」自动生成带源码证据的业务说明</div>') +
+              '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#64748b;margin-top:auto">' +
+                '<code>' + esc(p.path) + '</code>' +
+                (p.updated ? '<span>' + esc(p.updated) + '</span>' : '') +
+              '</div>' +
+            '</div>'
+          );
+        }).join('');
+
+        container.innerHTML =
+          '<div class="wb-panel">' +
+            '<div class="wb-item-top" style="margin-bottom:12px;flex-wrap:wrap;gap:10px">' +
+              '<div>' +
+                '<h3 style="margin:0">模块知识地图（已分析 ' + analyzedCount + ' / 共 ' + modPages.length + ' 页 · 收录 ' + Number(ov.sourceFileCount || 0) + ' 个源码文件）</h3>' +
+                '<p class="wb-subtitle" style="margin:3px 0 0">点击任意模块卡片可查看完整业务说明与真实源码 file:line 证据。</p>' +
+              '</div>' +
+              '<div class="wb-actions">' +
+                '<button type="button" class="button primary small" id="wbModBgUpdateBtn">🚀 后台继续分析 3 页（不阻塞）</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px">' +
+              (cardsHTML || '<div class="wb-empty">已收录源码文件，点击上方按钮开始生成模块知识页。</div>') +
+            '</div>' +
+          '</div>' +
+          '<div id="wbModDocViewer" style="margin-top:12px"></div>';
+
+        const bgBtn = container.querySelector('#wbModBgUpdateBtn');
+        if (bgBtn) {
+          bgBtn.onclick = async () => {
+            bgBtn.disabled = true;
+            try {
+              const res = await fetch('/api/webuddy/kb/batch-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ projectId: pid, limit: 3, async: true }),
+              });
+              if (res.ok) {
+                window.dispatchEvent(new CustomEvent('webuddy:tasks-changed'));
+                if (typeof window.toast === 'function') window.toast('已转入后台持续分析，右下角浮动胶囊实时显示进度', 'ok');
+              }
+            } finally {
+              setTimeout(() => { bgBtn.disabled = false; }, 1500);
+            }
+          };
+        }
+        container.querySelectorAll('[data-mod-open]').forEach(el => {
+          el.onclick = async () => {
+            const docPath = el.getAttribute('data-mod-open');
+            const viewer = container.querySelector('#wbModDocViewer');
+            if (!viewer || !docPath) return;
+            viewer.innerHTML = '<div class="wb-panel"><p class="wb-subtitle">正在读取 ' + esc(docPath) + ' ...</p></div>';
+            try {
+              const url = '/api/webuddy/kb/read?repoPath=' + encodeURIComponent(ov.repoPath || '') + '&path=' + encodeURIComponent(docPath);
+              const r = await fetch(url, { credentials: 'same-origin' });
+              const d = await r.json();
+              viewer.innerHTML =
+                '<div class="wb-panel">' +
+                  '<div class="wb-item-top" style="margin-bottom:8px"><strong>📄 ' + esc(docPath) + '</strong><button type="button" class="button ghost small" id="wbModDocClose">关闭</button></div>' +
+                  '<pre style="white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.6;background:#f8fafc;padding:12px;border-radius:10px;border:1px solid #e2e8f0;max-height:480px;overflow:auto">' + esc(d.content || d.error || '无内容') + '</pre>' +
+                '</div>';
+              viewer.querySelector('#wbModDocClose')?.addEventListener('click', () => { viewer.innerHTML = ''; });
+              viewer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (err) {
+              viewer.innerHTML = '<div class="wb-panel"><p style="color:#dc2626">读取失败：' + esc(err.message) + '</p></div>';
+            }
+          };
+        });
+        return;
+      }
+
       container.innerHTML =
         '<div class="wb-panel">' +
           '<div class="wb-item-top" style="margin-bottom:10px">' +
