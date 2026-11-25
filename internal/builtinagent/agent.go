@@ -40,6 +40,7 @@ type CompletionRequest struct {
 	UserPrompt   string
 	MaxTokens    int
 	Temperature  float64
+	Timeout      time.Duration
 }
 
 type CompletionResult struct {
@@ -229,7 +230,15 @@ func (m *Manager) Complete(ctx context.Context, req CompletionRequest) Completio
 		req.Temperature = 0.2
 	}
 
-	tctx, cancel := context.WithTimeout(ctx, 28*time.Second)
+	totalTimeout := req.Timeout
+	if totalTimeout <= 0 {
+		totalTimeout = 28 * time.Second
+	}
+	perModelTimeout := 12 * time.Second
+	if totalTimeout > 30*time.Second {
+		perModelTimeout = 25 * time.Second
+	}
+	tctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
 
 	var tried []string
@@ -279,7 +288,7 @@ func (m *Manager) Complete(ctx context.Context, req CompletionRequest) Completio
 		}
 		for _, modelID := range tryList {
 			tried = append(tried, modelID)
-			perModelCtx, perCancel := context.WithTimeout(tctx, 12*time.Second)
+			perModelCtx, perCancel := context.WithTimeout(tctx, perModelTimeout)
 			txt, err := callChatCompletions(perModelCtx, OpenRouterBaseURL, orKey, modelID, req, headers)
 			perCancel()
 			if err == nil && strings.TrimSpace(txt) != "" {

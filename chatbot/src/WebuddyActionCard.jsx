@@ -126,12 +126,14 @@ function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
         : [];
 
   const title =
-    (spec && spec.title) ||
-    (batchPages.length > 0
+    batchPages.length > 0
       ? `知识库已实时增量更新（+${batchPages.length} 页 · 源码溯源通过）`
-      : autoDetected
-        ? "服务端知识库可信增量更新（无需沙箱 git clone）"
-        : "知识库实时覆盖率与源码溯源核验");
+      : error
+        ? "知识库实时覆盖率与增量更新"
+        : (spec && spec.title) ||
+          (autoDetected
+            ? "服务端知识库可信增量更新（无需沙箱 git clone）"
+            : "知识库实时覆盖率与源码溯源核验");
 
   return (
     <div

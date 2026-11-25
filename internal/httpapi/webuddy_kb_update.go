@@ -255,11 +255,14 @@ func (d *deps) runWebuddyKBBatchUpdate(ctx context.Context, actor, projectID str
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, 2)
 	for _, job := range next.Jobs {
 		job := job
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			pageReceipt, usedModel, errs := synthesizeAndCommitKBPage(ctx, svc, repoPath, actor, job)
 			mu.Lock()
 			defer mu.Unlock()
@@ -301,8 +304,12 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 		"4. body 不要包含 YAML frontmatter（---）也不要包含 tmh:facts 块，只写二级标题及正文。\n" +
 		"5. 信息不确定处标【推断】，严禁胡编外部系统名称。"
 
+	pack := job.PackText
+	if len(pack) > 6500 {
+		pack = pack[:6500] + "\n...(后续上下文已截断)"
+	}
 	baseUserPrompt := fmt.Sprintf("页面 ID：%s\n文件：%s\n必须包含的二级标题：%s\n\n===== 源码与图谱上下文 =====\n%s",
-		job.PageID, job.RelPath, secList, job.PackText)
+		job.PageID, job.RelPath, secList, pack)
 
 	var lastErrs []string
 	var usedModel string
@@ -312,8 +319,9 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 		res := builtinagent.Default().Complete(ctx, builtinagent.CompletionRequest{
 			SystemPrompt: sysPrompt,
 			UserPrompt:   userPrompt,
-			MaxTokens:    1600,
+			MaxTokens:    1400,
 			Temperature:  0.15,
+			Timeout:      55 * time.Second,
 		})
 		if res.Model != "" {
 			usedModel = res.Model

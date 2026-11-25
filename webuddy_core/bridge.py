@@ -916,8 +916,14 @@ def _kb_coverage_summary(root: Path, reg: dict) -> dict:
 
 def _kb_git_head(root: Path) -> str:
     try:
-        from tmh.util import git_head
-        return (git_head(root) or "")[:10]
+        import subprocess
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short=10", "HEAD"],
+            cwd=str(root),
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+        return out.decode("utf-8", errors="replace").strip()
     except Exception:
         return ""
 
