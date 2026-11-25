@@ -144,8 +144,7 @@
           '</div>' +
         '</div>' +
         (clis.length ? '<div class="wb-meta" style="margin-top:8px;gap:6px;flex-wrap:wrap">' + clis.map(cliTrafficPill).join('') + '</div>' : '') +
-        errNotes +
-        detailsHtml +
+        detailsHtml.replace('</details>', errNotes + '</details>') +
       '</div>'
     );
   }
@@ -178,8 +177,8 @@
         if (c.probeStatus === 'auth_error' || c.probeStatus === 'model_error' || c.probeStatus === 'error') badCLIs++;
       });
       (entry.prof.knowledgeBases || []).forEach(kb => {
-        const key = (entry.isServer ? 'srv:' : entry.hostLabel + ':') + kb.path;
-        if (!kbSeen.has(key)) {
+        const key = String(kb.path || '').replace(/\/+$/, '');
+        if (key && !kbSeen.has(key)) {
           kbSeen.add(key);
           allKBs.push({ ...kb, hostLabel: entry.hostLabel, isServer: entry.isServer });
         }

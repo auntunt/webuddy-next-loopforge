@@ -33,6 +33,20 @@
     picking: false,
   };
 
+  function cleanPlainAI(text) {
+    return String(text || '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .trim();
+  }
+
+  function friendlyModelLabel(model) {
+    const m = String(model || '');
+    if (!m) return 'AI 助手';
+    if (m.includes(':free') || m.includes('openrouter')) return '免费 AI 助手';
+    return 'AI 助手';
+  }
+
   function esc(v) {
     return String(v == null ? '' : v)
       .replace(/&/g, '&amp;')
@@ -557,9 +571,9 @@
         ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(37,99,235,0.4);background:var(--panel)">' +
             '<div class="wb-item-top" style="margin-bottom:6px">' +
               '<strong style="font-size:14px">✨ AI 回答</strong>' +
-              '<span class="wb-meta" style="font-size:12px">' + esc(res.aiModel || 'AI') + (res.aiLatencyMs ? ' · ' + (res.aiLatencyMs / 1000).toFixed(1) + 's' : '') + '</span>' +
+              '<span class="wb-meta" style="font-size:12px" title="' + esc(res.aiModel || '') + '">' + esc(friendlyModelLabel(res.aiModel)) + (res.aiLatencyMs ? ' · ' + (res.aiLatencyMs / 1000).toFixed(1) + 's' : '') + '</span>' +
             '</div>' +
-            '<div style="font-size:14px;line-height:1.65;white-space:pre-line">' + esc(res.aiAnswer) + '</div>' +
+            '<div style="font-size:14px;line-height:1.65;white-space:pre-line">' + esc(cleanPlainAI(res.aiAnswer)) + '</div>' +
             (cites.length
               ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">' +
                   '<span class="wb-meta" style="font-size:12px">对应源码：</span>' +
@@ -603,8 +617,8 @@
       outHTML =
         (res.aiSummary
           ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(37,99,235,0.4);background:var(--panel)">' +
-              '<div class="wb-item-top" style="margin-bottom:4px"><strong style="font-size:13.5px">✨ AI 影响结论</strong><span class="wb-meta" style="font-size:12px">' + esc(res.aiModel || 'AI') + '</span></div>' +
-              '<div style="font-size:13.5px;line-height:1.6;white-space:pre-line">' + esc(res.aiSummary) + '</div>' +
+              '<div class="wb-item-top" style="margin-bottom:4px"><strong style="font-size:13.5px">✨ AI 影响结论</strong><span class="wb-meta" style="font-size:12px" title="' + esc(res.aiModel || '') + '">' + esc(friendlyModelLabel(res.aiModel)) + '</span></div>' +
+              '<div style="font-size:13.5px;line-height:1.6;white-space:pre-line">' + esc(cleanPlainAI(res.aiSummary)) + '</div>' +
             '</div>'
           : '') +
         '<div class="wb-kpi-grid" style="margin-bottom:14px">' +
@@ -615,7 +629,7 @@
         '</div>' +
         (doms.length ? '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px">' + doms.map(d => '<span class="wb-badge info">' + esc(d.domain) + ' (' + d.flowCount + ' 流程)</span>').join('') + '</div>' : '') +
         (flows.length
-          ? '<table class="wb-table" style="margin-bottom:14px"><thead><tr><th>受影响流程</th><th>所属域</th><th>涉及数据表</th><th>源码定位</th></tr></thead><tbody>' +
+          ? '<table class="wb-table" style="margin-bottom:14px"><thead><tr><th style="white-space:nowrap">受影响流程</th><th style="white-space:nowrap">所属域</th><th style="white-space:nowrap">涉及数据表</th><th style="white-space:nowrap">源码定位</th></tr></thead><tbody>' +
               flows.map(f =>
                 '<tr><td><b>' + esc(f.name) + '</b></td><td><span class="wb-badge info">' + esc(f.domain) + '</span></td><td><code>' + esc((f.tables || []).join(', ') || '—') + '</code></td><td>' +
                 (f.file && f.line ? '<button type="button" class="wb-cite-pill" data-impact-cite="' + esc(f.file + ':' + f.line) + '">⌖ ' + esc(f.file + ':' + f.line) + '</button>' : '—') +
@@ -632,7 +646,7 @@
         '<h3>查改动影响</h3>' +
         '<p class="wb-subtitle" style="margin-bottom:12px">输入要改的文件、接口或表名，先看会波及哪些业务。</p>' +
         '<div class="wb-toolbar" style="margin-bottom:12px">' +
-          '<input type="text" id="wbImpactTargetInput" value="' + esc(kbState.impactTarget) + '" placeholder="例如：ApprovaController、approva、t_bill…" style="min-width:320px;flex:1">' +
+          '<input type="text" id="wbImpactTargetInput" value="' + esc(kbState.impactTarget) + '" placeholder="例如：fill、report、审批、订单…" style="min-width:280px;flex:1">' +
           '<select id="wbImpactDepthSelect" style="width:110px">' +
             [1, 2, 3, 4].map(d => '<option value="' + d + '"' + (Number(kbState.impactDepth) === d ? ' selected' : '') + '>深度 ' + d + ' 层</option>').join('') +
           '</select>' +
@@ -816,6 +830,14 @@
         if (e.target.value) {
           kbState.repoPath = e.target.value;
           localStorage.setItem('webuddy.kb.repoPath', kbState.repoPath);
+          const pickedRepo = kbState.repos.find(r => r.localPath === kbState.repoPath);
+          if (pickedRepo && pickedRepo.projectId && window.state) {
+            window.state.projectFilter = pickedRepo.projectId;
+            const globalSel = document.getElementById('projectFilter');
+            if (globalSel && globalSel.value !== pickedRepo.projectId) {
+              globalSel.value = pickedRepo.projectId;
+            }
+          }
           kbState.searchHits = null;
           kbState.docContent = null;
           loadKnowledgeBaseView();

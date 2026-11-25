@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"agentflow/internal/codereview"
 	"agentflow/internal/domain"
 	"agentflow/internal/runtime"
 
@@ -184,6 +185,25 @@ func (h *assistantHandlers) models(c *gin.Context) {
 			id = "claude"
 		} else if id == "claude" {
 			engine = assistantEngineClaude
+		}
+		if engine == assistantEngineCodex {
+			if gwModels := codereview.DiscoverCodexGatewayModels(c.Request.Context()); len(gwModels) > 0 {
+				result := assistantModelCatalog{
+					Default: gwModels[0],
+					Models:  make([]assistantModel, 0, len(gwModels)),
+				}
+				for _, mid := range gwModels {
+					result.Models = append(result.Models, assistantModel{
+						ID:      mid,
+						Name:    mid,
+						Family:  assistantModelFamily(mid, engine),
+						Engine:  engine,
+						Efforts: []string{"low", "medium", "high", "xhigh", "max"},
+					})
+				}
+				c.JSON(200, result)
+				return
+			}
 		}
 		var user domain.User
 		if h.repo != nil && (engine == runtime.AgentCLIKimi || engine == runtime.AgentCLIAntigravity) {

@@ -53,13 +53,13 @@ var builtinExecutorModels = func() map[string][]builtinExecutorModel {
 	ultra := []string{"low", "medium", "high", "xhigh", "max", "ultra"}
 	return map[string][]builtinExecutorModel{
 		assistantEngineCodex: {
+			{"gpt-6-luna", "GPT-6 Luna", max},
 			{"gpt-6.1-sol", "GPT-6.1 Sol", ultra},
 			{"gpt-6.1-terra", "GPT-6.1 Terra", ultra},
 			{"gpt-6.2-sol", "GPT-6.2 Sol", ultra},
 			{"gpt-6.2-astra", "GPT-6.2 Astra", ultra},
 			{"gpt-6-astra", "GPT-6 Astra", ultra},
 			{"gpt-6-sol", "GPT-6 Sol", ultra},
-			{"gpt-6-luna", "GPT-6 Luna", max},
 			{"gpt-5.6-sol", "GPT-5.6 Sol", ultra},
 			{"gpt-5.6-terra", "GPT-5.6 Terra", ultra},
 			{"gpt-5.6-luna", "GPT-5.6 Luna", max},
