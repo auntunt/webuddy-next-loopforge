@@ -277,12 +277,17 @@ func webuddyAssistantToolSpecs() []map[string]any {
 			"description": "直接在服务端调用本地源码仓与内置大模型，批量增量分析并更新当前项目的“未分析/过期”知识库页面（每页强制通过真实源码 file:line 溯源校验与 Git Commit 盖章），无需在沙箱里 git clone。完成后请在回复末尾输出一个语言为 webuddy-card 的 JSON 代码块（type 为 kb_update），让用户直观看到覆盖率进度条与源码溯源清单。",
 			"inputSchema": json.RawMessage(`{"type":"object","properties":{"projectId":{"type":"string","description":"可选项目ID，默认当前会话项目"},"limit":{"type":"integer","description":"本次增量更新页数，默认3，最大5"},"query":{"type":"string","description":"可选聚焦关键词（如 审批、用户、订单），优先更新匹配页面"}}}`),
 		},
+		{
+			"name":        "webuddy_preview_start",
+			"description": "直接在平台服务端为当前项目一键启动 Web 服务并打穿 HTTPS 预览通道（/app-preview/<projectId>/），自动安装缺失依赖并分配本地端口。当用户想查看页面内容、打开后台、预览界面或体验部署效果时直接调用。完成后请在回复末尾输出语言为 webuddy-card 的 JSON 代码块（type 为 live_preview），前端会自动内嵌实时可交互页面预览。",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{"projectId":{"type":"string","description":"可选项目ID，默认当前会话项目"}}}`),
+		},
 	}
 }
 
 func isWebuddyAssistantTool(name string) bool {
 	switch name {
-	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update":
+	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start":
 		return true
 	default:
 		return false
@@ -343,6 +348,29 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 			"ok":      receipt.OK,
 			"receipt": receipt,
 			"uiHint":  fmt.Sprintf("请在最终回复末尾附带一个语言为 webuddy-card 的 fenced JSON 代码块：{\"type\":\"kb_update\",\"projectId\":%q,\"title\":\"知识库已完成增量更新与源码溯源核验\"}，前端会自动渲染实时覆盖率进度条、源码 file:line 溯源清单以及「继续智能更新」按钮。", receipt.ProjectID),
+		})
+		return mcpToolTextResult(string(out), false), nil
+	}
+
+	if name == "webuddy_preview_start" {
+		eh := &webuddyEnvHandlers{deps: h.deps}
+		resolvedPID, projName, repoPath := eh.resolveProjectAndRepoPath(pid)
+		if repoPath == "" {
+			return mcpToolTextResult("当前项目尚未挂载本地代码仓库，无法启动实时预览。", true), nil
+		}
+		dto, err := defaultPreviewMgr.start(ctx, resolvedPID, projName, repoPath)
+		if err != nil {
+			out, _ := json.Marshal(map[string]any{
+				"ok":    false,
+				"error": err.Error(),
+				"logs":  dto.Logs,
+			})
+			return mcpToolTextResult(string(out), true), nil
+		}
+		out, _ := json.Marshal(map[string]any{
+			"ok":      true,
+			"preview": dto,
+			"uiHint":  fmt.Sprintf("服务已启动并打穿端口预览（%s），请在最终回复末尾附带一个语言为 webuddy-card 的 fenced JSON 代码块：{\"type\":\"live_preview\",\"projectId\":%q,\"title\":\"实时应用预览已打穿端口并就绪\"}，前端会直接内嵌可交互页面预览与快捷入口。", dto.PreviewURL, dto.ProjectID),
 		})
 		return mcpToolTextResult(string(out), false), nil
 	}

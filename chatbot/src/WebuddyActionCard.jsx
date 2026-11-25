@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 
 export default function WebuddyActionCard(props) {
+  if (props?.spec?.type === "live_preview") {
+    return <LivePreviewCard {...props} />;
+  }
   if (props?.spec?.type === "kb_update") {
     return <KBUpdateCard {...props} />;
   }
@@ -9,6 +12,414 @@ export default function WebuddyActionCard(props) {
     return <UploadArchiveCard {...props} />;
   }
   return <EnvConfirmCard {...props} />;
+}
+
+function LivePreviewCard({ spec = null, projectId = "", autoDetected = false }) {
+  const targetProjectId = (spec && spec.projectId) || projectId || "";
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState("");
+  const [activePath, setActivePath] = useState("/");
+  const [expanded, setExpanded] = useState(true);
+  const [showLogs, setShowLogs] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
+
+  const fetchStatus = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const q = targetProjectId
+        ? `?projectId=${encodeURIComponent(targetProjectId)}`
+        : "";
+      const res = await api(`/api/webuddy/preview/status${q}`);
+      setStatus(res);
+    } catch (err) {
+      setError(err?.message || "获取预览状态失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [targetProjectId]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  useEffect(() => {
+    const onUpdated = (e) => {
+      const detail = e?.detail;
+      if (!detail) return;
+      const myPid = status?.projectId || targetProjectId;
+      if (!myPid || !detail.projectId || myPid === detail.projectId) {
+        setStatus(detail);
+        if (detail.running) {
+          setIframeKey((k) => k + 1);
+        }
+      }
+    };
+    window.addEventListener("webuddy:preview-updated", onUpdated);
+    return () => window.removeEventListener("webuddy:preview-updated", onUpdated);
+  }, [status?.projectId, targetProjectId]);
+
+  async function handleStart() {
+    setStarting(true);
+    setError("");
+    try {
+      const pid = status?.projectId || targetProjectId;
+      const res = await api("/api/webuddy/preview/start", {
+        method: "POST",
+        body: JSON.stringify({ projectId: pid }),
+      });
+      setStatus(res);
+      setExpanded(true);
+      setIframeKey((k) => k + 1);
+      window.dispatchEvent(new CustomEvent("webuddy:preview-updated", { detail: res }));
+    } catch (err) {
+      setError(err?.message || "启动预览服务失败");
+      setShowLogs(true);
+      fetchStatus();
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function handleStop() {
+    setStopping(true);
+    setError("");
+    try {
+      const pid = status?.projectId || targetProjectId;
+      const res = await api("/api/webuddy/preview/stop", {
+        method: "POST",
+        body: JSON.stringify({ projectId: pid }),
+      });
+      setStatus(res);
+      window.dispatchEvent(new CustomEvent("webuddy:preview-updated", { detail: res }));
+    } catch (err) {
+      setError(err?.message || "停止预览服务失败");
+    } finally {
+      setStopping(false);
+    }
+  }
+
+  const running = Boolean(status?.running && status?.previewUrl);
+  const basePreviewUrl = (status?.previewUrl || "").replace(/\/+$/, "");
+  const cleanActivePath = activePath.startsWith("/") ? activePath : `/${activePath}`;
+  const fullPreviewUrl = running ? `${basePreviewUrl}${cleanActivePath}` : "";
+  const quickPaths =
+    Array.isArray(status?.quickPaths) && status.quickPaths.length > 0
+      ? status.quickPaths
+      : ["/"];
+  const logs = Array.isArray(status?.logs) ? status.logs : [];
+
+  return (
+    <div
+      className="webuddy-action-card"
+      style={{
+        marginTop: 12,
+        marginBottom: 8,
+        padding: "14px 16px",
+        borderRadius: 14,
+        border: running
+          ? "1px solid rgba(22, 163, 74, 0.38)"
+          : "1px solid rgba(59, 130, 246, 0.3)",
+        background: running
+          ? "linear-gradient(180deg, rgba(240, 253, 244, 0.94), rgba(255, 255, 255, 0.98))"
+          : "linear-gradient(180deg, rgba(239, 246, 255, 0.86), rgba(255, 255, 255, 0.98))",
+        boxShadow: "0 2px 10px rgba(15, 23, 42, 0.05)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          flexWrap: "wrap",
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: running ? "#16a34a" : starting ? "#f59e0b" : "#3b82f6",
+              boxShadow: running ? "0 0 0 3px rgba(22,163,74,0.18)" : "none",
+              display: "inline-block",
+              flexShrink: 0,
+            }}
+          />
+          <strong style={{ fontSize: 13.5, color: "#0f172a" }}>
+            {running
+              ? "实时应用预览已打穿端口"
+              : (spec && spec.title) || "一键启动项目并打穿 HTTPS 预览通道"}
+          </strong>
+          {status?.projectName ? (
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              · {status.projectName}
+            </span>
+          ) : null}
+        </div>
+        {running ? (
+          <code
+            style={{
+              fontSize: 11,
+              color: "#15803d",
+              background: "#dcfce7",
+              padding: "2px 8px",
+              borderRadius: 999,
+            }}
+          >
+            本地端口 {status.port} → {basePreviewUrl}/
+          </code>
+        ) : (
+          <span style={{ fontSize: 11.5, color: "#64748b" }}>
+            {loading ? "正在检查服务状态..." : "服务端直连反向代理 · 免本地起端口"}
+          </span>
+        )}
+      </div>
+
+      {!running ? (
+        <div style={{ fontSize: 12.5, color: "#475569", marginBottom: 10, lineHeight: 1.55 }}>
+          平台将直接在服务端运行当前项目代码（自动补齐依赖、启用开发免登预览并通过
+          <code style={{ margin: "0 4px", fontSize: 11.5 }}>/app-preview/</code>
+          安全打穿端口），启动后即可直接在下方看到真实可交互页面。
+        </div>
+      ) : null}
+
+      {error ? (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: "8px 10px",
+            borderRadius: 8,
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            color: "#b91c1c",
+            fontSize: 12,
+          }}
+        >
+          ❌ {error}
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          marginBottom: running && expanded ? 10 : 0,
+        }}
+      >
+        {!running ? (
+          <button
+            type="button"
+            disabled={starting || loading}
+            onClick={handleStart}
+            style={{
+              appearance: "none",
+              border: "none",
+              borderRadius: 9,
+              padding: "8px 15px",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: starting ? "wait" : "pointer",
+              background: starting ? "#93c5fd" : "#2563eb",
+              color: "#ffffff",
+              boxShadow: "0 1px 4px rgba(37, 99, 235, 0.28)",
+            }}
+          >
+            {starting
+              ? "⏳ 正在安装依赖并启动服务（首次约 15~30 秒）..."
+              : "🚀 一键启动并打穿端口预览"}
+          </button>
+        ) : (
+          <>
+            {quickPaths.map((p) => {
+              const isAct = cleanActivePath === p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => {
+                    setActivePath(p);
+                    setExpanded(true);
+                  }}
+                  style={{
+                    appearance: "none",
+                    border: isAct ? "1px solid #16a34a" : "1px solid #cbd5e1",
+                    borderRadius: 8,
+                    padding: "5px 10px",
+                    fontSize: 12,
+                    fontWeight: isAct ? 600 : 500,
+                    cursor: "pointer",
+                    background: isAct ? "#dcfce7" : "#ffffff",
+                    color: isAct ? "#15803d" : "#334155",
+                  }}
+                >
+                  {p === "/" ? "🏠 首页 (/)" : `📄 ${p}`}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setIframeKey((k) => k + 1)}
+              style={{
+                appearance: "none",
+                border: "1px solid #cbd5e1",
+                borderRadius: 8,
+                padding: "5px 10px",
+                fontSize: 12,
+                cursor: "pointer",
+                background: "#ffffff",
+                color: "#334155",
+              }}
+            >
+              🔄 刷新
+            </button>
+            <a
+              href={fullPreviewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                border: "1px solid #93c5fd",
+                borderRadius: 8,
+                padding: "5px 10px",
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: "none",
+                background: "#eff6ff",
+                color: "#1d4ed8",
+              }}
+            >
+              🔗 新标签页打开
+            </a>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              style={{
+                appearance: "none",
+                border: "1px solid #cbd5e1",
+                borderRadius: 8,
+                padding: "5px 10px",
+                fontSize: 12,
+                cursor: "pointer",
+                background: "#ffffff",
+                color: "#334155",
+              }}
+            >
+              {expanded ? "收起页面" : "展开页面"}
+            </button>
+            <button
+              type="button"
+              disabled={stopping}
+              onClick={handleStop}
+              style={{
+                appearance: "none",
+                border: "1px solid #fecaca",
+                borderRadius: 8,
+                padding: "5px 10px",
+                fontSize: 12,
+                cursor: stopping ? "wait" : "pointer",
+                background: "#fef2f2",
+                color: "#b91c1c",
+              }}
+            >
+              {stopping ? "停止中..." : "⏹ 停止"}
+            </button>
+          </>
+        )}
+        {logs.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowLogs((v) => !v)}
+            style={{
+              appearance: "none",
+              border: "1px solid #e2e8f0",
+              borderRadius: 8,
+              padding: "5px 9px",
+              fontSize: 11.5,
+              cursor: "pointer",
+              background: "#f8fafc",
+              color: "#64748b",
+            }}
+          >
+            {showLogs ? "隐藏日志" : `查看日志 (${logs.length})`}
+          </button>
+        ) : null}
+      </div>
+
+      {running && expanded ? (
+        <div
+          style={{
+            borderRadius: 10,
+            overflow: "hidden",
+            border: "1px solid #cbd5e1",
+            background: "#ffffff",
+            boxShadow: "0 2px 8px rgba(15, 23, 42, 0.06)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              background: "#f1f5f9",
+              borderBottom: "1px solid #e2e8f0",
+              fontSize: 11.5,
+              color: "#475569",
+            }}
+          >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              🔒 {window.location.origin}
+              {fullPreviewUrl}
+            </span>
+            <span style={{ flexShrink: 0, color: "#15803d", fontWeight: 600 }}>
+              ● 实时连接
+            </span>
+          </div>
+          <iframe
+            key={iframeKey}
+            src={fullPreviewUrl}
+            title={`实时预览 - ${status?.projectName || targetProjectId}`}
+            style={{
+              width: "100%",
+              height: 500,
+              border: "none",
+              display: "block",
+              background: "#ffffff",
+            }}
+          />
+        </div>
+      ) : null}
+
+      {showLogs && logs.length > 0 ? (
+        <pre
+          style={{
+            marginTop: 10,
+            marginBottom: 0,
+            padding: "8px 10px",
+            borderRadius: 8,
+            background: "#0f172a",
+            color: "#e2e8f0",
+            fontSize: 11,
+            lineHeight: 1.45,
+            maxHeight: 180,
+            overflow: "auto",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {logs.join("\n")}
+        </pre>
+      ) : null}
+    </div>
+  );
 }
 
 function UploadArchiveCard({ spec = null, projectId = "", autoDetected = false }) {

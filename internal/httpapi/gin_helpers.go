@@ -141,6 +141,10 @@ func securityHeaders() gin.HandlerFunc {
 			// Give only the isolated preview document an inline-script policy.
 			csp = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https: http:; font-src data: https:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'"
 		}
+		if strings.HasPrefix(path, "/app-preview/") {
+			frameOptions = "SAMEORIGIN"
+			csp = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https: http:; frame-ancestors 'self'"
+		}
 		if path == "/vscode.html" || strings.HasPrefix(path, "/vscode-web/") || strings.HasPrefix(path, "/extensions/") {
 			// Real vscode-web workbench + extension-host iframe, same-origin only.
 			frameOptions = "SAMEORIGIN"
@@ -193,7 +197,7 @@ func gzipMaybe() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if strings.Contains(c.Request.URL.Path, "/stream") || strings.HasPrefix(c.Request.URL.Path, "/api/otel/") || strings.Contains(c.GetHeader("Accept"), "text/event-stream") {
+		if strings.Contains(c.Request.URL.Path, "/stream") || strings.HasPrefix(c.Request.URL.Path, "/api/otel/") || strings.HasPrefix(c.Request.URL.Path, "/app-preview/") || strings.Contains(c.GetHeader("Accept"), "text/event-stream") {
 			c.Next()
 			return
 		}

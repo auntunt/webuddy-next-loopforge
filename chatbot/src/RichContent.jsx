@@ -367,21 +367,30 @@ const kbUpdateHintRe =
   /(知识库.*(未分析|待确认|无法通过\s*Git|无法.*更新)|未分析.*知识|继续更新.*知识库)/i;
 const uploadArchiveHintRe =
   /(没有绑定(代码)?仓库|压缩包导入|代码压缩包|尚未绑定仓库|未绑定.*仓库)/i;
+const livePreviewHintRe =
+  /(端口\s*\d+\s*上没有正在监听|没有正在监听的开发服务器|无法启动这个服务|看不到本地后台|打开本地后台|localhost:\d+|\/admin\.html)/i;
 
 export function RichContent({ message, assets = emptyAssets, projectId = "" }) {
   const text = typeof message === "string" ? message : visibleText(message);
   const context = useMemo(() => ({ assets, projectId }), [assets, projectId]);
   const hasExplicitCard = Boolean(text) && text.includes("```webuddy-card");
+  const showAutoPreviewCard =
+    Boolean(text) && !hasExplicitCard && livePreviewHintRe.test(text);
   const showAutoUploadCard =
-    Boolean(text) && !hasExplicitCard && uploadArchiveHintRe.test(text);
+    Boolean(text) &&
+    !hasExplicitCard &&
+    !showAutoPreviewCard &&
+    uploadArchiveHintRe.test(text);
   const showAutoEnvCard =
     Boolean(text) &&
     !hasExplicitCard &&
+    !showAutoPreviewCard &&
     !showAutoUploadCard &&
     missingSandboxRe.test(text);
   const showAutoKBCard =
     Boolean(text) &&
     !hasExplicitCard &&
+    !showAutoPreviewCard &&
     !showAutoUploadCard &&
     !showAutoEnvCard &&
     kbUpdateHintRe.test(text);
@@ -398,6 +407,13 @@ export function RichContent({ message, assets = emptyAssets, projectId = "" }) {
     <MarkdownAssets.Provider value={context}>
       <div className="markdown">
         {markdown}
+        {showAutoPreviewCard ? (
+          <WebuddyActionCard
+            spec={{ type: "live_preview" }}
+            projectId={projectId}
+            autoDetected
+          />
+        ) : null}
         {showAutoUploadCard ? (
           <WebuddyActionCard
             spec={{ type: "upload_archive" }}
