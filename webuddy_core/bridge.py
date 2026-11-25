@@ -1058,7 +1058,7 @@ def _kb_next(repo_path: str, limit: int, query: str, who: str) -> dict:
     from tmh import kb
     reg = _bootstrap_generic_kb_pages(root, kb.load_registry(root))
     cov = _kb_coverage_summary(root, reg)
-    queue = kb.pending(root, reg)
+    queue = [pid for pid in kb.pending(root, reg) if pid != "structure"]
     if not queue and reg:
         queue = [pid for pid, r in reg.items() if isinstance(r, dict) and r.get("status") == "未分析"]
     q_low = (query or "").strip().lower()
