@@ -391,6 +391,20 @@ func (h *webuddyEnvHandlers) previewStop(c *gin.Context) {
 }
 
 var htmlRootAttrRe = regexp.MustCompile(`(?i)(\b(?:href|src|action)\s*=\s*["'])(/(?:[^/"'][^"']*)?["'])`)
+var jsRootNavRe = regexp.MustCompile(`(\b(?:window\.)?location(?:\.href\s*=|\s*=|\.(?:replace|assign)\s*\()\s*["'])(/(?:[^/"'][^"']*)?["'])`)
+
+func rewriteJSRootNav(src, prefix string) string {
+	return jsRootNavRe.ReplaceAllStringFunc(src, func(m string) string {
+		sub := jsRootNavRe.FindStringSubmatch(m)
+		if len(sub) != 3 {
+			return m
+		}
+		if strings.HasPrefix(sub[2], prefix+"/") {
+			return m
+		}
+		return sub[1] + prefix + sub[2]
+	})
+}
 
 // ANY /app-preview/:projectId and /app-preview/:projectId/*path
 func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
@@ -464,8 +478,10 @@ func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
 				}
 				return sub[1] + prefix + sub[2]
 			})
-			// Inject fetch/XHR prefix shim so SPA /api/, /auth/, /files/ calls route through /app-preview/<pid>
-			shim := fmt.Sprintf(`<script>(function(){var P=%q;var f=window.fetch;if(f){window.fetch=function(u,o){if(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//')&&!u.startsWith(P+'/')){u=P+u;}return f.call(this,u,o);};}})();</script>`, prefix)
+			// Also rewrite inline JS root-relative location redirects (e.g. location.href = '/login.html')
+			htmlStr = rewriteJSRootNav(htmlStr, prefix)
+			// Inject fetch/XHR/history prefix shim so SPA /api/, /auth/, /files/ calls route through /app-preview/<pid>
+			shim := fmt.Sprintf(`<script>(function(){var P=%q;function rw(u){return(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//')&&!u.startsWith(P+'/')&&u!==P)?P+u:u;}var f=window.fetch;if(f){window.fetch=function(u,o){return f.call(this,rw(u),o);};}if(window.XMLHttpRequest){var xo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){var a=Array.prototype.slice.call(arguments);a[1]=rw(u);return xo.apply(this,a);};}if(window.history){['pushState','replaceState'].forEach(function(k){var orig=history[k];if(orig){history[k]=function(s,t,u){return orig.call(this,s,t,u!=null?rw(String(u)):u);};}});}})();</script>`, prefix)
 			lower := strings.ToLower(htmlStr)
 			if idx := strings.Index(lower, "<head>"); idx >= 0 {
 				htmlStr = htmlStr[:idx+6] + shim + htmlStr[idx+6:]
@@ -473,6 +489,17 @@ func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
 				htmlStr = shim + htmlStr
 			}
 			newBytes := []byte(htmlStr)
+			resp.Body = io.NopCloser(bytes.NewReader(newBytes))
+			resp.ContentLength = int64(len(newBytes))
+			resp.Header.Set("Content-Length", strconv.Itoa(len(newBytes)))
+		} else if strings.Contains(ct, "javascript") {
+			bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+			resp.Body.Close()
+			if err != nil {
+				return err
+			}
+			jsStr := rewriteJSRootNav(string(bodyBytes), prefix)
+			newBytes := []byte(jsStr)
 			resp.Body = io.NopCloser(bytes.NewReader(newBytes))
 			resp.ContentLength = int64(len(newBytes))
 			resp.Header.Set("Content-Length", strconv.Itoa(len(newBytes)))
