@@ -16,8 +16,9 @@ SKIP_DIRS = {
 # These are inventory hints only. Source files need no framework parser to be cited.
 SOURCE_SUFFIXES = {
     ".java", ".kt", ".kts", ".groovy", ".scala", ".go", ".py", ".cs", ".vb", ".fs",
-    ".ts", ".tsx", ".js", ".jsx", ".vue", ".sql", ".jsp", ".aspx", ".cshtml",
-    ".sh", ".ps1", ".bat", ".cmd", ".rb", ".rs", ".php", ".c", ".cpp", ".swift",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".sql", ".prisma", ".graphql", ".proto",
+    ".jsp", ".aspx", ".cshtml", ".sh", ".ps1", ".bat", ".cmd", ".rb", ".rs", ".php",
+    ".c", ".cc", ".cpp", ".h", ".hpp", ".swift", ".dart", ".ex", ".exs",
 }
 TEXT_SUFFIXES = SOURCE_SUFFIXES | {
     ".xml", ".properties", ".yml", ".yaml", ".json", ".jspf", ".tag", ".ftl", ".vm", ".html", ".htm", ".css",

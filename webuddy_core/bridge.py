@@ -368,144 +368,20 @@ def _overview(repo_path: str | None) -> dict:
     }
 
 
-_JS_ROUTE_RE = re.compile(
-    r"""\b(?:app|router)\.(get|post|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]""",
-    re.I,
-)
-_SQL_TABLE_RE = re.compile(
-    r"""\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"'\[]?([A-Za-z_][A-Za-z0-9_]*)[`"'\]]?""",
-    re.I,
-)
-
-
-def _auto_propose_js_structure(root: Path) -> bool:
-    """When tmh's built-in Java/Go/Python parser marks structure_needed=True (e.g. Node.js/TS),
-    deterministically extract Express/Router HTTP endpoints and SQL CREATE TABLE schemas,
-    write .tmh/knowledge/.structure-draft.json, and commit via tmh kb.done(root, 'structure')
-    so tmh builds a full verified graph.db (domains, flows, tables, CRUD matrix, ER, impact)."""
-    from tmh import kb
-
-    if not kb.needs_structure(root):
-        return False
-
-    skip_dirs = {".git", ".tmh", "node_modules", "__pycache__", "dist", "build", "target", ".venv", "venv", "public", "test", "tests"}
-    exts = {".js", ".ts", ".mjs", ".cjs", ".sql"}
-
-    tables_map: dict[str, str] = {}
-    raw_routes: list[dict] = []
-
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in sorted(dirnames) if d not in skip_dirs and not d.startswith(".")]
-        for fn in sorted(filenames):
-            if fn.startswith("."):
-                continue
-            fp = Path(dirpath) / fn
-            if fp.suffix.lower() not in exts:
-                continue
-            rel = fp.relative_to(root).as_posix()
-            try:
-                lines = fp.read_text(encoding="utf-8", errors="replace").splitlines()
-            except Exception:
-                continue
-            for idx, ln in enumerate(lines, start=1):
-                m_tbl = _SQL_TABLE_RE.search(ln)
-                if m_tbl:
-                    tname = m_tbl.group(1).strip()
-                    if tname and tname not in tables_map:
-                        tables_map[tname] = f"{rel}:{idx}"
-                m_rt = _JS_ROUTE_RE.search(ln)
-                if m_rt:
-                    method = m_rt.group(1).upper()
-                    url_path = m_rt.group(2).strip()
-                    end_idx = min(len(lines), idx + 25)
-                    snippet = "\n".join(lines[idx - 1 : end_idx])
-                    raw_routes.append({
-                        "method": method,
-                        "path": url_path,
-                        "file": rel,
-                        "line": idx,
-                        "end": end_idx,
-                        "snippet": snippet,
-                    })
-
-    if not raw_routes and not tables_map:
-        return False
-
-    tables = [{"name": name, "where": where} for name, where in sorted(tables_map.items())]
-    seen_ids: set[str] = set()
-    flows = []
-    for rt in raw_routes[:120]:
-        slug = re.sub(r"[^a-zA-Z0-9]+", "-", f"{rt['method']}-{rt['path']}").strip("-").lower()
-        if not slug:
-            slug = f"route-{rt['line']}"
-        base_id = slug[:48]
-        fid = base_id
-        n = 2
-        while fid in seen_ids:
-            fid = f"{base_id}-{n}"
-            n += 1
-        seen_ids.add(fid)
-
-        # Derive business domain from URL prefix or filename
-        segs = [s for s in rt["path"].strip("/").split("/") if s and not s.startswith(":")]
-        if segs and segs[0] == "api" and len(segs) >= 2:
-            dom = segs[1]
-            if dom in ("admin", "me") and len(segs) >= 3:
-                dom = f"{dom}-{segs[2]}"
-        elif segs:
-            dom = segs[0]
-        else:
-            dom = Path(rt["file"]).stem
-        dom = re.sub(r"[^a-zA-Z0-9_-]+", "-", dom).strip("-").lower() or "core"
-
-        # Detect table CRUD operations referenced in handler snippet
-        t_ops: dict[str, str] = {}
-        snip = rt["snippet"]
-        for tname in tables_map:
-            if re.search(rf"\b{re.escape(tname)}\b", snip, re.I):
-                ops = ""
-                if re.search(rf"\bINSERT\b[^;]{{0,80}}\b{re.escape(tname)}\b", snip, re.I):
-                    ops += "C"
-                if re.search(rf"\bSELECT\b[^;]{{0,120}}\b{re.escape(tname)}\b", snip, re.I):
-                    ops += "R"
-                if re.search(rf"\bUPDATE\b[^;]{{0,80}}\b{re.escape(tname)}\b", snip, re.I):
-                    ops += "U"
-                if re.search(rf"\bDELETE\b[^;]{{0,80}}\b{re.escape(tname)}\b", snip, re.I):
-                    ops += "D"
-                t_ops[tname] = ops or "R"
-
-        flows.append({
-            "id": fid,
-            "name": f"{rt['method']} {rt['path']}",
-            "kind": "接口",
-            "trigger": f"{rt['method']} {rt['path']}",
-            "entry": f"{rt['file']}:{rt['line']}",
-            "steps": [{"name": f"处理 {rt['method']} {rt['path']}", "where": f"{rt['file']}:{rt['line']}-{rt['end']}"}],
-            "tables": t_ops,
-            "domain": dom,
-        })
-
-    proposal_text = json.dumps({"flows": flows, "tables": tables}, ensure_ascii=False, indent=2)
-    # Persist structure.json so subsequent graph.build(use_cache=True) keeps the verified structure
-    struct_path = root / ".tmh" / "knowledge" / "structure.json"
-    struct_path.parent.mkdir(parents=True, exist_ok=True)
-    struct_path.write_text(proposal_text, encoding="utf-8")
-    from tmh.graph import build as graph_build
-    res = graph_build(root, use_cache=False, proposal_text=proposal_text)
-    return not bool(res.get("structure_errors"))
-
-
 def _scan(repo_path: str) -> dict:
     root = Path(repo_path).expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f"仓库目录不存在: {repo_path}")
     from tmh import kb
     from tmh.graph import build
+    from tmh.polyglot_structure import build_polyglot_structure
 
     stats = build(root, use_cache=True)
     if kb.needs_structure(root):
         try:
-            _auto_propose_js_structure(root)
+            poly = build_polyglot_structure(root)
+            if poly.get("applied"):
+                stats["polyglot"] = poly
         except Exception:
             pass
     ov = _overview(str(root))
