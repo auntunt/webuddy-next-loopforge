@@ -24,6 +24,8 @@ export const EXECUTORS = [
   { id: "goose", icon: "terminal", label: "Block Goose", detail: "Block 开源可扩展编程代理 Goose CLI。" },
   { id: "windsurf", icon: "sparkles", label: "Windsurf CLI", detail: "Windsurf / Codeium Cascade 编程代理 CLI。" },
   { id: "auggie", icon: "terminal", label: "Augment Code (Auggie)", detail: "Augment Code 上下文工程编程代理 Auggie CLI。" },
+  { id: "command-code", icon: "terminal", label: "Command Code", detail: "Command Code 编程代理 CLI（持续学习个人代码风格）。" },
+  { id: "devin", icon: "sparkles", label: "Devin CLI", detail: "Devin 自主终端与云端编程代理 CLI。" },
 ];
 
 // Bundled logo per CLI; an unknown CLI falls back to its model's brand.
@@ -32,6 +34,7 @@ const brands = {
   opencode: "opencode", cursor: "cursor", agy: "antigravity", kimi: "kimi-code", pi: "pi", dsh: "deepseek", zcode: "zhipu",
   "gemini-cli": "gemini", aider: "aider", cline: "cline", "qwen-code": "qwen",
   trae: "trae", copilot: "github", amp: "amp", goose: "goose", windsurf: "windsurf", auggie: "augment",
+  "command-code": "codex", devin: "antigravity",
 };
 export const engineBrand = (id) => Object.hasOwn(brands, id) ? brands[id] : "";
 

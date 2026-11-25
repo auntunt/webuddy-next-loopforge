@@ -37,6 +37,8 @@ const (
 	AgentCLIGoose       = "goose"
 	AgentCLIWindsurf    = "windsurf"
 	AgentCLIAuggie      = "auggie"
+	AgentCLICommandCode = "command-code"
+	AgentCLIDevin       = "devin"
 )
 
 // AgentCLIKinds is the display order of the agent CLIs.
@@ -77,7 +79,7 @@ func AgentCLINeedsBaseURL(kind, protocol string) bool {
 // can, DeepSeek Harness on the official endpoint.
 func agentCLIModelOptional(kind, baseURL string) bool {
 	switch kind {
-	case AgentCLICursor, AgentCLIZCode, AgentCLIGemini, AgentCLIAider, AgentCLICline, AgentCLIQwenCode, AgentCLITrae, AgentCLICopilot, AgentCLIAmp, AgentCLIGoose, AgentCLIWindsurf, AgentCLIAuggie:
+	case AgentCLICursor, AgentCLIZCode, AgentCLIGemini, AgentCLIAider, AgentCLICline, AgentCLIQwenCode, AgentCLITrae, AgentCLICopilot, AgentCLIAmp, AgentCLIGoose, AgentCLIWindsurf, AgentCLIAuggie, AgentCLICommandCode, AgentCLIDevin:
 		// These CLIs resolve an unset model to their own default.
 		return true
 	case AgentCLIAntigravity, AgentCLIDeepSeek:
@@ -139,6 +141,8 @@ var agentCLIMCPPaths = map[string]string{
 	AgentCLIGoose:       ".config/goose/mcp.json",
 	AgentCLIWindsurf:    ".codeium/windsurf/mcp_config.json",
 	AgentCLIAuggie:      ".augment/settings.json",
+	AgentCLICommandCode: ".command-code/mcp.json",
+	AgentCLIDevin:       ".devin/mcp.json",
 }
 
 // AgentCLIMCPOptions shapes the MCP configuration of one invocation.
@@ -613,6 +617,18 @@ func ApplyAgentCLICredential(kind string, cred ProviderCredential, options Agent
 		if baseURL != "" {
 			env["AUGMENT_API_URL"] = baseURL
 		}
+	case AgentCLICommandCode:
+		env["COMMAND_CODE_API_KEY"] = key
+		if protocol == AgentCLIProtocolMessages {
+			env["ANTHROPIC_API_KEY"] = key
+		} else {
+			env["OPENAI_API_KEY"] = key
+		}
+		if baseURL != "" {
+			env["OPENAI_BASE_URL"] = baseURL
+		}
+	case AgentCLIDevin:
+		env["DEVIN_API_KEY"] = key
 	default:
 		return nil, nil, fmt.Errorf("unknown agent CLI %q", kind)
 	}
@@ -768,6 +784,10 @@ func AgentCLILabel(kind string) string {
 		return "Windsurf CLI"
 	case AgentCLIAuggie:
 		return "Augment Code (Auggie)"
+	case AgentCLICommandCode:
+		return "Command Code"
+	case AgentCLIDevin:
+		return "Devin CLI"
 	}
 	return kind
 }

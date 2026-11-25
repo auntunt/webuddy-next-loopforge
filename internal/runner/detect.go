@@ -58,6 +58,8 @@ var defaultProviders = []providerSpec{
 	{Kind: "goose", Binary: "goose"},
 	{Kind: "windsurf", Binary: "windsurf"},
 	{Kind: "auggie", Binary: "auggie"},
+	{Kind: "command-code", Binary: "command-code"},
+	{Kind: "devin", Binary: "devin"},
 }
 
 // terminalProviderKind is the built-in remote-terminal capability: the

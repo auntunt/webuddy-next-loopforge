@@ -28,8 +28,10 @@ var ExecutorEffortLevels = map[string][]string{
 	"copilot":     {"low", "medium", "high"},
 	"amp":         {"low", "medium", "high"},
 	"goose":       {"low", "medium", "high"},
-	"windsurf":    {"low", "medium", "high"},
-	"auggie":      {"low", "medium", "high"},
+	"windsurf":     {"low", "medium", "high"},
+	"auggie":       {"low", "medium", "high"},
+	"command-code": {"low", "medium", "high"},
+	"devin":        {"low", "medium", "high"},
 }
 
 // AgentCLIExecutorKinds are the agent CLIs beyond CodeBuddy / Codex / Claude
@@ -38,6 +40,7 @@ var ExecutorEffortLevels = map[string][]string{
 var AgentCLIExecutorKinds = []string{
 	"opencode", "cursor", "agy", "kimi", "pi", "dsh", "zcode",
 	"gemini-cli", "aider", "cline", "qwen-code", "trae", "copilot", "amp", "goose", "windsurf", "auggie",
+	"command-code", "devin",
 }
 
 func IsAgentCLIKind(kind string) bool {

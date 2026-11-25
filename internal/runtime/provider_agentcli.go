@@ -310,6 +310,18 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 			argv = append(argv, "--model", model)
 		}
 		argv = append(append(argv, extra...), prompt)
+	case AgentCLICommandCode:
+		argv = []string{binary, "-p", "--output-format", "json"}
+		if !readOnly {
+			argv = append(argv, "-t")
+		}
+		if resume != "" {
+			argv = append(argv, "--resume", resume)
+		}
+		argv = append(append(argv, extra...), prompt)
+	case AgentCLIDevin:
+		argv = append([]string{binary}, extra...)
+		argv = append(argv, "--", prompt)
 	}
 	return CommandSpec{Argv: argv, Provider: kind, AgentCLI: options}
 }

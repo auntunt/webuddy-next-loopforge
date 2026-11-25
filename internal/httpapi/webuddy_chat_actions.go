@@ -428,12 +428,17 @@ func webuddyAssistantToolSpecs() []map[string]any {
 			"description": "免沙箱秒查当前项目及平台内置的所有已发布 SOP 流程（含 pstack 拆分的 4 条通用 SOP），在识别到用户需求或需要推荐/使用 SOP 时调用，用于准确填写 issue_confirm / sop_confirm 卡片里的 SOP ID。",
 			"inputSchema": json.RawMessage(`{"type":"object","properties":{"projectId":{"type":"string","description":"可选项目ID，默认当前会话项目"}}}`),
 		},
+		{
+			"name":        "webuddy_kb_shared_search",
+			"description": "搜索当前租户的跨项目团队共享知识库（包含各项目同步的架构知识、代码审查沉淀的避坑经验与团队规范），回答跨项目约定、历史踩坑或复用方案时优先调用。",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"搜索关键词（留空返回最近共享条目）"}}}`),
+		},
 	}
 }
 
 func isWebuddyAssistantTool(name string) bool {
 	switch name {
-	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start", "webuddy_list_sops":
+	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start", "webuddy_list_sops", "webuddy_kb_shared_search":
 		return true
 	default:
 		return false
@@ -495,6 +500,20 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 			"receipt": receipt,
 			"uiHint":  fmt.Sprintf("请在最终回复末尾附带一个语言为 webuddy-card 的 fenced JSON 代码块：{\"type\":\"kb_update\",\"projectId\":%q,\"title\":\"知识库已完成增量更新与源码溯源核验\"}，前端会自动渲染实时覆盖率进度条、源码 file:line 溯源清单以及「继续智能更新」按钮。", receipt.ProjectID),
 		})
+		return mcpToolTextResult(string(out), false), nil
+	}
+
+	if name == "webuddy_kb_shared_search" {
+		isAdmin := session != nil && strings.TrimSpace(session.User.LoginName) != "" && h.repo.IsPlatformAdmin(session.User.LoginName)
+		activeTID := DefaultTenantID
+		if session != nil && session.User.ID > 0 {
+			activeTID = defaultTenantStore.activeTenantForUser(session.User.ID, isAdmin)
+		}
+		items := defaultSharedKBStore.list(activeTID, strArg("query"), "")
+		if len(items) > 12 {
+			items = items[:12]
+		}
+		out, _ := json.Marshal(map[string]any{"ok": true, "tenantId": activeTID, "items": items})
 		return mcpToolTextResult(string(out), false), nil
 	}
 

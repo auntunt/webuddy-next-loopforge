@@ -388,6 +388,8 @@ var knownCLIs = []cliSpec{
 	{id: "goose", name: "Block Goose", binary: "goose"},
 	{id: "windsurf", name: "Windsurf CLI", binary: "windsurf"},
 	{id: "auggie", name: "Augment Code (Auggie)", binary: "auggie"},
+	{id: "command-code", name: "Command Code CLI", binary: "command-code"},
+	{id: "devin", name: "Devin CLI", binary: "devin"},
 }
 
 func scanCLIs(ctx context.Context) []CLIStatus {
@@ -716,7 +718,10 @@ func enrichCLIAuth(home string, st *CLIStatus) {
 			st.AuthHint = "复用环境变量 CODEBUDDY_API_KEY"
 		}
 	case "opencode":
-		if strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" {
+		if fileExists(filepath.Join(home, ".config", "opencode", "opencode.json")) || fileExists(filepath.Join(home, ".local", "share", "opencode", "auth.json")) {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用本机 OpenCode 配置"
+		} else if strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" {
 			st.AuthMode = "env_key"
 			st.AuthHint = "复用环境变量凭据"
 		}
@@ -787,6 +792,16 @@ func enrichCLIAuth(home string, st *CLIStatus) {
 		if fileExists(filepath.Join(home, ".augment", "settings.json")) || strings.TrimSpace(os.Getenv("AUGMENT_API_TOKEN")) != "" {
 			st.AuthMode = "oauth"
 			st.AuthHint = "复用 ~/.augment 配置"
+		}
+	case "command-code":
+		if fileExists(filepath.Join(home, ".command-code", "config.json")) || strings.TrimSpace(os.Getenv("COMMAND_CODE_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" || strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用本机 Command Code 登录态/凭据"
+		}
+	case "devin":
+		if fileExists(filepath.Join(home, ".devin", "config.json")) || strings.TrimSpace(os.Getenv("DEVIN_API_KEY")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用本机 Devin 配置"
 		}
 	}
 }

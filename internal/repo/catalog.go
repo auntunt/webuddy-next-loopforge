@@ -253,6 +253,8 @@ func BuiltInExecutors() []domain.ExecutorDefinition {
 		{ID: "goose", Name: "Block Goose", Kind: "goose", Binary: "goose", Protocol: "stream-json"},
 		{ID: "windsurf", Name: "Windsurf CLI", Kind: "windsurf", Binary: "windsurf", Protocol: "stream-json"},
 		{ID: "auggie", Name: "Augment Code (Auggie)", Kind: "auggie", Binary: "auggie", Protocol: "stream-json"},
+		{ID: "command-code", Name: "Command Code", Kind: "command-code", Binary: "command-code", Protocol: "stream-json"},
+		{ID: "devin", Name: "Devin CLI", Kind: "devin", Binary: "devin", Protocol: "stream-json"},
 	}
 }
 

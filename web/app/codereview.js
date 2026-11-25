@@ -550,7 +550,8 @@
         ? '<button type="button" class="button ' + (gate.isStale ? 'ghost' : 'primary') + ' small" id="wbCrOpenApprovalCard" data-run-id="' + esc(targetRunId) + '">' + (r.verdict === 'fail' ? '前往此确认项（退回返工） →' : '前往此确认项 →') + '</button>'
         : '') +
       (r.issueId ? '<button type="button" class="button ghost small" id="wbCrOpenIssue">打开关联需求</button>' : '') +
-      (targetRunId ? '<button type="button" class="button ghost small" id="wbCrOpenRun">打开关联运行</button>' : '');
+      (targetRunId ? '<button type="button" class="button ghost small" id="wbCrOpenRun">打开关联运行</button>' : '') +
+      '<button type="button" class="button ghost small" id="wbCrPublishSharedKB">📚 沉淀为团队共享知识</button>';
 
     return (
       '<div style="display:flex;flex-direction:column;gap:14px">' +
@@ -739,6 +740,28 @@
     }
 
     const fbForm = root.querySelector('#wbFeedbackForm');
+    root.querySelector('#wbCrPublishSharedKB')?.addEventListener('click', async () => {
+      if (!crState.detail || !crState.detail.review) return;
+      const rev = crState.detail.review;
+      const blockingText = (rev.blocking || []).map((b, i) => `${i + 1}. ${b}`).join('\n');
+      try {
+        await reqJSON('/api/webuddy/kb/shared', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: `代码审查沉淀：${rev.title}`,
+            summary: `结论: ${rev.verdict} · Writer(${rev.writer}) / Reviewer(${rev.reviewer}) · 阻断项 ${(rev.blocking || []).length} 个`,
+            content: blockingText || `审查通过（共 ${rev.totalParts} 批 Diff 全量覆盖，Base: ${rev.baseCommit || '-'}）。`,
+            sourceType: 'code_review',
+            sourceProjectId: rev.projectId || '',
+            commit: rev.baseCommit || '',
+            tags: ['代码审查', rev.verdict || 'review'],
+          }),
+        });
+        notify('✅ 已沉淀至当前租户「团队共享知识库」，AI 对话与团队成员均可检索');
+      } catch (err) {
+        notify(err.message || '沉淀失败');
+      }
+    });
     if (fbForm && crState.detail && crState.detail.snapshot) {
       fbForm.addEventListener('submit', async e => {
         e.preventDefault();

@@ -183,8 +183,10 @@ func executorModelCatalogs(kimiBaseURL string, codebuddy assistantModelCatalog) 
 		"copilot":    {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["copilot"])},
 		"amp":        {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["amp"])},
 		"goose":      {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["goose"])},
-		"windsurf":   {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["windsurf"])},
-		"auggie":     {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["auggie"])},
+		"windsurf":     {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["windsurf"])},
+		"auggie":       {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["auggie"])},
+		"command-code": {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["command-code"])},
+		"devin":        {CustomModel: true, Efforts: effortOptions(domain.ExecutorEffortLevels["devin"])},
 	}
 	for engine, catalog := range catalogs {
 		modelEngine := engine

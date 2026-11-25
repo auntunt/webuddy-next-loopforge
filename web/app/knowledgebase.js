@@ -573,6 +573,85 @@
     return '<div class="wb-split"><div class="wb-panel">' + leftHTML + '</div><div>' + rightHTML + '</div></div>';
   }
 
+  async function loadSharedKB() {
+    kbState.sharedLoading = true;
+    render();
+    try {
+      const q = kbState.sharedQuery ? '?q=' + encodeURIComponent(kbState.sharedQuery) : '';
+      const res = await reqJSON('/api/webuddy/kb/shared' + q);
+      kbState.sharedItems = res.items || [];
+    } catch (err) {
+      notify(err.message || '加载共享知识失败');
+      kbState.sharedItems = [];
+    } finally {
+      kbState.sharedLoading = false;
+      render();
+    }
+  }
+
+  function renderSharedKBTab() {
+    const items = kbState.sharedItems || [];
+    const typeLabels = {
+      kb_page: '📚 项目知识页',
+      code_review: '🔎 代码审查沉淀',
+      experience: '💡 团队经验',
+      sop_lesson: '🧭 SOP 经验',
+    };
+    const formHTML = kbState.showSharedForm
+      ? '<form id="wbSharedPublishForm" style="display:grid;gap:8px;padding:14px;border-radius:12px;border:1px solid #cbd5e1;background:#f8fafc;margin-bottom:14px">' +
+          '<input name="title" type="text" placeholder="经验标题（如：SQLite WAL 模式下备份注意事项）" required style="padding:8px 10px;border-radius:8px;border:1px solid #cbd5e1;font-size:13px">' +
+          '<input name="summary" type="text" placeholder="一句话摘要（供 AI 与团队快速检索）" style="padding:7px 10px;border-radius:8px;border:1px solid #cbd5e1;font-size:12.5px">' +
+          '<textarea name="content" rows="3" placeholder="详细做法、适用场景与验证依据..." style="padding:8px 10px;border-radius:8px;border:1px solid #cbd5e1;font-size:12.5px"></textarea>' +
+          '<div style="display:flex;gap:8px;align-items:center">' +
+            '<input name="tags" type="text" placeholder="标签（逗号分隔，如：架构, 报销, 避坑）" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid #cbd5e1;font-size:12px">' +
+            '<button type="submit" class="button primary">发布到团队共享库</button>' +
+          '</div>' +
+        '</form>'
+      : '';
+    const cardsHTML = kbState.sharedLoading
+      ? '<div class="wb-empty">正在加载当前租户共享知识库…</div>'
+      : items.length === 0
+      ? '<div class="wb-empty">当前租户暂无共享知识。点击上方「📤 同步当前项目知识到团队」或「+ 沉淀团队经验」即可跨项目共享并供 AI 自动检索。</div>'
+      : '<div style="display:grid;gap:10px">' +
+          items.map(it =>
+            '<div style="padding:14px 16px;border-radius:12px;border:1px solid var(--line,#e2e8f0);background:#fff">' +
+              '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
+                '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+                  '<strong style="font-size:14px">' + esc(it.title) + '</strong>' +
+                  '<span class="wb-badge pass">' + esc(typeLabels[it.sourceType] || it.sourceType) + '</span>' +
+                  (it.sourceProjectName ? '<span class="wb-badge unknown">来源: ' + esc(it.sourceProjectName) + '</span>' : '') +
+                  (it.commit ? '<code>@' + esc(it.commit.slice(0, 8)) + '</code>' : '') +
+                '</div>' +
+                '<div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:#64748b">' +
+                  '<span>' + esc(it.author || '') + '</span>' +
+                  '<button type="button" class="button ghost small" data-shared-del="' + esc(it.id) + '" style="padding:2px 7px;font-size:11px">删除</button>' +
+                '</div>' +
+              '</div>' +
+              (it.summary ? '<div style="font-size:13px;color:#334155;margin-bottom:6px">' + esc(it.summary) + '</div>' : '') +
+              (it.content ? '<details><summary style="cursor:pointer;font-size:12px;color:#4f46e5">查看全文与证据</summary><pre class="wb-code" style="margin-top:6px;white-space:pre-wrap;max-height:240px">' + esc(it.content) + '</pre></details>' : '') +
+              ((it.tags || []).length ? '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">' + it.tags.map(t => '<span style="font-size:11px;padding:1px 7px;border-radius:999px;background:#f1f5f9;color:#475569">#' + esc(t) + '</span>').join('') + '</div>' : '') +
+            '</div>'
+          ).join('') +
+        '</div>';
+    return (
+      '<div class="wb-panel">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px">' +
+          '<div><h3 style="margin:0">🌐 租户级团队共享知识库</h3><p class="wb-subtitle" style="margin:2px 0 0">跨项目共享已核验的架构知识、代码审查沉淀与避坑经验（严格按当前租户隔离，AI 工作台对话可自动检索）。</p></div>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+            '<button type="button" class="button primary" id="wbSharedSyncProjBtn">📤 同步当前项目知识到团队</button>' +
+            '<button type="button" class="button" id="wbSharedToggleFormBtn">' + (kbState.showSharedForm ? '收起表单' : '+ 沉淀团队经验') + '</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="wb-toolbar" style="margin-bottom:12px">' +
+          '<input type="search" id="wbSharedSearchInput" value="' + esc(kbState.sharedQuery || '') + '" placeholder="搜索团队共享知识 / 标签 / 项目…" style="flex:1;min-width:240px">' +
+          '<button type="button" class="button ghost" id="wbSharedSearchBtn">检索</button>' +
+        '</div>' +
+        formHTML +
+        cardsHTML +
+      '</div>'
+    );
+  }
+
   function renderChainTab() {
     const res = kbState.chainResult;
     const inlinePin = kbState.docInlinePin;
@@ -789,6 +868,7 @@
     else if (kbState.tab === 'statecharts') bodyHTML = '<div id="wbStatechartsMount"></div>';
     else if (kbState.tab === 'chain') bodyHTML = renderChainTab();
     else if (kbState.tab === 'impact') bodyHTML = renderImpactTab();
+    else if (kbState.tab === 'shared') bodyHTML = renderSharedKBTab();
     else if (kbState.tab === 'questions') bodyHTML = renderQuestionsTab();
     else if (kbState.tab === 'flows') bodyHTML = renderFlowsTab(ov);
     else if (kbState.tab === 'tables') bodyHTML = renderTablesTab(ov);
@@ -836,6 +916,7 @@
           '<button type="button" class="wb-tab ' + (kbState.tab === 'blueprint' ? 'active' : '') + '" data-kb-tab="blueprint">🗺️ 看架构</button>' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'impact' ? 'active' : '') + '" data-kb-tab="impact">💥 查改动影响</button>' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'chain' ? 'active' : '') + '" data-kb-tab="chain">❓ 问业务链路</button>' +
+          '<button type="button" class="wb-tab ' + (kbState.tab === 'shared' ? 'active' : '') + '" data-kb-tab="shared">🌐 团队共享知识</button>' +
           '<select id="wbKbMoreTabSelect" aria-label="更多视角" style="margin-left:auto;min-width:150px;height:32px;font-size:13px">' +
             '<option value="">更多视角</option>' +
             extraTabs.map(t => '<option value="' + t.id + '"' + (activeExtra && activeExtra.id === t.id ? ' selected' : '') + '>' + esc(t.label) + '</option>').join('') +
@@ -890,6 +971,7 @@
       btn.addEventListener('click', () => {
         kbState.tab = btn.dataset.kbTab;
         if (kbState.tab === 'questions' && kbState.questions === null) loadQuestions();
+        else if (kbState.tab === 'shared') loadSharedKB();
         else render();
       });
     });
@@ -928,6 +1010,75 @@
 
     root.querySelector('#wbNewQText')?.addEventListener('input', e => { kbState.newQuestionText = e.target.value; });
     root.querySelector('#wbNewQPages')?.addEventListener('input', e => { kbState.newQuestionPages = e.target.value; });
+
+    // Shared Team Knowledge Hub bindings
+    root.querySelector('#wbSharedSearchInput')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        kbState.sharedQuery = e.target.value;
+        loadSharedKB();
+      }
+    });
+    root.querySelector('#wbSharedSearchBtn')?.addEventListener('click', () => {
+      kbState.sharedQuery = root.querySelector('#wbSharedSearchInput')?.value || '';
+      loadSharedKB();
+    });
+    root.querySelector('#wbSharedSyncProjBtn')?.addEventListener('click', async () => {
+      const picked = kbState.repos.find(r => r.localPath === kbState.repoPath);
+      const pid = picked?.projectId || window.state?.projectFilter || '';
+      if (!pid) { notify('请先选择一个已导入的项目'); return; }
+      try {
+        const res = await reqJSON('/api/webuddy/kb/shared/sync-project', {
+          method: 'POST',
+          body: JSON.stringify({ projectId: pid }),
+        });
+        notify(`已同步 ${res.synced || 0} 篇项目知识页到当前租户共享知识库`);
+        loadSharedKB();
+      } catch (err) {
+        notify(err.message || '同步失败');
+      }
+    });
+    const sharedForm = root.querySelector('#wbSharedPublishForm');
+    if (sharedForm) {
+      sharedForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const fd = new FormData(sharedForm);
+        const picked = kbState.repos.find(r => r.localPath === kbState.repoPath);
+        try {
+          await reqJSON('/api/webuddy/kb/shared', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: fd.get('title'),
+              summary: fd.get('summary'),
+              content: fd.get('content'),
+              sourceType: 'experience',
+              sourceProjectId: picked?.projectId || window.state?.projectFilter || '',
+              sourceProjectName: picked?.projectName || '',
+              tags: String(fd.get('tags') || '').split(/[,，\s]+/).map(s => s.trim()).filter(Boolean),
+            }),
+          });
+          notify('已发布至当前租户团队共享知识库');
+          kbState.showSharedForm = false;
+          loadSharedKB();
+        } catch (err) {
+          notify(err.message || '发布失败');
+        }
+      });
+    }
+    root.querySelector('#wbSharedToggleFormBtn')?.addEventListener('click', () => {
+      kbState.showSharedForm = !kbState.showSharedForm;
+      render();
+    });
+    root.querySelectorAll('[data-shared-del]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        try {
+          await reqJSON('/api/webuddy/kb/shared/' + encodeURIComponent(btn.dataset.sharedDel), { method: 'DELETE' });
+          notify('已删除共享知识条目');
+          loadSharedKB();
+        } catch (err) {
+          notify(err.message || '删除失败');
+        }
+      });
+    });
     root.querySelector('#wbAskQBtn')?.addEventListener('click', submitNewQuestion);
     root.querySelector('#wbReloadQBtn')?.addEventListener('click', loadQuestions);
     root.querySelectorAll('[data-answer-submit]').forEach(btn => {

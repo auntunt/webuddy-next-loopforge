@@ -128,6 +128,10 @@ const CREDENTIAL_KINDS=[
     note:'Windsurf / Codeium Cascade CLI。',protocols:[['chat','Windsurf / Codeium']]}),
   agentCliCredentialKind('auggie',{name:'Augment Code (Auggie)',logo:'codex',baseUrl:'',
     note:'Augment Code 上下文工程编程代理 Auggie CLI。',protocols:[['chat','Augment API']]}),
+  agentCliCredentialKind('command-code',{name:'Command Code',logo:'codex',baseUrl:'',
+    note:'Command Code 编程代理 CLI（持续学习个人代码风格，支持 -p --output-format json）。',protocols:[['messages','Messages（Anthropic）'],['chat','Chat Completions'],['responses','Responses']]}),
+  agentCliCredentialKind('devin',{name:'Devin CLI',logo:'antigravity',baseUrl:'',
+    note:'Devin 终端与云端编程代理 CLI（支持 devin mcp / rules / skills）。',protocols:[['chat','Chat Completions'],['messages','Messages（Anthropic）']]}),
 ];
 function agentCliCredentialKind(cli,o){
   const field=`agentCli.${cli}.`,configurable=!!o.protocols;

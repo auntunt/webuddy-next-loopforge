@@ -33,6 +33,16 @@ func (h *codeReviewHandlers) actor(r *http.Request) (string, bool) {
 func (h *codeReviewHandlers) list(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	items := h.svc.ListReviews(c.Query("projectId"), limit)
+	if authRequired() {
+		visible := h.visibleProjectIDSetForRequest(c.Request)
+		scoped := items[:0]
+		for _, it := range items {
+			if it.ProjectID == "" || visible[it.ProjectID] {
+				scoped = append(scoped, it)
+			}
+		}
+		items = scoped
+	}
 	c.JSON(http.StatusOK, gin.H{"reviews": items})
 }
 
@@ -89,6 +99,9 @@ func (h *codeReviewHandlers) create(c *gin.Context) {
 // GET /api/codereview/reviews/:id
 func (h *codeReviewHandlers) get(c *gin.Context) {
 	detail, err := h.svc.GetReview(c.Param("id"))
+	if err == nil && authRequired() && detail.Review.ProjectID != "" && !h.requireProjectReader(c, detail.Review.ProjectID) {
+		return
+	}
 	render(c, detail, err)
 }
 

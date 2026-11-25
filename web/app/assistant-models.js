@@ -38,7 +38,7 @@
 
   function familyOf(id) {
     const raw = String(id || '').toLowerCase();
-    const v = raw.replace(/^(?:codebuddy|codex|claude-code|opencode|cursor|agy|kimi|pi|dsh|zcode|gemini-cli|aider|cline|qwen-code|trae|copilot|amp|goose|windsurf|auggie):/, '').split('/').at(-1);
+    const v = raw.replace(/^(?:codebuddy|codex|claude-code|opencode|cursor|agy|kimi|pi|dsh|zcode|gemini-cli|aider|cline|qwen-code|trae|copilot|amp|goose|windsurf|auggie|command-code|devin):/, '').split('/').at(-1);
     if (/^(?:claude|anthropic|opus|sonnet|haiku|fable)(?:$|[-_.\s:\d])/.test(v)) return 'claude';
     if (/^composer(?:$|[-_.\s:\d])/.test(v) || (raw.startsWith('cursor:') && /^auto(?:-smart)?$/.test(v))) return 'cursor';
     if (v.startsWith('gpt') || v.includes('codex')) return 'gpt';

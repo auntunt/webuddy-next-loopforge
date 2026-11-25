@@ -266,8 +266,10 @@ var AgentCLIProtocolOptions = map[string][]string{
 	"copilot":    {AgentCLIProtocolChat},
 	"amp":        {AgentCLIProtocolMessages, AgentCLIProtocolChat},
 	"goose":      {AgentCLIProtocolChat, AgentCLIProtocolMessages},
-	"windsurf":   {AgentCLIProtocolChat},
-	"auggie":     {AgentCLIProtocolChat},
+	"windsurf":     {AgentCLIProtocolChat},
+	"auggie":       {AgentCLIProtocolChat},
+	"command-code": {AgentCLIProtocolMessages, AgentCLIProtocolChat, AgentCLIProtocolResponses},
+	"devin":        {AgentCLIProtocolChat, AgentCLIProtocolMessages},
 }
 
 // NormalizeAgentCLIProtocol returns a supported protocol choice; unknown
