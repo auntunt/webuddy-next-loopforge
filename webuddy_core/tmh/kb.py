@@ -109,13 +109,25 @@ class _Lock:
         self.p = p
 
     def __enter__(self):
-        from .platform import filelock
-        if filelock.available():
+        self.p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            from .platform import filelock
+            use_fl = filelock.available()
+            try_lock = filelock.try_lock
+        except ImportError:
+            try:
+                import fcntl
+                use_fl = True
+                try_lock = lambda fd: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except ImportError:
+                use_fl = False
+                try_lock = None
+        if use_fl:
             self.fd = os.open(str(self.p), os.O_CREAT | os.O_WRONLY)
             try:
                 for _ in range(1200):
                     try:
-                        filelock.try_lock(self.fd)
+                        try_lock(self.fd)
                         return self
                     except BlockingIOError:
                         time.sleep(0.05)
