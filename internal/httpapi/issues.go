@@ -159,6 +159,16 @@ func (h issuesHandlers) issues(c *gin.Context) {
 			Q:         strings.TrimSpace(c.Query("q")),
 			Assignee:  strings.TrimSpace(c.Query("assignee")),
 		})
+		if authRequired() {
+			visibleProjects := h.visibleProjectIDSetForRequest(r)
+			scoped := make([]domain.Issue, 0, len(items))
+			for _, it := range items {
+				if it.ProjectID == "" || visibleProjects[it.ProjectID] {
+					scoped = append(scoped, it)
+				}
+			}
+			items = scoped
+		}
 		if _, ok := c.GetQuery("limit"); !ok {
 			views, err := h.issueDeletionViews(items)
 			if err != nil {

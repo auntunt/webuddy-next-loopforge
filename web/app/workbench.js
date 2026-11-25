@@ -1742,6 +1742,7 @@ function renderPlatformNav(){
   group.hidden=!isPlatformAdmin();
 }
 const PLATFORM_TABS=[
+  {id:'tenants',zh:'租户与团队',en:'Tenants & Teams'},
   {id:'accounts',zh:'用户与权限',en:'Users & RBAC'},
   {id:'governance',zh:'项目治理策略',en:'Governance'},
 ];
@@ -1781,14 +1782,211 @@ function renderPlatformAdminPanel(){
   state.platformTab=tab;
   host.innerHTML=`
     ${platformTabsHTML(tab)}
+    ${platformTabPanel('tenants',tab,platformTenantsHTML())}
     ${platformTabPanel('accounts',tab,platformAccountsHTML())}
     ${platformTabPanel('governance',tab,platformGovernanceHTML())}
   `;
   bindPlatformTabs(host);
+  loadPlatformTenants(host);
   loadPlatformAccounts(host);
   loadPlatformGovernance(host);
   loadPlatformSharedKey(host);
   loadPlatformSSHHosts(host);
+}
+
+function platformTenantsHTML(){
+  return `
+    <section class="platform-admin-main-card" id="platformTenantsCard">
+      <div class="platform-admin-head">
+        <div class="platform-admin-head-meta">
+          <h2>多租户隔离与团队协作空间</h2>
+          <p>每个租户拥有严格隔离的项目、需求、知识库、实时预览与定制 SOP；平台内置的 pstack 等预设 SOP 只读共享，各租户可按需启用或一键复制到本租户定制。</p>
+        </div>
+        <span class="platform-admin-count-pill" data-tenant-count>加载中</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0">
+        <form data-tenant-create-form style="display:flex;gap:8px;align-items:center;padding:12px;border-radius:12px;border:1px solid var(--line,#e2e8f0);background:var(--surface,#fff)">
+          <input name="name" type="text" placeholder="新建隔离租户名称（如：财务研发团队）" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid var(--line,#cbd5e1);font-size:13px" required>
+          <button type="submit" class="button primary" style="white-space:nowrap">+ 创建租户</button>
+        </form>
+        <form data-tenant-join-form style="display:flex;gap:8px;align-items:center;padding:12px;border-radius:12px;border:1px solid var(--line,#e2e8f0);background:var(--surface,#fff)">
+          <input name="inviteCode" type="text" placeholder="输入团队邀请码加入其他租户" style="flex:1;padding:7px 10px;border-radius:8px;border:1px solid var(--line,#cbd5e1);font-size:13px;text-transform:uppercase" required>
+          <button type="submit" class="button" style="white-space:nowrap">加入租户</button>
+        </form>
+      </div>
+      <div data-tenant-feedback style="font-size:12.5px;margin-bottom:10px;display:none"></div>
+      <div data-tenant-list style="display:grid;gap:14px"></div>
+    </section>
+  `;
+}
+
+async function loadPlatformTenants(host){
+  const card=host.querySelector('#platformTenantsCard');if(!card)return;
+  const listEl=card.querySelector('[data-tenant-list]');
+  const countEl=card.querySelector('[data-tenant-count]');
+  const fbEl=card.querySelector('[data-tenant-feedback]');
+  const showFb=(msg,isErr)=>{
+    if(!fbEl)return;
+    fbEl.style.display='block';
+    fbEl.style.color=isErr?'#b91c1c':'#15803d';
+    fbEl.textContent=msg;
+  };
+  async function refresh(){
+    try{
+      const res=await api('/api/tenants');
+      const tenants=res.tenants||[];
+      const activeId=res.activeTenantId||'default';
+      const presets=res.presetSops||[];
+      if(countEl)countEl.textContent=`共 ${tenants.length} 个租户`;
+      setPlatformTabCount(host,'tenants',tenants.length);
+      listEl.innerHTML=tenants.map(t=>{
+        const isActive=t.id===activeId;
+        const canManage=t.myRole==='owner'||t.myRole==='admin'||t.myRole==='platform_admin';
+        const enabledSet=new Set(t.enabledPresetSopIds||[]);
+        const membersHTML=(t.members||[]).map(m=>`
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:8px;background:var(--bg,#f8fafc);font-size:12.5px">
+            <span><b>${escapeHTML(m.loginName||String(m.userId))}</b>${m.chineseName?` (${escapeHTML(m.chineseName)})`:''}</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="padding:2px 7px;border-radius:999px;background:#e0e7ff;color:#3730a3;font-size:11px;font-weight:600">${escapeHTML(m.role)}</span>
+              ${canManage&&m.role!=='owner'?`<button type="button" class="button" data-remove-member="${t.id}:${m.userId}" style="padding:2px 8px;font-size:11px">移除</button>`:''}
+            </div>
+          </div>
+        `).join('')||'<div style="font-size:12px;color:var(--muted,#64748b)">暂无显式成员</div>';
+
+        const presetsHTML=presets.map(p=>`
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:8px;border:1px solid var(--line,#e2e8f0);background:#fff;font-size:12px">
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer;flex:1">
+              <input type="checkbox" data-preset-chk="${t.id}" value="${escapeHTML(p.id)}" ${t.presetSopPolicy!=='selected'||enabledSet.has(p.id)?'checked':''} ${t.presetSopPolicy!=='selected'?'disabled':''}>
+              <span><b>${escapeHTML(p.name)}</b> <span style="color:#64748b">(${p.steps}步 · 只读预设)</span></span>
+            </label>
+            ${canManage?`<button type="button" class="button" data-clone-preset="${t.id}:${p.id}" style="padding:3px 9px;font-size:11.5px;white-space:nowrap">📋 复制到本租户定制</button>`:''}
+          </div>
+        `).join('');
+
+        return `
+          <div style="padding:16px;border-radius:14px;border:${isActive?'2px solid #4f46e5':'1px solid var(--line,#e2e8f0)'};background:var(--surface,#fff)">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <strong style="font-size:15px">🏢 ${escapeHTML(t.name)}</strong>
+                <code style="font-size:11px;color:#475569;background:#f1f5f9;padding:2px 6px;border-radius:5px">${escapeHTML(t.id)}</code>
+                ${isActive?'<span style="padding:2px 8px;border-radius:999px;background:#dcfce7;color:#15803d;font-size:11.5px;font-weight:600">● 当前活跃空间</span>':''}
+                <span style="font-size:12px;color:#64748b">${t.projectCount||0} 个项目 · ${t.memberCount||0} 名成员 · 我的角色: ${escapeHTML(t.myRole)}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                ${!isActive?`<button type="button" class="button primary" data-switch-tenant="${escapeHTML(t.id)}">切换至此租户</button>`:''}
+                ${t.inviteCode?`<code style="padding:4px 8px;border-radius:6px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:600">邀请码: ${escapeHTML(t.inviteCode)}</code><button type="button" class="button" data-rotate-invite="${escapeHTML(t.id)}" style="padding:4px 8px;font-size:11.5px">刷新</button>`:''}
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:14px;margin-top:10px">
+              <div>
+                <div style="font-size:12.5px;font-weight:600;margin-bottom:6px">👥 团队成员与权限</div>
+                <div style="display:grid;gap:6px;margin-bottom:8px">${membersHTML}</div>
+                ${canManage?`
+                  <form data-add-member-form="${escapeHTML(t.id)}" style="display:flex;gap:6px;flex-wrap:wrap">
+                    <input name="loginName" type="text" placeholder="用户名（如 lla）" style="flex:1;min-width:110px;padding:5px 8px;border-radius:7px;border:1px solid #cbd5e1;font-size:12px" required>
+                    <select name="role" style="padding:5px 8px;border-radius:7px;border:1px solid #cbd5e1;font-size:12px">
+                      <option value="member">member（协作成员）</option>
+                      <option value="admin">admin（租户管理员）</option>
+                      <option value="viewer">viewer（只读访客）</option>
+                    </select>
+                    <button type="submit" class="button" style="padding:5px 10px;font-size:12px">添加/更新</button>
+                  </form>
+                `:''}
+              </div>
+              <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+                  <span style="font-size:12.5px;font-weight:600">🧭 平台预设 SOP 策略（隔离与定制）</span>
+                  ${canManage?`
+                    <select data-preset-policy="${escapeHTML(t.id)}" style="padding:3px 8px;border-radius:7px;border:1px solid #cbd5e1;font-size:11.5px">
+                      <option value="inherit_all" ${t.presetSopPolicy!=='selected'?'selected':''}>继承全部平台预设 SOP</option>
+                      <option value="selected" ${t.presetSopPolicy==='selected'?'selected':''}>仅启用下方勾选的预设 SOP</option>
+                    </select>
+                  `:''}
+                </div>
+                <div style="display:grid;gap:5px;max-height:210px;overflow:auto">${presetsHTML}</div>
+                ${canManage?`<div style="margin-top:8px"><button type="button" class="button" data-save-preset-policy="${escapeHTML(t.id)}" style="padding:4px 10px;font-size:12px">保存本租户预设 SOP 策略</button></div>`:''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      listEl.querySelectorAll('[data-switch-tenant]').forEach(btn=>btn.onclick=async ()=>{
+        try{
+          await api('/api/tenants/switch',{method:'POST',body:JSON.stringify({tenantId:btn.dataset.switchTenant})});
+          window.location.reload();
+        }catch(err){showFb(err.message||'切换失败',true)}
+      });
+      listEl.querySelectorAll('[data-rotate-invite]').forEach(btn=>btn.onclick=async ()=>{
+        try{
+          const r=await api(`/api/tenants/${encodeURIComponent(btn.dataset.rotateInvite)}/invite/rotate`,{method:'POST'});
+          showFb(`已刷新邀请码：${r.inviteCode}`,false);
+          refresh();
+        }catch(err){showFb(err.message||'刷新失败',true)}
+      });
+      listEl.querySelectorAll('[data-add-member-form]').forEach(form=>form.onsubmit=async e=>{
+        e.preventDefault();
+        const tid=form.dataset.addMemberForm;
+        const fd=new FormData(form);
+        try{
+          await api(`/api/tenants/${encodeURIComponent(tid)}/members`,{method:'POST',body:JSON.stringify({loginName:fd.get('loginName'),role:fd.get('role')})});
+          showFb('团队成员已更新',false);
+          refresh();
+        }catch(err){showFb(err.message||'添加失败',true)}
+      });
+      listEl.querySelectorAll('[data-remove-member]').forEach(btn=>btn.onclick=async ()=>{
+        const [tid,uid]=btn.dataset.removeMember.split(':');
+        try{
+          await api(`/api/tenants/${encodeURIComponent(tid)}/members/${encodeURIComponent(uid)}`,{method:'DELETE'});
+          showFb('成员已移除',false);
+          refresh();
+        }catch(err){showFb(err.message||'移除失败',true)}
+      });
+      listEl.querySelectorAll('[data-preset-policy]').forEach(sel=>sel.onchange=()=>{
+        const tid=sel.dataset.presetPolicy;
+        const disabled=sel.value!=='selected';
+        listEl.querySelectorAll(`[data-preset-chk="${tid}"]`).forEach(c=>{c.disabled=disabled;if(disabled)c.checked=true;});
+      });
+      listEl.querySelectorAll('[data-save-preset-policy]').forEach(btn=>btn.onclick=async ()=>{
+        const tid=btn.dataset.savePresetPolicy;
+        const policy=listEl.querySelector(`[data-preset-policy="${tid}"]`)?.value||'inherit_all';
+        const enabled=Array.from(listEl.querySelectorAll(`[data-preset-chk="${tid}"]:checked`)).map(c=>c.value);
+        try{
+          await api(`/api/tenants/${encodeURIComponent(tid)}`,{method:'PUT',body:JSON.stringify({presetSopPolicy:policy,enabledPresetSopIds:enabled})});
+          showFb('已保存本租户的预设 SOP 策略',false);
+          refresh();
+        }catch(err){showFb(err.message||'保存失败',true)}
+      });
+      listEl.querySelectorAll('[data-clone-preset]').forEach(btn=>btn.onclick=async ()=>{
+        const [tid,sopId]=btn.dataset.clonePreset.split(':');
+        try{
+          const r=await api(`/api/tenants/${encodeURIComponent(tid)}/sops/${encodeURIComponent(sopId)}/clone`,{method:'POST',body:JSON.stringify({})});
+          showFb(`✅ 已复制为本租户专属 SOP：${r.workflow?.name||r.workflow?.id}（可在 SOP 页面自由定制）`,false);
+        }catch(err){showFb(err.message||'复制失败',true)}
+      });
+    }catch(err){
+      showFb(err?.message||'加载租户列表失败',true);
+    }
+  }
+  const createForm=card.querySelector('[data-tenant-create-form]');
+  if(createForm)createForm.onsubmit=async e=>{
+    e.preventDefault();
+    const fd=new FormData(createForm);
+    try{
+      await api('/api/tenants',{method:'POST',body:JSON.stringify({name:fd.get('name')})});
+      window.location.reload();
+    }catch(err){showFb(err.message||'创建租户失败',true)}
+  };
+  const joinForm=card.querySelector('[data-tenant-join-form]');
+  if(joinForm)joinForm.onsubmit=async e=>{
+    e.preventDefault();
+    const fd=new FormData(joinForm);
+    try{
+      await api('/api/tenants/join',{method:'POST',body:JSON.stringify({inviteCode:fd.get('inviteCode')})});
+      window.location.reload();
+    }catch(err){showFb(err.message||'加入租户失败',true)}
+  };
+  refresh();
 }
 
 function platformGovernanceHTML(){

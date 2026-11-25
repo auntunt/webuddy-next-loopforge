@@ -1028,7 +1028,7 @@ func (h *catalogHandlers) workflows(c *gin.Context) {
 	if c.Request.Method == http.MethodGet {
 		projectID := strings.TrimSpace(c.Query("projectId"))
 		needle := strings.ToLower(strings.TrimSpace(c.Query("q")))
-		all := h.repo.Workflows()
+		all := h.visibleWorkflowsForRequest(c.Request, h.repo.Workflows())
 		if projectID == "" && needle == "" {
 			c.JSON(200, all)
 			return
@@ -1049,6 +1049,10 @@ func (h *catalogHandlers) workflows(c *gin.Context) {
 	if c.Request.Method == http.MethodPut {
 		var v domain.WorkflowDefinition
 		if decode(c, &v) && v.ID != "" {
+			if (isCanonicalPresetWorkflowID(v.ID) || v.Generic) && authRequired() && !h.isPlatformAdmin(c.Request) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "平台预设 SOP 仅限平台管理员修改，请先复制到当前租户后再定制"})
+				return
+			}
 			needsNotificationAccess := len(v.Notifications) > 0
 			for _, node := range v.Nodes {
 				if len(node.Notifications) > 0 {

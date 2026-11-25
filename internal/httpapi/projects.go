@@ -18,7 +18,7 @@ type projectsHandlers struct{ *deps }
 func (h *projectsHandlers) projects(c *gin.Context) {
 	r := c.Request
 	if r.Method == http.MethodGet {
-		c.JSON(200, domain.PublicProjects(h.repo.Projects()))
+		c.JSON(200, domain.PublicProjects(h.visibleProjectsForRequest(r, h.repo.Projects())))
 		return
 	}
 	if r.Method == http.MethodPut || r.Method == http.MethodPost {
@@ -54,9 +54,16 @@ func (h *projectsHandlers) projects(c *gin.Context) {
 				return
 			}
 			if !h.isPlatformAdmin(r) {
-				if exists && existing.OwnerID != user.ID {
-					c.JSON(403, gin.H{"error": "只有项目 Owner 或平台管理员可以修改项目设置"})
-					return
+				if exists {
+					projTenant := defaultTenantStore.projectTenant(existing.ID)
+					if !h.userCanAccessTenant(user.ID, false, projTenant) {
+						c.JSON(403, gin.H{"error": "无权修改其他租户的项目设置"})
+						return
+					}
+					if existing.OwnerID != user.ID && !h.userCanManageTenant(user.ID, false, projTenant) {
+						c.JSON(403, gin.H{"error": "只有项目 Owner、租户管理员或平台管理员可以修改项目设置"})
+						return
+					}
 				}
 				if !exists {
 					if v.OwnerID == 0 {
@@ -162,6 +169,9 @@ func (h *projectsHandlers) projects(c *gin.Context) {
 				v.TAPDIterationID = ""
 			}
 		}
+		if isNew {
+			_ = defaultTenantStore.bindProjectTenant(v.ID, h.currentActiveTenant(r))
+		}
 		if existing, ok := h.repo.Project(v.ID); ok && v.RunEval.IsZero() {
 			v.RunEval = existing.RunEval
 		} else if !v.RunEval.IsZero() {
@@ -223,6 +233,9 @@ func (h *projectsHandlers) project(c *gin.Context) {
 	project, ok := h.repo.Project(c.Param("id"))
 	if !ok {
 		c.JSON(http.StatusNotFound, map[string]string{"error": "project not found"})
+		return
+	}
+	if authRequired() && !h.requireProjectReader(c, project.ID) {
 		return
 	}
 	c.JSON(http.StatusOK, domain.PublicProject(project))

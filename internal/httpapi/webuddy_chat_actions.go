@@ -272,8 +272,19 @@ func (h *webuddyEnvHandlers) sopQuickCreate(c *gin.Context) {
 		return
 	}
 	pid := strings.TrimSpace(input.ProjectID)
-	if authRequired() && pid != "" && !h.requireProjectWriter(c, pid) {
-		return
+	isPlatformAdmin := h.isPlatformAdmin(c.Request)
+	if authRequired() && !isPlatformAdmin {
+		if input.Generic {
+			c.JSON(http.StatusForbidden, gin.H{"error": "只有平台管理员可以发布平台级通用 SOP，取消勾选通用即可发布为当前租户专属 SOP"})
+			return
+		}
+		if pid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请先选择所属项目再构建 SOP"})
+			return
+		}
+		if !h.requireProjectWriter(c, pid) {
+			return
+		}
 	}
 	if len(input.Steps) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "至少需要 1 个执行步骤"})
@@ -368,6 +379,9 @@ func (h *webuddyEnvHandlers) sopQuickCreate(c *gin.Context) {
 	if err := h.repo.PutWorkflow(wf); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("保存 SOP 失败: %v", err)})
 		return
+	}
+	if !wf.Generic {
+		_ = defaultTenantStore.bindWorkflowTenant(wf.ID, h.currentActiveTenant(c.Request))
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"ok":       true,
@@ -492,12 +506,21 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 			Generic     bool   `json:"generic"`
 			Steps       int    `json:"steps"`
 		}
+		isAdmin := session != nil && strings.TrimSpace(session.User.LoginName) != "" && h.repo.IsPlatformAdmin(session.User.LoginName)
+		activeTID := DefaultTenantID
+		if session != nil && session.User.ID > 0 {
+			activeTID = defaultTenantStore.activeTenantForUser(session.User.ID, isAdmin)
+		}
 		var list []sopBrief
 		for _, wf := range h.repo.Workflows() {
 			if wf.Status != "published" && wf.Status != "" {
 				continue
 			}
-			if !wf.Generic && !wf.Shared && pid != "" && wf.ProjectID != "" && wf.ProjectID != pid {
+			if wf.Generic || isCanonicalPresetWorkflowID(wf.ID) {
+				if !defaultTenantStore.presetSOPEnabledInTenant(activeTID, wf.ID) {
+					continue
+				}
+			} else if defaultTenantStore.workflowTenant(wf) != activeTID {
 				continue
 			}
 			list = append(list, sopBrief{

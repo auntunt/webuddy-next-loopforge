@@ -1,4 +1,29 @@
+function renderTenantSwitcher(){
+  const sw=$('#tenantSwitcher');if(!sw)return;
+  const tenants=state.data?.tenants||[];
+  const activeId=state.data?.activeTenantId||'default';
+  if(!tenants.length){
+    sw.innerHTML='<option value="default">🏢 默认团队空间</option>';
+    return;
+  }
+  sw.innerHTML=tenants.map(t=>`<option value="${escapeHTML(t.id)}" ${t.id===activeId?'selected':''}>🏢 ${escapeHTML(t.name)}</option>`).join('');
+  window.enhanceSelect?.(sw);
+  if(!sw._tenantBound){
+    sw._tenantBound=true;
+    sw.addEventListener('change',async ()=>{
+      const tid=sw.value;
+      if(!tid||tid===(state.data?.activeTenantId||''))return;
+      try{
+        await api('/api/tenants/switch',{method:'POST',body:JSON.stringify({tenantId:tid})});
+        window.location.reload();
+      }catch(err){
+        toast?.(err?.message||'切换租户失败');
+      }
+    });
+  }
+}
 function renderProjectSwitcher(){
+  renderTenantSwitcher();
   const projects=state.data.projects||[];
   const switcher=$('#projectSwitcher');if(!switcher)return;
   switcher.innerHTML=projects.map(p=>`<option value="${escapeHTML(p.id)}" ${p.id===state.projectFilter?'selected':''}>${escapeHTML(p.key||'PROJECT')} · ${escapeHTML(p.name)}</option>`).join('')||'<option value="">暂无项目</option>';

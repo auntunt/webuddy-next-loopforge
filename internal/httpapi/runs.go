@@ -86,10 +86,17 @@ func (h *runsHandlers) runs(c *gin.Context) {
 			return
 		}
 		user, authenticated := h.requestUser(r, true)
+		visibleProjects := h.visibleProjectIDSetForRequest(r)
 		visible := runs[:0]
 		for _, run := range runs {
 			if run.IsPersonalWorkspace() && (!authenticated || user.ID <= 0 || user.ID != run.ExecutionContext.ResponsibleUserID) {
 				continue
+			}
+			if authRequired() && !run.IsPersonalWorkspace() {
+				rpid := strings.TrimSpace(run.WorkflowSnapshot.ProjectID)
+				if rpid != "" && !visibleProjects[rpid] {
+					continue
+				}
 			}
 			visible = append(visible, run)
 		}
@@ -118,6 +125,13 @@ func (h *runsHandlers) runs(c *gin.Context) {
 		workflowProject := ""
 		if workflow, ok := h.repo.Workflow(strings.TrimSpace(req.WorkflowID)); ok && !workflow.Shared && !workflow.Generic {
 			workflowProject = workflow.ProjectID
+			if authRequired() && !h.isPlatformAdmin(r) {
+				wfTenant := defaultTenantStore.workflowTenant(workflow)
+				if wfTenant != "" && wfTenant != h.currentActiveTenant(r) {
+					c.JSON(http.StatusForbidden, gin.H{"error": "无权使用其他租户的私有 SOP"})
+					return
+				}
+			}
 		}
 		if !h.requireProjectWriter(c, req.ProjectID, workflowProject) {
 			return

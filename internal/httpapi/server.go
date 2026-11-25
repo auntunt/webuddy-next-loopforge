@@ -578,6 +578,16 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/webuddy/env/project-readiness", api.webuddyEnv.projectReadiness)
 	g.POST("/api/webuddy/env/auto-configure", api.webuddyEnv.autoConfigure)
 	g.POST("/api/webuddy/sop/quick-create", api.webuddyEnv.sopQuickCreate)
+	// --- multi-tenant & team collaboration ---
+	g.GET("/api/tenants", api.webuddyEnv.listTenants)
+	g.POST("/api/tenants", api.webuddyEnv.createTenant)
+	g.POST("/api/tenants/switch", api.webuddyEnv.switchTenant)
+	g.POST("/api/tenants/join", api.webuddyEnv.joinTenantByInvite)
+	g.PUT("/api/tenants/:id", api.webuddyEnv.updateTenant)
+	g.POST("/api/tenants/:id/invite/rotate", api.webuddyEnv.rotateTenantInvite)
+	g.POST("/api/tenants/:id/members", api.webuddyEnv.upsertTenantMember)
+	g.DELETE("/api/tenants/:id/members/:userId", api.webuddyEnv.removeTenantMember)
+	g.POST("/api/tenants/:id/sops/:sopId/clone", api.webuddyEnv.clonePresetSOPToTenant)
 	g.GET("/api/webuddy/kb/status", api.webuddyEnv.kbStatus)
 	g.POST("/api/webuddy/kb/batch-update", api.webuddyEnv.kbBatchUpdate)
 	g.POST("/api/webuddy/projects/:id/upload-archive", api.webuddyEnv.uploadProjectArchive)
@@ -849,6 +859,41 @@ func (s *Server) bootstrap(c *gin.Context) {
 		}
 	}
 	mcpServers = domain.PublicMCPServers(withMarketIcons(visibleMCPServersForUser(mcpServers, currentUserID)))
+	// Tenant isolation scoping for bootstrap payload
+	projects = s.visibleProjectsForRequest(c.Request, projects)
+	visibleProjSet := make(map[string]bool, len(projects))
+	for _, p := range projects {
+		visibleProjSet[p.ID] = true
+	}
+	if authRequired() {
+		scopedRepos := make([]domain.Repository, 0, len(repositories))
+		for _, rp := range repositories {
+			if rp.ProjectID == "" || visibleProjSet[rp.ProjectID] {
+				scopedRepos = append(scopedRepos, rp)
+			}
+		}
+		repositories = scopedRepos
+
+		scopedAgents := make([]domain.AgentDefinition, 0, len(agents))
+		for _, ag := range agents {
+			if ag.ProjectID == "" || visibleProjSet[ag.ProjectID] {
+				scopedAgents = append(scopedAgents, ag)
+			}
+		}
+		agents = scopedAgents
+
+		scopedSandboxes := make([]domain.SandboxProfile, 0, len(sandboxes))
+		for _, sb := range sandboxes {
+			if sb.ProjectID == "" || visibleProjSet[sb.ProjectID] {
+				scopedSandboxes = append(scopedSandboxes, sb)
+			}
+		}
+		sandboxes = scopedSandboxes
+
+		workflows = s.visibleWorkflowsForRequest(c.Request, workflows)
+		users = s.visibleUsersForTenant(c.Request, users)
+	}
+	tenantSummaries, activeTenantID := s.webuddyEnv.buildTenantSummaries(c.Request)
 	sharedModels := s.repo.SharedCodeBuddyModels()
 	sponsoredModel := ""
 	if len(sharedModels) > 0 {
@@ -859,8 +904,10 @@ func (s *Server) bootstrap(c *gin.Context) {
 		"agents": catalogAgents(agents), "rules": rules, "skills": skills, "mcpServers": mcpServers,
 		"executors": executors, "dockerfiles": dockerfiles, "environments": environments, "sandboxes": sandboxes,
 		"workflows": workflows, "syncConfig": syncConfig, "scheduleJobs": scheduleJobs, "schedulerEnabled": schedulerEnabled(),
-		"users":        domain.PublicUsers(users),
-		"storage":      s.repo.StorageInfo(),
+		"users":          domain.PublicUsers(users),
+		"activeTenantId": activeTenantID,
+		"tenants":        tenantSummaries,
+		"storage":        s.repo.StorageInfo(),
 		"capabilities": map[string]bool{"docker": runtime.DockerReady()},
 		// Set when users without their own CodeBuddy API Key can still chat
 		// and run SOPs on the platform's shared key, limited to these models

@@ -137,7 +137,15 @@ func (r *webuddyTaskRegistry) list() []WebuddyLiveTask {
 
 // GET /api/webuddy/tasks/active
 func (h *webuddyEnvHandlers) activeTasks(c *gin.Context) {
-	tasks := defaultTaskRegistry.list()
+	allTasks := defaultTaskRegistry.list()
+	visibleProjects := h.visibleProjectIDSetForRequest(c.Request)
+	tasks := make([]WebuddyLiveTask, 0, len(allTasks))
+	for _, tk := range allTasks {
+		if authRequired() && tk.ProjectID != "" && !visibleProjects[tk.ProjectID] {
+			continue
+		}
+		tasks = append(tasks, tk)
+	}
 	now := time.Now()
 
 	// Also surface active SOP runs so users always see running workflows in the same floating pill
@@ -146,6 +154,9 @@ func (h *webuddyEnvHandlers) activeTasks(c *gin.Context) {
 			st := strings.ToLower(strings.TrimSpace(string(run.Status)))
 			if st == "running" || st == "queued" || st == "waiting_input" {
 				pid := strings.TrimSpace(run.WorkflowSnapshot.ProjectID)
+				if authRequired() && pid != "" && !visibleProjects[pid] {
+					continue
+				}
 				projName := pid
 				if p, ok := h.repo.Project(pid); ok && p.Name != "" {
 					projName = p.Name

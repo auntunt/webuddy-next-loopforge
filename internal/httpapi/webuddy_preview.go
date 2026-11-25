@@ -264,7 +264,19 @@ func (m *webuddyPreviewManager) start(ctx context.Context, pid, projName, repoPa
 		cmd := exec.Command(startCmd[0], startCmd[1:]...)
 		cmd.Dir = repoPath
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Env = append(os.Environ(),
+		// Strip platform secrets from preview child process environment
+		var cleanEnv []string
+		for _, kv := range os.Environ() {
+			k := kv
+			if idx := strings.IndexByte(kv, '='); idx > 0 {
+				k = strings.ToUpper(kv[:idx])
+			}
+			if strings.Contains(k, "API_KEY") || strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET") || strings.Contains(k, "PASSWORD") {
+				continue
+			}
+			cleanEnv = append(cleanEnv, kv)
+		}
+		cmd.Env = append(cleanEnv,
 			fmt.Sprintf("PORT=%d", port),
 			"HOST=127.0.0.1",
 			"NODE_ENV=development",
@@ -353,6 +365,9 @@ func (m *webuddyPreviewManager) start(ctx context.Context, pid, projName, repoPa
 
 func (h *webuddyEnvHandlers) previewStatus(c *gin.Context) {
 	pid, projName, _ := h.resolveProjectAndRepoPath(c.Query("projectId"))
+	if authRequired() && pid != "" && !h.requireProjectReader(c, pid) {
+		return
+	}
 	c.JSON(http.StatusOK, defaultPreviewMgr.status(pid, projName))
 }
 
@@ -418,6 +433,17 @@ func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
 	if pid == "" {
 		c.String(http.StatusBadRequest, "missing projectId")
 		return
+	}
+	if authRequired() {
+		if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead || c.Request.Method == http.MethodOptions {
+			if !h.requireProjectReader(c, pid) {
+				return
+			}
+		} else {
+			if !h.requireProjectWriter(c, pid) {
+				return
+			}
+		}
 	}
 	// Ensure trailing slash on base URL so relative assets resolve cleanly
 	prefix := "/app-preview/" + url.PathEscape(pid)

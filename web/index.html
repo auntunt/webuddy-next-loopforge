@@ -187,6 +187,10 @@
     <div class="page-context"><b id="pageTitle">AI 工作台</b><span>／ Agent 原生研发协作平台</span></div>
     <button id="commandPaletteTrigger" class="command-trigger" type="button"><span><svg class="agent-icon harness-icon" data-icon="search" data-icon-motion="idle" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span><b>搜索需求、运行、SOP 或 Agent</b><kbd>⌘K</kbd></button>
     <div class="topbar-spacer"></div>
+    <div class="topbar-project" id="topbarTenantWrap" style="margin-right:6px">
+      <label class="topbar-project-label">租户</label>
+      <select id="tenantSwitcher" class="select project-global-switch" aria-label="切换租户空间" title="切换当前租户工作空间：项目、需求、SOP 与知识库均按租户隔离"></select>
+    </div>
     <div class="topbar-project">
       <label class="topbar-project-label">项目</label>
       <select id="projectSwitcher" class="select project-global-switch" aria-label="切换项目" title="全局切换项目：需求、执行与交付数据按项目过滤"></select>

@@ -54,9 +54,73 @@ func (d deps) speakerProjectWriter(projectID string, user domain.User, userID in
 	return d.projectMemberWrites(projectID, userID)
 }
 
+func (d deps) requireProjectReader(c *gin.Context, projectIDs ...string) bool {
+	if !authRequired() {
+		return true
+	}
+	user, ok := d.requestUser(c.Request, true)
+	if !ok || d.isPlatformAdmin(c.Request) {
+		return true
+	}
+	for _, id := range projectIDs {
+		if !d.projectMemberReads(id, user.ID) {
+			c.JSON(403, gin.H{"error": "您不是该项目所属租户或项目的成员，无权访问"})
+			return false
+		}
+	}
+	return true
+}
+
+func (d deps) projectMemberReads(projectID string, userID int64) bool {
+	pid := strings.TrimSpace(projectID)
+	if pid == "" {
+		return false
+	}
+	p, found := d.repo.Project(pid)
+	if !found {
+		return false
+	}
+	// Fail-closed tenant boundary check FIRST
+	tid := defaultTenantStore.projectTenant(pid)
+	defaultTenantStore.ensureUserInDefaultTenant(userID, false)
+	if _, inTenant := defaultTenantStore.userTenantRole(tid, userID); !inTenant {
+		return false
+	}
+	if p.OwnerID == 0 || p.OwnerID == userID {
+		return true
+	}
+	for _, member := range p.Members {
+		if member.UserID == userID {
+			return true
+		}
+	}
+	// Team members inside the same tenant may read tenant projects
+	return true
+}
+
 func (d deps) projectMemberWrites(projectID string, userID int64) bool {
-	p, found := d.repo.Project(projectID)
-	if !found || p.OwnerID == 0 || p.OwnerID == userID {
+	pid := strings.TrimSpace(projectID)
+	if pid == "" {
+		return true
+	}
+	p, found := d.repo.Project(pid)
+	if !found {
+		return true
+	}
+	// Fail-closed tenant boundary check FIRST
+	tid := defaultTenantStore.projectTenant(pid)
+	defaultTenantStore.ensureUserInDefaultTenant(userID, false)
+	tRole, inTenant := defaultTenantStore.userTenantRole(tid, userID)
+	if !inTenant {
+		return false
+	}
+	if tRole == "viewer" {
+		return false
+	}
+	if tRole == "owner" || tRole == "admin" {
+		return true
+	}
+	if p.OwnerID == 0 || p.OwnerID == userID {
 		return true
 	}
 	for _, member := range p.Members {
