@@ -620,15 +620,23 @@ func (d *Daemon) executeTask(ctx context.Context, task domain.RunnerTask) {
 	}
 
 	releaseGate()
-	completeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	req := CompleteRequest{Status: result.status, Result: result.result, Error: result.errMsg, Artifacts: artifacts, Outputs: result.outputs}
 	if result.status == domain.RunnerTaskFailed || result.status == domain.RunnerTaskSuccess {
 		exit := result.exitCode
 		req.ExitCode = &exit
 	}
-	if err := d.client.Complete(completeCtx, task.ID, req); err != nil {
-		log.Printf("task %s complete report: %v", task.ID, err)
+	var lastCompleteErr error
+	for attempt, wait := range []time.Duration{0, time.Second, 3 * time.Second, 6 * time.Second} {
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+		completeCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		lastCompleteErr = d.client.Complete(completeCtx, task.ID, req)
+		cancel()
+		if lastCompleteErr == nil {
+			break
+		}
+		log.Printf("task %s complete report (attempt %d): %v", task.ID, attempt+1, lastCompleteErr)
 	}
 	log.Printf("task %s finished (%s)", task.ID, result.status)
 }

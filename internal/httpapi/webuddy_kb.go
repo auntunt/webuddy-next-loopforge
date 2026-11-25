@@ -27,9 +27,56 @@ func renderRawJSON(c *gin.Context, raw []byte, err error) {
 	c.Data(http.StatusOK, "application/json; charset=utf-8", raw)
 }
 
+// resolveAuthorizedKBRepo validates that repoPath belongs to a registered platform
+// repository (preventing arbitrary filesystem access when auth is enabled) and
+// enforces project write permission for mutating KB operations.
+func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath string, requireWrite bool) (string, bool) {
+	rp := strings.TrimRight(strings.TrimSpace(rawRepoPath), "/")
+	if h.repo == nil {
+		return rp, true
+	}
+	repos := h.repo.Repositories()
+	if len(repos) == 0 {
+		if authRequired() && rp != "" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "仓库路径未在平台注册，禁止访问未授权目录"})
+			return "", false
+		}
+		return rp, true
+	}
+	if rp == "" {
+		for _, r := range repos {
+			if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
+				if requireWrite && authRequired() && r.ProjectID != "" && !h.requireProjectWriter(c, r.ProjectID) {
+					return "", false
+				}
+				return lp, true
+			}
+		}
+		return "", true
+	}
+	for _, r := range repos {
+		lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/")
+		if (lp != "" && lp == rp) || r.ID == rp {
+			if requireWrite && authRequired() && r.ProjectID != "" && !h.requireProjectWriter(c, r.ProjectID) {
+				return "", false
+			}
+			return lp, true
+		}
+	}
+	if authRequired() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "仓库路径未在平台注册，禁止访问未授权目录"})
+		return "", false
+	}
+	return rp, true
+}
+
 // GET /api/webuddy/kb/overview?repoPath=...
 func (h *webuddyKBHandlers) overview(c *gin.Context) {
-	raw, err := h.svc.Overview(c.Request.Context(), c.Query("repoPath"))
+	rp, ok := h.resolveAuthorizedKBRepo(c, c.Query("repoPath"), false)
+	if !ok {
+		return
+	}
+	raw, err := h.svc.Overview(c.Request.Context(), rp)
 	renderRawJSON(c, raw, err)
 }
 
@@ -41,7 +88,11 @@ func (h *webuddyKBHandlers) scan(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
-	raw, err := h.svc.Scan(c.Request.Context(), input.RepoPath)
+	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, true)
+	if !ok {
+		return
+	}
+	raw, err := h.svc.Scan(c.Request.Context(), rp)
 	renderRawJSON(c, raw, err)
 }
 
@@ -55,15 +106,23 @@ func (h *webuddyKBHandlers) search(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
-	raw, err := h.svc.Search(c.Request.Context(), input.RepoPath, input.Query, input.Limit)
+	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, false)
+	if !ok {
+		return
+	}
+	raw, err := h.svc.Search(c.Request.Context(), rp, input.Query, input.Limit)
 	renderRawJSON(c, raw, err)
 }
 
 // GET /api/webuddy/kb/file?repoPath=...&path=...&start=...&end=...
 func (h *webuddyKBHandlers) file(c *gin.Context) {
+	rp, ok := h.resolveAuthorizedKBRepo(c, c.Query("repoPath"), false)
+	if !ok {
+		return
+	}
 	start, _ := strconv.Atoi(c.Query("start"))
 	end, _ := strconv.Atoi(c.Query("end"))
-	raw, err := h.svc.ReadFile(c.Request.Context(), c.Query("repoPath"), c.Query("path"), start, end)
+	raw, err := h.svc.ReadFile(c.Request.Context(), rp, c.Query("path"), start, end)
 	renderRawJSON(c, raw, err)
 }
 
@@ -76,13 +135,21 @@ func (h *webuddyKBHandlers) verifyEvidence(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
-	raw, err := h.svc.VerifyEvidence(c.Request.Context(), input.RepoPath, input.Ref)
+	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, false)
+	if !ok {
+		return
+	}
+	raw, err := h.svc.VerifyEvidence(c.Request.Context(), rp, input.Ref)
 	renderRawJSON(c, raw, err)
 }
 
 // GET /api/webuddy/kb/statecharts?repoPath=...
 func (h *webuddyKBHandlers) statecharts(c *gin.Context) {
-	raw, err := h.svc.Statecharts(c.Request.Context(), c.Query("repoPath"))
+	rp, ok := h.resolveAuthorizedKBRepo(c, c.Query("repoPath"), false)
+	if !ok {
+		return
+	}
+	raw, err := h.svc.Statecharts(c.Request.Context(), rp)
 	renderRawJSON(c, raw, err)
 }
 
@@ -97,7 +164,11 @@ func (h *webuddyKBHandlers) impact(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
-	raw, err := h.svc.Impact(c.Request.Context(), input.RepoPath, input.Target, input.Depth)
+	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, false)
+	if !ok {
+		return
+	}
+	raw, err := h.svc.Impact(c.Request.Context(), rp, input.Target, input.Depth)
 	if err != nil {
 		respond(c, err)
 		return
@@ -115,6 +186,7 @@ func (h *webuddyKBHandlers) impact(c *gin.Context) {
 		"affectedDomains": payload["affectedDomains"],
 		"affectedFlows":   payload["affectedFlows"],
 		"affectedTables":  payload["affectedTables"],
+		"codeImpact":      payload["codeImpact"],
 	})
 	qa := synthesizeKBAnswer(c.Request.Context(), "impact", input.Target, string(compact))
 	if qa.Answer != "" {
@@ -138,7 +210,11 @@ func (h *webuddyKBHandlers) chain(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
-	raw, err := h.svc.Chain(c.Request.Context(), input.RepoPath, input.Query, input.Flows)
+	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, false)
+	if !ok {
+		return
+	}
+	raw, err := h.svc.Chain(c.Request.Context(), rp, input.Query, input.Flows)
 	if err != nil {
 		respond(c, err)
 		return
@@ -169,7 +245,11 @@ func (h *webuddyKBHandlers) chain(c *gin.Context) {
 
 // GET /api/webuddy/kb/questions?repoPath=...
 func (h *webuddyKBHandlers) questions(c *gin.Context) {
-	raw, err := h.svc.Questions(c.Request.Context(), c.Query("repoPath"))
+	rp, ok := h.resolveAuthorizedKBRepo(c, c.Query("repoPath"), false)
+	if !ok {
+		return
+	}
+	raw, err := h.svc.Questions(c.Request.Context(), rp)
 	renderRawJSON(c, raw, err)
 }
 
@@ -183,11 +263,15 @@ func (h *webuddyKBHandlers) askQuestion(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
+	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, true)
+	if !ok {
+		return
+	}
 	who := "user"
 	if u, ok := h.requestUser(c.Request, true); ok && u.LoginName != "" {
 		who = u.LoginName
 	}
-	raw, err := h.svc.AskQuestion(c.Request.Context(), input.RepoPath, input.Question, input.Pages, who)
+	raw, err := h.svc.AskQuestion(c.Request.Context(), rp, input.Question, input.Pages, who)
 	renderRawJSON(c, raw, err)
 }
 
@@ -201,11 +285,15 @@ func (h *webuddyKBHandlers) answerQuestion(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
+	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, true)
+	if !ok {
+		return
+	}
 	by := "user"
 	if u, ok := h.requestUser(c.Request, true); ok && u.LoginName != "" {
 		by = u.LoginName
 	}
-	raw, err := h.svc.AnswerQuestion(c.Request.Context(), input.RepoPath, input.Num, input.Text, by)
+	raw, err := h.svc.AnswerQuestion(c.Request.Context(), rp, input.Num, input.Text, by)
 	renderRawJSON(c, raw, err)
 }
 
@@ -218,10 +306,14 @@ func (h *webuddyKBHandlers) confirmPage(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
+	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, true)
+	if !ok {
+		return
+	}
 	by := "user"
 	if u, ok := h.requestUser(c.Request, true); ok && u.LoginName != "" {
 		by = u.LoginName
 	}
-	raw, err := h.svc.ConfirmPage(c.Request.Context(), input.RepoPath, input.PageID, by)
+	raw, err := h.svc.ConfirmPage(c.Request.Context(), rp, input.PageID, by)
 	renderRawJSON(c, raw, err)
 }

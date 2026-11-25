@@ -16,11 +16,16 @@ import (
 const DefaultProbeTTL = 5 * time.Minute
 
 type cachedCLIProbe struct {
-	Status    string
-	Error     string
-	LatencyMs int64
-	Models    []string
-	ProbedAt  time.Time
+	Fingerprint string
+	Status      string
+	Error       string
+	LatencyMs   int64
+	Models      []string
+	ProbedAt    time.Time
+}
+
+func cliConfigFingerprint(c CLIStatus) string {
+	return c.AuthMode + "|" + c.GatewayURL + "|" + c.DefaultModel
 }
 
 type cachedGitProbe struct {
@@ -36,6 +41,7 @@ type ProbeManager struct {
 	ttl          time.Duration
 	mu           sync.RWMutex
 	probing      bool
+	probeDone    chan struct{}
 	lastRun      time.Time
 	lastSnap     *HostProfile
 	lastSnapTime time.Time
@@ -105,6 +111,7 @@ func (m *ProbeManager) TriggerProbeAsync(force bool) {
 		return
 	}
 	m.probing = true
+	m.probeDone = make(chan struct{})
 	m.mu.Unlock()
 
 	go func() {
@@ -114,19 +121,25 @@ func (m *ProbeManager) TriggerProbeAsync(force bool) {
 	}()
 }
 
-// TriggerProbe runs live probes synchronously (or returns cached if !force and fresh).
+// TriggerProbe runs live probes synchronously (or waits for an in-flight probe).
 func (m *ProbeManager) TriggerProbe(ctx context.Context, force bool) HostProfile {
 	m.mu.Lock()
+	if m.probing && m.probeDone != nil {
+		done := m.probeDone
+		m.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
+		return m.Snapshot(ctx)
+	}
 	need := force || m.lastRun.IsZero() || time.Since(m.lastRun) >= m.ttl
 	if !need {
 		m.mu.Unlock()
 		return m.Snapshot(ctx)
 	}
-	if m.probing {
-		m.mu.Unlock()
-		return m.Snapshot(ctx)
-	}
 	m.probing = true
+	m.probeDone = make(chan struct{})
 	m.mu.Unlock()
 
 	return m.runProbeInternal(ctx)
@@ -137,16 +150,23 @@ func (m *ProbeManager) runProbeInternal(ctx context.Context) HostProfile {
 		m.mu.Lock()
 		m.probing = false
 		m.lastRun = time.Now().UTC()
+		if m.probeDone != nil {
+			close(m.probeDone)
+			m.probeDone = nil
+		}
 		m.mu.Unlock()
 	}()
 
 	prof := ScanHost(ctx)
 	var wg sync.WaitGroup
 
-	// Probe installed & configured CLIs in parallel
+	// Probe installed & configured CLIs in parallel; clear stale cache if unconfigured
 	for i := range prof.CLIs {
 		cli := prof.CLIs[i]
 		if !cli.Available || cli.AuthMode == "none" {
+			m.mu.Lock()
+			delete(m.clis, cli.ID)
+			m.mu.Unlock()
 			continue
 		}
 		if cli.ID != "codex" && cli.ID != "claude" {
@@ -156,6 +176,7 @@ func (m *ProbeManager) runProbeInternal(ctx context.Context) HostProfile {
 		go func(c CLIStatus) {
 			defer wg.Done()
 			res := probeSingleCLI(ctx, c)
+			res.Fingerprint = cliConfigFingerprint(c)
 			m.mu.Lock()
 			m.clis[c.ID] = res
 			m.mu.Unlock()
@@ -188,7 +209,12 @@ func (m *ProbeManager) applyCache(prof *HostProfile) {
 
 	for i := range prof.CLIs {
 		c := &prof.CLIs[i]
-		if cached, ok := m.clis[c.ID]; ok {
+		if !c.Available || c.AuthMode == "none" {
+			c.ProbeStatus = "untested"
+			c.ProbeError = ""
+			continue
+		}
+		if cached, ok := m.clis[c.ID]; ok && (cached.Fingerprint == "" || cached.Fingerprint == cliConfigFingerprint(*c)) {
 			c.ProbeStatus = cached.Status
 			c.ProbeError = cached.Error
 			c.ProbeLatency = cached.LatencyMs
@@ -196,7 +222,7 @@ func (m *ProbeManager) applyCache(prof *HostProfile) {
 			if len(cached.Models) > 0 {
 				c.Models = cached.Models
 			}
-		} else if m.probing && c.Available && c.AuthMode != "none" && (c.ID == "codex" || c.ID == "claude") {
+		} else if m.probing && (c.ID == "codex" || c.ID == "claude") {
 			c.ProbeStatus = "probing"
 		}
 	}

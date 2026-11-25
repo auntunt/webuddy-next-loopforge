@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"agentflow/internal/codereview"
 
@@ -35,12 +36,48 @@ func (h *codeReviewHandlers) list(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"reviews": items})
 }
 
+func (h *codeReviewHandlers) resolveAndAuthorizeProject(c *gin.Context, projectID, repoPath, runID string) (string, bool) {
+	pid := strings.TrimSpace(projectID)
+	rp := strings.TrimRight(strings.TrimSpace(repoPath), "/")
+	if rp != "" && h.repo != nil {
+		for _, r := range h.repo.Repositories() {
+			if strings.TrimRight(strings.TrimSpace(r.LocalPath), "/") == rp {
+				if r.ProjectID != "" {
+					pid = r.ProjectID
+				}
+				break
+			}
+		}
+	}
+	if rid := strings.TrimSpace(runID); rid != "" && h.repo != nil {
+		if run, ok := h.repo.Run(rid); ok {
+			rpid := strings.TrimSpace(run.WorkflowSnapshot.ProjectID)
+			if rpid != "" {
+				if pid != "" && pid != rpid {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "所选仓库与关联运行不属于同一项目"})
+					return "", false
+				}
+				pid = rpid
+			}
+		}
+	}
+	if authRequired() && pid != "" && !h.requireProjectWriter(c, pid) {
+		return "", false
+	}
+	return pid, true
+}
+
 // POST /api/codereview/reviews
 func (h *codeReviewHandlers) create(c *gin.Context) {
 	var input codereview.CreateReviewInput
 	if !decode(c, &input) {
 		return
 	}
+	pid, ok := h.resolveAndAuthorizeProject(c, input.ProjectID, input.RepoPath, input.RunID)
+	if !ok {
+		return
+	}
+	input.ProjectID = pid
 	actor, _ := h.actor(c.Request)
 	if actor == "" {
 		actor = "anonymous"
@@ -61,8 +98,14 @@ func (h *codeReviewHandlers) saveFeedback(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
+	if detail, err := h.svc.GetReview(c.Param("id")); err == nil && detail.Review.ProjectID != "" {
+		if authRequired() && !h.requireProjectWriter(c, detail.Review.ProjectID) {
+			return
+		}
+	}
 	actor, isHuman := h.actor(c.Request)
-	if c.GetHeader("X-Webuddy-Executor") != "" {
+	// Reject automated Bearer API tokens or explicit executor headers from spoofing human feedback
+	if c.GetHeader("X-Webuddy-Executor") != "" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.GetHeader("Authorization"))), "bearer ") {
 		isHuman = false
 	}
 	fb, err := h.svc.SaveFeedback(c.Param("id"), actor, isHuman, input)
@@ -86,6 +129,11 @@ func (h *codeReviewHandlers) runAutomated(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
+	pid, ok := h.resolveAndAuthorizeProject(c, input.ProjectID, input.RepoPath, input.RunID)
+	if !ok {
+		return
+	}
+	input.ProjectID = pid
 	actor, _ := h.actor(c.Request)
 	if actor == "" {
 		actor = "anonymous"

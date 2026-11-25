@@ -106,6 +106,8 @@ func (m *Manager) loadCustomFromDisk() {
 
 func (m *Manager) SaveCustomConfig(cfg CustomConfig) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	clean := CustomConfig{
 		BaseURL: strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		APIKey:  strings.TrimSpace(cfg.APIKey),
@@ -119,17 +121,42 @@ func (m *Manager) SaveCustomConfig(cfg CustomConfig) error {
 	if clean.BaseURL == "" {
 		clean = CustomConfig{}
 	}
-	m.custom = clean
-	m.mu.Unlock()
 
-	if m.configPath == "" {
-		return nil
+	if m.configPath != "" {
+		raw, err := json.MarshalIndent(clean, "", "  ")
+		if err != nil {
+			return err
+		}
+		tmp := m.configPath + ".tmp"
+		if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, m.configPath); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
 	}
-	raw, err := json.MarshalIndent(clean, "", "  ")
-	if err != nil {
-		return err
+	m.custom = clean
+	return nil
+}
+
+func (m *Manager) effectiveCustomConfig() (CustomConfig, string) {
+	m.mu.RLock()
+	custom := m.custom
+	m.mu.RUnlock()
+	if custom.BaseURL != "" && custom.APIKey != "" {
+		return custom, "ui"
 	}
-	return os.WriteFile(m.configPath, raw, 0o600)
+	envURL := strings.TrimRight(strings.TrimSpace(os.Getenv("WEBUDDY_LLM_BASE_URL")), "/")
+	envKey := strings.TrimSpace(os.Getenv("WEBUDDY_LLM_API_KEY"))
+	if envURL != "" && envKey != "" {
+		return CustomConfig{
+			BaseURL: envURL,
+			APIKey:  envKey,
+			Model:   strings.TrimSpace(os.Getenv("WEBUDDY_LLM_MODEL")),
+		}, "env"
+	}
+	return CustomConfig{}, ""
 }
 
 func (m *Manager) Status(ctx context.Context) PublicStatus {
@@ -149,18 +176,15 @@ func (m *Manager) Status(ctx context.Context) PublicStatus {
 		CustomHasKey: custom.APIKey != "",
 	}
 
-	if custom.BaseURL != "" && custom.APIKey != "" {
+	if eff, src := m.effectiveCustomConfig(); eff.BaseURL != "" && eff.APIKey != "" {
 		st.Ready = true
 		st.Mode = "custom"
-		st.ModeLabel = "已接入自定义模型"
-		st.ActiveModel = custom.Model
-		return st
-	}
-	if envURL := strings.TrimSpace(os.Getenv("WEBUDDY_LLM_BASE_URL")); envURL != "" && strings.TrimSpace(os.Getenv("WEBUDDY_LLM_API_KEY")) != "" {
-		st.Ready = true
-		st.Mode = "custom"
-		st.ModeLabel = "已接入自定义模型（环境变量）"
-		st.ActiveModel = strings.TrimSpace(os.Getenv("WEBUDDY_LLM_MODEL"))
+		if src == "env" {
+			st.ModeLabel = "已接入自定义模型（环境变量）"
+		} else {
+			st.ModeLabel = "已接入自定义模型"
+		}
+		st.ActiveModel = eff.Model
 		return st
 	}
 	if orKey != "" {
@@ -177,6 +201,13 @@ func (m *Manager) Status(ctx context.Context) PublicStatus {
 		st.Mode = "local_gateway"
 		st.ModeLabel = "本机已配置网关兜底"
 		st.ActiveModel = local.Model
+		return st
+	}
+	if envprobe.LookupBinary("codex") != "" {
+		st.Ready = true
+		st.Mode = "codex_cli"
+		st.ModeLabel = "本机 Codex CLI 兜底"
+		st.ActiveModel = "codex-cli"
 		return st
 	}
 	st.Ready = false
@@ -205,17 +236,7 @@ func (m *Manager) Complete(ctx context.Context, req CompletionRequest) Completio
 	var lastErr error
 
 	// Tier 1: Custom Model (UI saved or WEBUDDY_LLM_* env)
-	m.mu.RLock()
-	custom := m.custom
-	m.mu.RUnlock()
-	if custom.BaseURL == "" {
-		custom = CustomConfig{
-			BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("WEBUDDY_LLM_BASE_URL")), "/"),
-			APIKey:  strings.TrimSpace(os.Getenv("WEBUDDY_LLM_API_KEY")),
-			Model:   strings.TrimSpace(os.Getenv("WEBUDDY_LLM_MODEL")),
-		}
-	}
-	if custom.BaseURL != "" && custom.APIKey != "" {
+	if custom, _ := m.effectiveCustomConfig(); custom.BaseURL != "" && custom.APIKey != "" {
 		model := custom.Model
 		if model == "" {
 			model = "gpt-4o-mini"
@@ -235,24 +256,36 @@ func (m *Manager) Complete(ctx context.Context, req CompletionRequest) Completio
 	}
 
 	// Tier 2: OpenRouter Free Large-Parameter Pool with automatic failover
+	// Always reserve the final attempt for openrouter/free auto-router if top models fail.
 	if orKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")); orKey != "" {
-		candidates := m.catalog.TopFreeModels(tctx, 4)
+		rawCands := m.catalog.TopFreeModels(tctx, 3)
+		tryList := make([]string, 0, 3)
+		hasAuto := false
+		for _, c := range rawCands {
+			if len(tryList) >= 2 && c.ID != "openrouter/free" {
+				continue
+			}
+			if c.ID == "openrouter/free" {
+				hasAuto = true
+			}
+			tryList = append(tryList, c.ID)
+		}
+		if !hasAuto {
+			tryList = append(tryList, "openrouter/free")
+		}
 		headers := map[string]string{
 			"HTTP-Referer": "https://webuddy.bbstack.date",
 			"X-Title":      "Webuddy Built-in Agent",
 		}
-		for i, cand := range candidates {
-			if i >= 3 {
-				break
-			}
-			tried = append(tried, cand.ID)
+		for _, modelID := range tryList {
+			tried = append(tried, modelID)
 			perModelCtx, perCancel := context.WithTimeout(tctx, 12*time.Second)
-			txt, err := callChatCompletions(perModelCtx, OpenRouterBaseURL, orKey, cand.ID, req, headers)
+			txt, err := callChatCompletions(perModelCtx, OpenRouterBaseURL, orKey, modelID, req, headers)
 			perCancel()
 			if err == nil && strings.TrimSpace(txt) != "" {
 				return CompletionResult{
 					Text:        strings.TrimSpace(txt),
-					Model:       cand.ID,
+					Model:       modelID,
 					Provider:    "openrouter_free",
 					LatencyMs:   time.Since(start).Milliseconds(),
 					TriedModels: tried,
@@ -310,8 +343,8 @@ func loadLocalCodexGateway() CustomConfig {
 	home, _ := os.UserHomeDir()
 	if home != "" {
 		if raw, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml")); err == nil {
-			var cfg CustomConfig
-			var section string
+			var defaultModel, activeProvider, section string
+			providers := make(map[string]CustomConfig)
 			for _, rawLine := range strings.Split(string(raw), "\n") {
 				line := strings.TrimSpace(rawLine)
 				if line == "" || strings.HasPrefix(line, "#") {
@@ -331,21 +364,43 @@ func loadLocalCodexGateway() CustomConfig {
 					val = strings.TrimSpace(val[:idx])
 				}
 				val = strings.Trim(val, `"'`)
-				if section == "" && key == "model" && val != "" {
-					cfg.Model = val
-				} else if strings.HasPrefix(section, "model_providers.") {
-					if key == "base_url" && cfg.BaseURL == "" {
-						cfg.BaseURL = strings.TrimRight(val, "/")
-					} else if key == "experimental_bearer_token" && cfg.APIKey == "" {
-						cfg.APIKey = val
+				if section == "" {
+					if key == "model" && val != "" {
+						defaultModel = val
+					} else if key == "model_provider" && val != "" {
+						activeProvider = val
 					}
+				} else if strings.HasPrefix(section, "model_providers.") {
+					pname := strings.Trim(strings.TrimPrefix(section, "model_providers."), `"' `)
+					if strings.Contains(pname, ".") || pname == "" {
+						continue
+					}
+					p := providers[pname]
+					if key == "base_url" && val != "" {
+						p.BaseURL = strings.TrimRight(val, "/")
+					} else if key == "experimental_bearer_token" && val != "" {
+						p.APIKey = val
+					}
+					providers[pname] = p
 				}
 			}
-			if cfg.BaseURL != "" && cfg.APIKey != "" {
-				if cfg.Model == "" {
-					cfg.Model = "gpt-6-luna"
+			pick := func(p CustomConfig) CustomConfig {
+				p.Model = defaultModel
+				if p.Model == "" {
+					p.Model = "gpt-6-luna"
 				}
-				return cfg
+				return p
+			}
+			if activeProvider != "" {
+				if p, ok := providers[activeProvider]; ok && p.BaseURL != "" && p.APIKey != "" {
+					return pick(p)
+				}
+			} else {
+				for _, p := range providers {
+					if p.BaseURL != "" && p.APIKey != "" {
+						return pick(p)
+					}
+				}
 			}
 		}
 	}
@@ -370,17 +425,28 @@ func callOpenAICompatible(ctx context.Context, baseURL, token, model string, req
 		return strings.TrimSpace(txt), nil
 	}
 	respBody := map[string]any{
-		"model":        model,
-		"instructions": req.SystemPrompt,
+		"model":             model,
+		"instructions":      req.SystemPrompt,
+		"max_output_tokens": req.MaxTokens,
 		"input": []map[string]any{
 			{"role": "user", "content": req.UserPrompt},
 		},
 		"stream": false,
 	}
-	if txt2, err2 := postJSON(ctx, strings.TrimRight(baseURL, "/")+"/responses", token, respBody, extraHeaders); err2 == nil && strings.TrimSpace(txt2) != "" {
+	txt2, err2 := postJSON(ctx, strings.TrimRight(baseURL, "/")+"/responses", token, respBody, extraHeaders)
+	if err2 == nil && strings.TrimSpace(txt2) != "" {
 		return strings.TrimSpace(txt2), nil
 	}
-	return "", err
+	if err != nil && err2 != nil {
+		return "", fmt.Errorf("chat: %v; responses: %v", err, err2)
+	}
+	if err2 != nil {
+		return "", err2
+	}
+	if err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("模型返回空内容")
 }
 
 func callChatCompletions(ctx context.Context, baseURL, token, model string, req CompletionRequest, extraHeaders map[string]string) (string, error) {

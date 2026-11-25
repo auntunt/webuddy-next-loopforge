@@ -811,6 +811,30 @@ def _questions(repo_path: str) -> dict:
     return {"repoPath": str(root), "questions": rows}
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _repo_write_lock(root: Path):
+    lock_dir = root / ".tmh"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / ".webuddy.lock"
+    with open(lock_path, "a+") as lf:
+        try:
+            import fcntl
+            fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+        except Exception:
+            pass
+        try:
+            yield
+        finally:
+            try:
+                import fcntl
+                fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+
+
 def _ask_question(repo_path: str, question: str, pages: list[str], who: str) -> dict:
     root = Path(repo_path).expanduser().resolve()
     if not root.is_dir():
@@ -819,8 +843,10 @@ def _ask_question(repo_path: str, question: str, pages: list[str], who: str) -> 
     if not q:
         raise ValueError("问题内容不能为空")
     from tmh import kbqa
-    num = kbqa.ask(root, q, [p for p in (pages or []) if p], who=who or "", by=who or "user")
-    return {"ok": True, "id": num, "questions": kbqa.questions(root)}
+    with _repo_write_lock(root):
+        num = kbqa.ask(root, q, [p for p in (pages or []) if p], who=who or "", by=who or "user")
+        qs = kbqa.questions(root)
+    return {"ok": True, "id": num, "questions": qs}
 
 
 def _answer_question(repo_path: str, num: int, text: str, by: str) -> dict:
@@ -830,8 +856,10 @@ def _answer_question(repo_path: str, num: int, text: str, by: str) -> dict:
     if num <= 0 or not (text or "").strip():
         raise ValueError("请提供有效的问题编号与回答内容")
     from tmh import kbqa
-    res = kbqa.answer(root, num, text.strip(), by or "user")
-    return {"ok": True, "result": res, "questions": kbqa.questions(root)}
+    with _repo_write_lock(root):
+        res = kbqa.answer(root, num, text.strip(), by or "user")
+        qs = kbqa.questions(root)
+    return {"ok": True, "result": res, "questions": qs}
 
 
 def _confirm_page(repo_path: str, page_id: str, by: str) -> dict:
@@ -842,16 +870,25 @@ def _confirm_page(repo_path: str, page_id: str, by: str) -> dict:
     if not pid:
         raise ValueError("pageId 不能为空")
     from tmh import kb
-    reg = kb.load_registry(root)
-    entry = reg.get(pid)
-    if not isinstance(entry, dict):
-        raise ValueError(f"知识页注册表中未找到: {pid}")
-    entry["status"] = "已确认"
-    entry["confirmedBy"] = by or "user"
-    entry["confirmedAt"] = time.strftime("%Y-%m-%d %H:%M", time.localtime())
-    reg[pid] = entry
-    kb.save_registry(root, reg, _atomic=True)
-    return {"ok": True, "pageId": pid, "status": "已确认", "entry": entry}
+    with _repo_write_lock(root):
+        if hasattr(kb, "confirm"):
+            try:
+                kb.confirm(root, pid, by=by or "user")
+            except TypeError:
+                kb.confirm(root, pid)
+            reg = kb.load_registry(root)
+            entry = reg.get(pid) or {"status": "已确认"}
+            return {"ok": True, "pageId": pid, "status": entry.get("status", "已确认"), "entry": entry}
+        reg = kb.load_registry(root)
+        entry = reg.get(pid)
+        if not isinstance(entry, dict):
+            raise ValueError(f"知识页注册表中未找到: {pid}")
+        entry["status"] = "已确认"
+        entry["confirmedBy"] = by or "user"
+        entry["confirmedAt"] = time.strftime("%Y-%m-%d %H:%M", time.localtime())
+        reg[pid] = entry
+        kb.save_registry(root, reg, _atomic=True)
+        return {"ok": True, "pageId": pid, "status": "已确认", "entry": entry}
 
 
 def main() -> int:

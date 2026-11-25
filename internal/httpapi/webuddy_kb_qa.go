@@ -64,7 +64,7 @@ func synthesizeKBAnswer(ctx context.Context, mode, question, evidence string) kb
 	}
 }
 
-var citeTokenRe = regexp.MustCompile(`[A-Za-z0-9_.\-/]+\.[A-Za-z0-9]{1,8}:\d+(?:-\d+)?`)
+var citeTokenRe = regexp.MustCompile(`[^\s,，、;；:："'"'()（）\[\]<>]+\.[A-Za-z0-9]{1,8}:\d+(?:-\d+)?`)
 
 func splitAnswerAndCitations(text string) (string, []string) {
 	var answerLines []string

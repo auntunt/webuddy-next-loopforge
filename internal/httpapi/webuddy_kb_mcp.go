@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -124,19 +125,54 @@ func (h *webuddyKBHandlers) dispatchMCPTool(ctx context.Context, name string, ar
 			return 0
 		}
 	}
+	resolveMCPPath := func() (string, error) {
+		rp := strings.TrimRight(strArg("repoPath"), "/")
+		if h.repo == nil {
+			return rp, nil
+		}
+		repos := h.repo.Repositories()
+		if len(repos) == 0 {
+			if authRequired() && rp != "" {
+				return "", fmt.Errorf("仓库路径未在平台注册，禁止访问未授权目录")
+			}
+			return rp, nil
+		}
+		if rp == "" {
+			for _, r := range repos {
+				if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
+					return lp, nil
+				}
+			}
+			return "", nil
+		}
+		for _, r := range repos {
+			lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/")
+			if (lp != "" && lp == rp) || r.ID == rp {
+				return lp, nil
+			}
+		}
+		if authRequired() {
+			return "", fmt.Errorf("仓库路径未在平台注册，禁止访问未授权目录")
+		}
+		return rp, nil
+	}
+	rp, err := resolveMCPPath()
+	if err != nil {
+		return nil, err
+	}
 	switch name {
 	case "kb_search":
-		return h.svc.Search(ctx, strArg("repoPath"), strArg("query"), intArg("limit"))
+		return h.svc.Search(ctx, rp, strArg("query"), intArg("limit"))
 	case "kb_fetch":
-		return h.svc.ReadFile(ctx, strArg("repoPath"), strArg("path"), intArg("start"), intArg("end"))
+		return h.svc.ReadFile(ctx, rp, strArg("path"), intArg("start"), intArg("end"))
 	case "kb_overview":
-		return h.svc.Overview(ctx, strArg("repoPath"))
+		return h.svc.Overview(ctx, rp)
 	case "kb_verify_evidence":
-		return h.svc.VerifyEvidence(ctx, strArg("repoPath"), strArg("ref"))
+		return h.svc.VerifyEvidence(ctx, rp, strArg("ref"))
 	case "kb_impact":
-		return h.svc.Impact(ctx, strArg("repoPath"), strArg("target"), intArg("depth"))
+		return h.svc.Impact(ctx, rp, strArg("target"), intArg("depth"))
 	case "kb_chain":
-		return h.svc.Chain(ctx, strArg("repoPath"), strArg("query"), intArg("flows"))
+		return h.svc.Chain(ctx, rp, strArg("query"), intArg("flows"))
 	default:
 		return nil, &agentToolUnknownError{Name: name}
 	}

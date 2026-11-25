@@ -426,9 +426,17 @@ type parsedCodexConfig struct {
 func parseCodexConfig(content string) parsedCodexConfig {
 	var cfg parsedCodexConfig
 	var section string
+	var activeProvider string
+	type provEntry struct {
+		baseURL     string
+		bearerToken string
+		hasAuth     bool
+	}
+	providers := make(map[string]provEntry)
 	var currentMCP *DiscoveredMCP
 	flushMCP := func() {
 		if currentMCP != nil && currentMCP.Name != "" && currentMCP.Target != "" {
+			currentMCP.Args = sanitizeMCPArgs(currentMCP.Args)
 			cfg.MCPs = append(cfg.MCPs, *currentMCP)
 		}
 		currentMCP = nil
@@ -481,28 +489,51 @@ func parseCodexConfig(content string) parsedCodexConfig {
 		if section == "" {
 			if key == "model" && unquoted != "" {
 				cfg.DefaultModel = unquoted
+			} else if key == "model_provider" && unquoted != "" {
+				activeProvider = unquoted
 			}
 		} else if strings.HasPrefix(section, "model_providers.") {
+			pname := strings.Trim(strings.TrimPrefix(section, "model_providers."), `"' `)
+			if strings.Contains(pname, ".") || pname == "" {
+				continue
+			}
+			p := providers[pname]
 			switch key {
 			case "base_url":
-				if cfg.GatewayURL == "" && unquoted != "" {
-					cfg.GatewayURL = sanitizeURL(unquoted)
+				if unquoted != "" {
+					p.baseURL = sanitizeURL(unquoted)
 				}
 			case "experimental_bearer_token":
 				if unquoted != "" {
-					cfg.HasAuth = true
-					if cfg.BearerToken == "" {
-						cfg.BearerToken = unquoted
-					}
+					p.hasAuth = true
+					p.bearerToken = unquoted
 				}
 			case "requires_openai_auth":
 				if strings.EqualFold(val, "false") {
-					cfg.HasAuth = true
+					p.hasAuth = true
 				}
 			}
+			providers[pname] = p
 		}
 	}
 	flushMCP()
+
+	if activeProvider != "" {
+		if p, ok := providers[activeProvider]; ok {
+			cfg.GatewayURL = p.baseURL
+			cfg.BearerToken = p.bearerToken
+			cfg.HasAuth = p.hasAuth
+		}
+	} else {
+		for _, p := range providers {
+			if p.baseURL != "" && (p.bearerToken != "" || p.hasAuth) {
+				cfg.GatewayURL = p.baseURL
+				cfg.BearerToken = p.bearerToken
+				cfg.HasAuth = p.hasAuth
+				break
+			}
+		}
+	}
 	return cfg
 }
 
@@ -601,7 +632,7 @@ func parseClaudeSettings(raw []byte, source string) parsedClaudeSettings {
 				Source:    source,
 				Transport: "stdio",
 				Target:    c,
-				Args:      srv.Args,
+				Args:      sanitizeMCPArgs(srv.Args),
 			})
 		}
 	}
@@ -688,7 +719,7 @@ func enrichCLIAuth(home string, st *CLIStatus) {
 	}
 }
 
-// sanitizeURL strips embedded userinfo (username/password/token) from any URL.
+// sanitizeURL strips embedded userinfo, query parameters, and fragments from any URL.
 func sanitizeURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -699,7 +730,41 @@ func sanitizeURL(raw string) string {
 		return raw
 	}
 	u.User = nil
+	u.RawQuery = ""
+	u.Fragment = ""
 	return u.String()
+}
+
+var sensitiveArgFlagRe = regexp.MustCompile(`(?i)(token|secret|apikey|api[_-]?key|password|passwd|auth|bearer)`)
+
+func sanitizeMCPArgs(args []string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(args))
+	redactNext := false
+	for _, a := range args {
+		if redactNext {
+			out = append(out, "[REDACTED]")
+			redactNext = false
+			continue
+		}
+		if strings.HasPrefix(a, "-") && !strings.Contains(a, "=") && sensitiveArgFlagRe.MatchString(a) {
+			out = append(out, a)
+			redactNext = true
+			continue
+		}
+		if eq := strings.IndexByte(a, '='); eq > 0 && sensitiveArgFlagRe.MatchString(a[:eq]) {
+			out = append(out, a[:eq+1]+"[REDACTED]")
+			continue
+		}
+		cleaned := secretTokenRe.ReplaceAllString(a, "[REDACTED]")
+		if strings.HasPrefix(cleaned, "http://") || strings.HasPrefix(cleaned, "https://") {
+			cleaned = sanitizeURL(cleaned)
+		}
+		out = append(out, cleaned)
+	}
+	return out
 }
 
 func parseGitCredentials(content string) []GitRemoteStatus {
@@ -855,15 +920,42 @@ func scanKnowledgeBases(ctx context.Context) []DiscoveredKB {
 	return found
 }
 
-// readGitRepoMeta parses .git/config and .git/HEAD directly without spawning git subprocesses.
+// readGitRepoMeta parses .git/HEAD and .git/config directly (supporting both
+// normal repos and linked git worktrees where .git is a gitdir pointer file).
 func readGitRepoMeta(repoPath string) (remoteURL, branch string) {
-	if raw, err := os.ReadFile(filepath.Join(repoPath, ".git", "HEAD")); err == nil {
+	gitDir := filepath.Join(repoPath, ".git")
+	if st, err := os.Stat(gitDir); err == nil && !st.IsDir() {
+		if raw, err := os.ReadFile(gitDir); err == nil {
+			line := strings.TrimSpace(string(raw))
+			if strings.HasPrefix(line, "gitdir:") {
+				target := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(repoPath, target)
+				}
+				gitDir = filepath.Clean(target)
+			}
+		}
+	}
+	if raw, err := os.ReadFile(filepath.Join(gitDir, "HEAD")); err == nil {
 		line := strings.TrimSpace(string(raw))
 		if strings.HasPrefix(line, "ref: refs/heads/") {
 			branch = strings.TrimPrefix(line, "ref: refs/heads/")
 		}
 	}
-	if raw, err := os.ReadFile(filepath.Join(repoPath, ".git", "config")); err == nil {
+	cfgPath := filepath.Join(gitDir, "config")
+	if !fileExists(cfgPath) {
+		// Linked worktree stores shared config under commondir
+		if cdRaw, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+			cd := strings.TrimSpace(string(cdRaw))
+			if cd != "" {
+				if !filepath.IsAbs(cd) {
+					cd = filepath.Join(gitDir, cd)
+				}
+				cfgPath = filepath.Join(filepath.Clean(cd), "config")
+			}
+		}
+	}
+	if raw, err := os.ReadFile(cfgPath); err == nil {
 		inOrigin := false
 		for _, line := range strings.Split(string(raw), "\n") {
 			t := strings.TrimSpace(line)

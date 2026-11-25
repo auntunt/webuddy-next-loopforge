@@ -18,6 +18,9 @@ func (h *webuddyEnvHandlers) builtinStatus(c *gin.Context) {
 
 // PUT /api/webuddy/builtin-agent/config
 func (h *webuddyEnvHandlers) builtinSaveConfig(c *gin.Context) {
+	if authRequired() && !h.requirePlatformAdmin(c) {
+		return
+	}
 	var input builtinagent.CustomConfig
 	if !decode(c, &input) {
 		return
@@ -46,23 +49,41 @@ func (h *webuddyKBHandlers) builtinChat(c *gin.Context) {
 		return
 	}
 	evidence := ""
-	if rp := strings.TrimSpace(input.RepoPath); rp != "" {
-		if raw, err := h.svc.Chain(c.Request.Context(), rp, prompt, 3); err == nil {
+	kbErr := ""
+	if rawRP := strings.TrimSpace(input.RepoPath); rawRP != "" {
+		rp, ok := h.resolveAuthorizedKBRepo(c, rawRP, false)
+		if !ok {
+			return
+		}
+		raw, err := h.svc.Chain(c.Request.Context(), rp, prompt, 3)
+		if err != nil {
+			kbErr = err.Error()
+		} else {
 			var m map[string]any
-			if json.Unmarshal(raw, &m) == nil {
+			if jerr := json.Unmarshal(raw, &m); jerr != nil {
+				kbErr = jerr.Error()
+			} else {
 				evidence, _ = m["markdown"].(string)
 			}
 		}
 	}
 	if evidence != "" {
 		qa := synthesizeKBAnswer(c.Request.Context(), "chain", prompt, evidence)
-		c.JSON(http.StatusOK, qa)
+		c.JSON(http.StatusOK, gin.H{
+			"aiAnswer":    qa.Answer,
+			"aiCitations": qa.Citations,
+			"aiModel":     qa.Model,
+			"aiProvider":  qa.Provider,
+			"aiLatencyMs": qa.LatencyMs,
+			"aiError":     qa.Error,
+			"kbGrounded":  true,
+		})
 		return
 	}
 	res := builtinagent.Default().Complete(c.Request.Context(), builtinagent.CompletionRequest{
 		SystemPrompt: "你是 Webuddy 内置助手。请用不超过 3 句大白话直接给出清晰、可执行的回答，禁止废话和客套。",
 		UserPrompt:   prompt,
-		MaxTokens:    350,
+		MaxTokens:    500,
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"aiAnswer":    res.Text,
@@ -70,5 +91,7 @@ func (h *webuddyKBHandlers) builtinChat(c *gin.Context) {
 		"aiProvider":  res.Provider,
 		"aiLatencyMs": res.LatencyMs,
 		"aiError":     res.Error,
+		"kbGrounded":  false,
+		"kbError":     kbErr,
 	})
 }

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -110,15 +111,16 @@ func (h *webuddyEnvHandlers) overview(c *gin.Context) {
 }
 
 func markImportedKBs(prof *envprobe.HostProfile, importedPaths map[string]bool) {
-	if prof == nil {
+	if prof == nil || len(prof.KnowledgeBases) == 0 {
 		return
 	}
-	for i := range prof.KnowledgeBases {
-		p := strings.TrimRight(strings.TrimSpace(prof.KnowledgeBases[i].Path), "/")
-		if importedPaths[p] {
-			prof.KnowledgeBases[i].AlreadyImported = true
-		}
+	copied := make([]envprobe.DiscoveredKB, len(prof.KnowledgeBases))
+	copy(copied, prof.KnowledgeBases)
+	for i := range copied {
+		p := strings.TrimRight(strings.TrimSpace(copied[i].Path), "/")
+		copied[i].AlreadyImported = importedPaths[p]
 	}
+	prof.KnowledgeBases = copied
 }
 
 // POST /api/webuddy/env/probe
@@ -157,11 +159,9 @@ func (h *webuddyEnvHandlers) mountKB(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "localPath 不能为空"})
 		return
 	}
-	if !input.AllowRemote {
-		if st, err := os.Stat(lp); err != nil || !st.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "控制面本机未找到该目录: " + lp})
-			return
-		}
+	if st, err := os.Stat(lp); err != nil || !st.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "控制面本机未找到该目录（暂仅支持挂载控制面可见目录）: " + lp})
+		return
 	}
 	for _, r := range h.repo.Repositories() {
 		if strings.TrimRight(strings.TrimSpace(r.LocalPath), "/") == lp {
@@ -184,7 +184,13 @@ func (h *webuddyEnvHandlers) mountKB(c *gin.Context) {
 	if slug == "" {
 		slug = "kb-" + randomID()[:6]
 	}
+	if _, exists := h.repo.Project(slug); exists {
+		slug = slug + "-" + randomID()[:4]
+	}
 	rid := "repo-" + slug
+	if _, exists := h.repo.Repository(rid); exists {
+		rid = rid + "-" + randomID()[:4]
+	}
 	key := strings.ToUpper(slug)
 	if len(key) > 4 {
 		key = key[:4]
@@ -258,9 +264,26 @@ func (h *webuddyEnvHandlers) importMCP(c *gin.Context) {
 	if slug == "" {
 		slug = "mcp-" + randomID()[:6]
 	}
+	mcpID := "ext-" + slug
+	var ownerID int64
+	scope := ""
+	if user, ok := h.requestUser(c.Request, true); ok {
+		scope = "personal"
+		ownerID = user.ID
+		mcpID = fmt.Sprintf("ext-u%d-%s", user.ID, slug)
+	} else if authRequired() {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登录后再导入 MCP"})
+		return
+	}
+	if existing, exists := h.repo.MCPServer(mcpID); exists && existing.Scope == "personal" && existing.OwnerUserID != ownerID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "无权覆盖其他用户的个人 MCP"})
+		return
+	}
 	def := domain.MCPServerDefinition{
-		ID:          "ext-" + slug,
+		ID:          mcpID,
 		Name:        name,
+		Scope:       scope,
+		OwnerUserID: ownerID,
 		Description: "自动发现自 " + strings.TrimSpace(input.Source),
 		Transport:   transport,
 		TimeoutSec:  30,
@@ -271,10 +294,6 @@ func (h *webuddyEnvHandlers) importMCP(c *gin.Context) {
 	} else {
 		def.Command = target
 		def.Args = input.Args
-	}
-	if user, ok := h.requestUser(c.Request, true); ok {
-		def.Scope = "personal"
-		def.OwnerUserID = user.ID
 	}
 	if err := h.repo.PutMCPServer(def); err != nil {
 		respond(c, err)
@@ -298,9 +317,25 @@ func (h *webuddyEnvHandlers) setDefaultRunner(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
-	if err := h.repo.SetDefaultRunner(user.ID, strings.TrimSpace(input.RunnerID), time.Now().UTC()); err != nil {
+	rid := strings.TrimSpace(input.RunnerID)
+	if rid != "" {
+		r, found := h.repo.Runner(rid)
+		if !found {
+			c.JSON(http.StatusNotFound, gin.H{"error": "执行机器不存在"})
+			return
+		}
+		if r.OwnerUserID != 0 && r.OwnerUserID != user.ID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "不能将其他用户的执行机器设为默认"})
+			return
+		}
+		if blocker := r.DefaultSelectionBlocker(); blocker != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": blocker})
+			return
+		}
+	}
+	if err := h.repo.SetDefaultRunner(user.ID, rid, time.Now().UTC()); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "defaultRunnerId": strings.TrimSpace(input.RunnerID)})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "defaultRunnerId": rid})
 }

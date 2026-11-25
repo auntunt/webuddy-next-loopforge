@@ -152,7 +152,13 @@ func (h *webuddyKBHandlers) importLocal(c *gin.Context) {
 	if slug == "" {
 		slug = "local-" + randomID()[:6]
 	}
+	if _, exists := h.repo.Project(slug); exists {
+		slug = slug + "-" + randomID()[:4]
+	}
 	rid := "repo-" + slug
+	if _, exists := h.repo.Repository(rid); exists {
+		rid = rid + "-" + randomID()[:4]
+	}
 
 	// Reuse existing project/repo if already imported for this path.
 	for _, r := range h.repo.Repositories() {

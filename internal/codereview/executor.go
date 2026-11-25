@@ -73,7 +73,6 @@ var supportedExecutors = []struct {
 	{id: "claude", name: "Claude Code CLI", binary: "claude"},
 	{id: "codebuddy", name: "CodeBuddy CLI", binary: "codebuddy"},
 	{id: "opencode", name: "OpenCode CLI", binary: "opencode"},
-	{id: "cursor", name: "Cursor CLI", binary: "cursor"},
 }
 
 func fileExists(p string) bool {
@@ -522,7 +521,8 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 
 	sameBase := true
 	if trackedHeadBefore != "" {
-		if trackedHeadAfter, err := gitOutput(ctx, repoPath, "rev-parse", "HEAD"); err == nil && trackedHeadAfter != trackedHeadBefore {
+		trackedHeadAfter, err := gitOutput(ctx, repoPath, "rev-parse", "HEAD")
+		if err != nil || trackedHeadAfter != trackedHeadBefore {
 			sameBase = false
 		}
 	}
@@ -610,6 +610,7 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 		status := "unverified"
 		if acFail {
 			status = "fail"
+			hasFail = true
 		} else if complete && allPass {
 			status = "pass"
 		}
