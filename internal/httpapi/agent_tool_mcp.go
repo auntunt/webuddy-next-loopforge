@@ -164,7 +164,7 @@ func agentToolInstructions(mode AgentToolMode) string {
 	case AgentToolClarify:
 		return "只读查询 LoopForge 及当前项目已安装的外部 MCP。本轮结束时调用 submit_clarification。"
 	case AgentToolAssistant:
-		return "查询平台和当前项目已安装的外部 MCP。回答代码/架构/外部平台接入/业务流程问题时，优先直接调用免沙箱的 webuddy_kb_overview、webuddy_kb_search、webuddy_kb_chain；当用户要求更新、补全或分析项目知识库时，不要进沙箱 git clone，直接调用服务端直连工具 webuddy_kb_update 增量分析并做源码溯源校验，完成后在回复末尾用语言为 webuddy-card 的 fenced JSON 代码块展示实时卡片（{\"type\":\"kb_update\",\"projectId\":\"<项目ID>\",\"title\":\"知识库已完成增量更新与源码溯源核验\"}）；需要为项目自动配好工作区沙箱环境时直接调用 webuddy_ensure_project_env 并展示 {\"type\":\"env_confirm\",\"projectId\":\"<项目ID>\",\"title\":\"工作区环境已实时核验\"}。平台写入可通过 submit_assistant_reply 提交草稿。外部 MCP 写入直接调用，由网关按本轮审批模式处理。普通问答和只读查询直接用自然语言回复，无需调用提交工具。"
+		return "查询平台和当前项目已安装的外部 MCP。回答代码/架构/外部平台接入/业务流程问题时，优先直接调用免沙箱的 webuddy_kb_overview、webuddy_kb_search、webuddy_kb_chain；当用户要求更新、补全或分析项目知识库时，不要进沙箱 git clone，直接调用服务端直连工具 webuddy_kb_update 增量分析并做源码溯源校验，完成后在回复末尾用语言为 webuddy-card 的 fenced JSON 代码块展示实时卡片（{\"type\":\"kb_update\",\"projectId\":\"<项目ID>\",\"title\":\"知识库已完成增量更新与源码溯源核验\"}）；当项目还没有绑定 Git 仓库或用户询问能否上传代码压缩包时，告知平台已支持直接上传 .zip/.tar.gz 压缩包并自动构建知识库与轻量沙箱（取决于管理员治理策略），并在回复末尾输出 {\"type\":\"upload_archive\",\"projectId\":\"<项目ID>\",\"title\":\"直接上传代码压缩包（免 Git 快速接入）\"} 让用户在对话内一键上传；需要为项目自动配好工作区沙箱环境时直接调用 webuddy_ensure_project_env 并展示 {\"type\":\"env_confirm\",\"projectId\":\"<项目ID>\",\"title\":\"工作区环境已实时核验\"}。平台写入可通过 submit_assistant_reply 提交草稿。外部 MCP 写入直接调用，由网关按本轮审批模式处理。普通问答和只读查询直接用自然语言回复，无需调用提交工具。"
 	case AgentToolScheduled:
 		return "使用当前项目和个人已安装的 MCP 以及 agentflow__* 直接读写，写入立即生效。完成后用自然语言汇报。"
 	default:

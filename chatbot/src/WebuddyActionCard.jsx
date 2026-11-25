@@ -5,7 +5,224 @@ export default function WebuddyActionCard(props) {
   if (props?.spec?.type === "kb_update") {
     return <KBUpdateCard {...props} />;
   }
+  if (props?.spec?.type === "upload_archive") {
+    return <UploadArchiveCard {...props} />;
+  }
   return <EnvConfirmCard {...props} />;
+}
+
+function UploadArchiveCard({ spec = null, projectId = "", autoDetected = false }) {
+  const targetProjectId = (spec && spec.projectId) || projectId || "";
+  const [policy, setPolicy] = useState(null);
+  const [loadingPolicy, setLoadingPolicy] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [receipt, setReceipt] = useState(null);
+  const [error, setError] = useState("");
+  const inputRef = React.useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    api("/api/platform/policy")
+      .then((res) => {
+        if (active) setPolicy(res?.policy || { allowArchiveUpload: true, allowLooseProjects: true });
+      })
+      .catch(() => {
+        if (active) setPolicy({ allowArchiveUpload: true, allowLooseProjects: true });
+      })
+      .finally(() => {
+        if (active) setLoadingPolicy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleFile(file) {
+    if (!file) return;
+    if (!targetProjectId) {
+      setError("请先在右上角选择目标项目后再上传代码压缩包");
+      return;
+    }
+    setUploading(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(
+        `/api/webuddy/projects/${encodeURIComponent(targetProjectId)}/upload-archive`,
+        {
+          method: "POST",
+          body: form,
+          credentials: "same-origin",
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `上传失败 (HTTP ${res.status})`);
+      }
+      setReceipt(data);
+    } catch (err) {
+      setError(err?.message || "上传失败");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  const allowed = policy ? policy.allowArchiveUpload !== false : true;
+  const done = Boolean(receipt?.ok);
+
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        marginBottom: 8,
+        borderRadius: 14,
+        border: `1px solid ${done ? "#86efac" : allowed ? "#c7d2fe" : "#e2e8f0"}`,
+        background: done
+          ? "linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)"
+          : allowed
+            ? "linear-gradient(180deg, #f5f7ff 0%, #ffffff 100%)"
+            : "#f8fafc",
+        padding: "14px 16px",
+        boxShadow: "0 2px 10px rgba(15, 23, 42, 0.05)",
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 10,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, color: "#0f172a" }}>
+          <span style={{ fontSize: 15 }}>{done ? "🟢" : "📦"}</span>
+          <span>
+            {done
+              ? "代码压缩包已导入并实时核验生效"
+              : (spec && spec.title) ||
+                (autoDetected
+                  ? "支持直接上传代码压缩包（免 Git 快速接入）"
+                  : "上传代码压缩包并自动构建知识库")}
+          </span>
+          {targetProjectId ? (
+            <span style={{ fontWeight: 500, color: "#64748b", fontSize: 12 }}>
+              · {receipt?.projectName || targetProjectId}
+            </span>
+          ) : null}
+        </div>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            padding: "2px 8px",
+            borderRadius: 999,
+            background: done ? "#dcfce7" : allowed ? "#e0e7ff" : "#f1f5f9",
+            color: done ? "#15803d" : allowed ? "#4338ca" : "#64748b",
+          }}
+        >
+          {done ? "已核验生效" : allowed ? "松散模式已开启" : "管理员已禁用压缩包"}
+        </span>
+      </div>
+
+      {loadingPolicy ? (
+        <div style={{ color: "#64748b", padding: "4px 0" }}>正在核验平台治理策略...</div>
+      ) : !allowed ? (
+        <div style={{ color: "#475569", fontSize: 12.5 }}>
+          🔒 平台管理员当前已关闭「压缩包直接导入」（严谨模式）。请通过标准 Git 仓库接入，或由管理员在「平台管理 → 项目治理策略」中开启松散项目管理。
+        </div>
+      ) : done ? (
+        <div style={{ display: "grid", gap: 6 }}>
+          <div
+            style={{
+              padding: "8px 10px",
+              borderRadius: 9,
+              background: "rgba(255,255,255,0.85)",
+              border: "1px solid rgba(134,239,172,0.5)",
+              fontSize: 12.5,
+              color: "#166534",
+            }}
+          >
+            ✅ 已解压 <strong>{receipt.fileCount}</strong> 个文件（{receipt.archiveName}），本地仓初始化完成
+            {receipt.gitHead ? (
+              <code style={{ marginLeft: 6, background: "#dcfce7", padding: "1px 6px", borderRadius: 4, fontSize: 11 }}>
+                HEAD {receipt.gitHead}
+              </code>
+            ) : null}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 11.5 }}>
+            <span style={{ background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: 6 }}>
+              {receipt.kbBuilt
+                ? `✅ 知识库代码图谱已生成（${receipt.flowCount || 0} 条流程 · ${receipt.tableCount || 0} 张表）`
+                : "⚠️ 知识库待扫描"}
+            </span>
+            {receipt.sandboxId ? (
+              <code style={{ background: "#e0f2fe", color: "#0369a1", padding: "2px 8px", borderRadius: 6 }}>
+                沙箱就绪: {receipt.sandboxId}
+              </code>
+            ) : null}
+          </div>
+          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
+            现在就可以直接在下方继续提问代码逻辑、接口接入或点击更新知识库 · 核验时间：{new Date(receipt.verifiedAt).toLocaleTimeString()}
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize: 12, color: "#475569", marginBottom: 10 }}>
+            上传 <code>.zip</code> / <code>.tar.gz</code> 代码包后，平台会自动解压、建立本地 Git 溯源版本、配置轻量沙箱并构建代码知识库，无需先推到远程 Git。
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".zip,.tar.gz,.tgz"
+            style={{ display: "none" }}
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => inputRef.current?.click()}
+              style={{
+                appearance: "none",
+                border: "none",
+                borderRadius: 9,
+                padding: "7px 14px",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: uploading ? "wait" : "pointer",
+                background: uploading ? "#93c5fd" : "#4f46e5",
+                color: "#ffffff",
+              }}
+            >
+              {uploading ? "正在上传解压并构建代码图谱..." : "📦 选择代码压缩包上传 (.zip / .tar.gz)"}
+            </button>
+            <span style={{ fontSize: 11.5, color: "#64748b" }}>最大支持 100 MB</span>
+          </div>
+        </div>
+      )}
+
+      {error ? (
+        <div
+          style={{
+            marginTop: 8,
+            padding: "7px 10px",
+            borderRadius: 8,
+            background: "#fef2f2",
+            color: "#b91c1c",
+            fontSize: 12,
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {

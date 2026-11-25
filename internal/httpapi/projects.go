@@ -90,10 +90,29 @@ func (h *projectsHandlers) projects(c *gin.Context) {
 			return
 		}
 		// A brand-new project starts with the built-in LoopForge backend
-		// delivery SOP when none was picked, so synced and newly created
-		// requirements run out of the box (see repo.bindDefaultWorkflow).
-		if isNew && strings.TrimSpace(v.WorkflowID) == "" {
-			v.WorkflowID = repo.GenericBackendDeliveryWorkflowID
+		// delivery SOP when none was picked (when loose project management is enabled),
+		// so synced and newly created requirements run out of the box.
+		if isNew {
+			if u, ok := h.requestUser(c.Request, true); ok && !h.isPlatformAdmin(c.Request) {
+				if rec, hasRec := defaultGovStore.getUserRecord(u.ID); hasRec {
+					if rec.Disabled {
+						c.JSON(http.StatusForbidden, map[string]string{"error": "该账号已被平台管理员停用，无法创建项目"})
+						return
+					}
+					if rec.Role == "viewer" {
+						c.JSON(http.StatusForbidden, map[string]string{"error": "当前账号为只读访客角色，无法创建项目，请联系管理员调整权限"})
+						return
+					}
+				}
+			}
+			pol := defaultGovStore.getPolicy()
+			if strings.TrimSpace(v.WorkflowID) == "" {
+				if !pol.AllowLooseProjects {
+					c.JSON(http.StatusBadRequest, map[string]string{"error": "管理员已关闭松散项目管理，创建项目时必须先选择默认 SOP 流程"})
+					return
+				}
+				v.WorkflowID = repo.GenericBackendDeliveryWorkflowID
+			}
 		}
 		if v.OwnerID > 0 {
 			if _, ok := h.repo.User(v.OwnerID); !ok {

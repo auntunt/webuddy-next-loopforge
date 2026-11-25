@@ -365,16 +365,24 @@ const missingSandboxRe =
   /(local\s*沙箱|generic-docker|缺少可用的工作区|无法进入仓库读取|配置可用的\s*Docker\s*或\s*native|不能用于工作区)/i;
 const kbUpdateHintRe =
   /(知识库.*(未分析|待确认|无法通过\s*Git|无法.*更新)|未分析.*知识|继续更新.*知识库)/i;
+const uploadArchiveHintRe =
+  /(没有绑定(代码)?仓库|压缩包导入|代码压缩包|尚未绑定仓库|未绑定.*仓库)/i;
 
 export function RichContent({ message, assets = emptyAssets, projectId = "" }) {
   const text = typeof message === "string" ? message : visibleText(message);
   const context = useMemo(() => ({ assets, projectId }), [assets, projectId]);
   const hasExplicitCard = Boolean(text) && text.includes("```webuddy-card");
+  const showAutoUploadCard =
+    Boolean(text) && !hasExplicitCard && uploadArchiveHintRe.test(text);
   const showAutoEnvCard =
-    Boolean(text) && !hasExplicitCard && missingSandboxRe.test(text);
+    Boolean(text) &&
+    !hasExplicitCard &&
+    !showAutoUploadCard &&
+    missingSandboxRe.test(text);
   const showAutoKBCard =
     Boolean(text) &&
     !hasExplicitCard &&
+    !showAutoUploadCard &&
     !showAutoEnvCard &&
     kbUpdateHintRe.test(text);
   const markdown = useMemo(() => (
@@ -390,6 +398,13 @@ export function RichContent({ message, assets = emptyAssets, projectId = "" }) {
     <MarkdownAssets.Provider value={context}>
       <div className="markdown">
         {markdown}
+        {showAutoUploadCard ? (
+          <WebuddyActionCard
+            spec={{ type: "upload_archive" }}
+            projectId={projectId}
+            autoDetected
+          />
+        ) : null}
         {showAutoEnvCard ? (
           <WebuddyActionCard projectId={projectId} autoDetected />
         ) : null}
