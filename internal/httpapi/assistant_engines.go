@@ -267,6 +267,20 @@ func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string, 
 		if key, _ := assistantEngineCredential(stored, engine); !runnerLogin && key == "" {
 			return stored, "", assistantEngineMissingKey(engine)
 		}
+		if engine == assistantEngineCodex && runnerLogin {
+			if gwModels := codereview.DiscoverCodexGatewayModels(context.Background()); len(gwModels) > 0 {
+				allowed := false
+				for _, m := range gwModels {
+					if m == id {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					id = gwModels[0]
+				}
+			}
+		}
 		return stored, engine + ":" + id, ""
 	}
 	user, shared, ok := h.assistantChatUser(stored)
