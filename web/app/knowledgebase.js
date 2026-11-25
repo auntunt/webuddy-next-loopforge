@@ -605,7 +605,7 @@
 
   function renderImpactTab() {
     const res = kbState.impactResult;
-    let outHTML = '<div class="wb-empty" style="padding:20px">输入要修改的文件名、Controller、表名或接口关键词（例如 <code>ApprovaController</code> 或 <code>approva</code>），立即评估改动波及的业务域、流程与数据表。</div>';
+    let outHTML = '<div class="wb-empty" style="padding:20px">输入要改的模块、功能或表名关键词（例如 <code>fill</code>、<code>report</code>、<code>审批</code>），立刻看会波及哪些业务。</div>';
     if (res && res.error) {
       outHTML = '<div class="wb-badge fail">分析失败：' + esc(res.error) + '</div>';
     } else if (res) {
@@ -647,7 +647,7 @@
         '<p class="wb-subtitle" style="margin-bottom:12px">输入要改的文件、接口或表名，先看会波及哪些业务。</p>' +
         '<div class="wb-toolbar" style="margin-bottom:12px">' +
           '<input type="text" id="wbImpactTargetInput" value="' + esc(kbState.impactTarget) + '" placeholder="例如：fill、report、审批、订单…" style="min-width:280px;flex:1">' +
-          '<select id="wbImpactDepthSelect" style="width:110px">' +
+          '<select id="wbImpactDepthSelect" style="min-width:118px;width:auto">' +
             [1, 2, 3, 4].map(d => '<option value="' + d + '"' + (Number(kbState.impactDepth) === d ? ' selected' : '') + '>深度 ' + d + ' 层</option>').join('') +
           '</select>' +
           '<button type="button" class="button primary" id="wbRunImpactBtn" ' + (kbState.impactLoading ? 'disabled' : '') + '>' + (kbState.impactLoading ? '正在分析影响面…' : '分析变更影响') + '</button>' +
@@ -816,7 +816,7 @@
           '<button type="button" class="wb-tab ' + (kbState.tab === 'impact' ? 'active' : '') + '" data-kb-tab="impact">💥 查改动影响</button>' +
           '<button type="button" class="wb-tab ' + (kbState.tab === 'chain' ? 'active' : '') + '" data-kb-tab="chain">❓ 问业务链路</button>' +
           '<select id="wbKbMoreTabSelect" aria-label="更多视角" style="margin-left:auto;min-width:150px;height:32px;font-size:13px">' +
-            '<option value="">更多视角 ▾</option>' +
+            '<option value="">更多视角</option>' +
             extraTabs.map(t => '<option value="' + t.id + '"' + (activeExtra && activeExtra.id === t.id ? ' selected' : '') + '>' + esc(t.label) + '</option>').join('') +
           '</select>' +
           '<span class="wb-meta" style="font-size:12px">' + ((ov.domains || []).length) + ' 域 · ' + (ov.flowCount || 0) + ' 流程 · ' + (ov.tableCount || 0) + ' 表</span>' +

@@ -241,8 +241,9 @@
 .wb-form input[type="text"],
 .wb-form input[type="number"],
 .wb-form select,
-.wb-form textarea {
-  background: var(--panel);
+.wb-form textarea,
+.wb-tabs select {
+  background-color: var(--panel);
   color: var(--text);
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -250,6 +251,15 @@
   font-size: 13px;
   font-family: inherit;
   box-sizing: border-box;
+}
+
+.wb-toolbar select,
+.wb-form select,
+.wb-tabs select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 28px;
+  white-space: nowrap;
 }
 
 .wb-toolbar input:focus,
@@ -648,3 +658,26 @@
 :root:not([data-theme="light"]) .wb-diff-line.del { color: #f87171; }
 [data-theme="dark"] .wb-diff-line.hunk,
 :root:not([data-theme="light"]) .wb-diff-line.hunk { color: #7aa2ff; }
+
+/* Zero-memory labeled left rail (standalone P2 polish commit, 1-command reversible) */
+:root {
+  --rail-w: 66px;
+}
+.platform-rail .rail-btn {
+  width: 56px;
+  height: auto;
+  min-height: 44px;
+  padding: 5px 2px;
+  flex-direction: column;
+  gap: 2px;
+}
+.platform-rail .rail-btn .rail-label {
+  display: block !important;
+  font-size: 10px;
+  line-height: 1.15;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 54px;
+}
