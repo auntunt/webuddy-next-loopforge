@@ -126,7 +126,7 @@ function executorOptions(selected){
   return inherited+legacy+items.map(executor=>`<option value="${escapeHTML(executor.id)}" ${executor.id===selected?'selected':''}>${escapeHTML(executor.name||executor.id)}</option>`).join('');
 }
 function storedAgentExecutorId(agent){
-  return agent?.executorId||(agent?.model||agent?.effort?'codebuddy':'');
+  return agent?.executorId||(agent?.model||agent?.effort?'codex':'');
 }
 const AGENT_CUSTOM_MODEL='__custom__';
 let executorModelCatalogUser, executorModelCatalogRequest, agentModelRevision=0;

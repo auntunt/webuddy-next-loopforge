@@ -1,12 +1,12 @@
 // CLIs that AI 对话 can run on. The list comes from GET /api/assistant/models
 // (`engines`); models without `engine` run on CodeBuddy.
-export const defaultEngine = "codebuddy";
+export const defaultEngine = "codex";
 
 // Main Bot can run on any configured agent CLI.
 export const EXECUTORS = [
-  { id: "codebuddy", icon: "sparkles", label: "CodeBuddy", detail: "使用 CodeBuddy 模型与个人 API Key。" },
-  { id: "codex", icon: "terminal", label: "Codex", detail: "使用 Codex CLI 与个人 Codex API Key。" },
+  { id: "codex", icon: "terminal", label: "Codex", detail: "默认执行器：使用 Codex CLI 与个人/团队模型网关。" },
   { id: "claude-code", icon: "brain", label: "Claude Code", detail: "使用 Claude Code CLI 与个人 Claude Code API Key。" },
+  { id: "codebuddy", icon: "sparkles", label: "CodeBuddy", detail: "使用 CodeBuddy 模型与个人 API Key。" },
   { id: "opencode", icon: "terminal", label: "OpenCode", detail: "使用 OpenCode 与个人 API Key。" },
   { id: "cursor", icon: "terminal", label: "Cursor", detail: "使用 Cursor CLI 与个人 API Key。" },
   { id: "agy", icon: "sparkles", label: "Antigravity", detail: "使用 Antigravity 与个人 API Key。" },

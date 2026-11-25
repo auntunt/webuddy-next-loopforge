@@ -137,6 +137,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	s.EnsurePstackSOPsAndCodexDefaults()
 	log.Printf("storage driver=%v database=%v role=%s", s.StorageInfo()["driver"], s.StorageInfo()["database"], role)
 	e := engine.New(s, runtime.NewManagerWithLimit(root, *workerConcurrency))
 	runtime.PrebuildIsolatedImage()

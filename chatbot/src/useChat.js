@@ -31,7 +31,7 @@ import {
 } from "./message-queue.js";
 function knownExecutor(id) {
   if (id === "claude") return "claude-code";
-  return EXECUTORS.some((item) => item.id === id) ? id : "codebuddy";
+  return EXECUTORS.some((item) => item.id === id) ? id : "codex";
 }
 function storedExecutor() {
   return knownExecutor(readComposerPreference("executor"));

@@ -7,7 +7,7 @@ function isPreviewBuildNode(id){return id===PREVIEW_BUILD_NODE_ID}
 function workflowPreviewExecutor(wf){
   const preview=workflowPreviewContract(wf);
   const model=preview?.model?.trim();
-  return preview?.executorId?.trim()||(model&&!['default','default-model'].includes(model)?'codebuddy':'');
+  return preview?.executorId?.trim()||(model&&!['default','default-model'].includes(model)?'codex':'');
 }
 function workflowPreviewModel(wf){
   const model=String(workflowPreviewContract(wf)?.model||'').trim();

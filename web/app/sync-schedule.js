@@ -120,7 +120,7 @@ function scheduleModelCatalog(){
   return scheduleCatalog||scheduleModelAPI()?.catalog?.()||{};
 }
 function scheduleEngineModels(engine){
-  return (scheduleModelCatalog().models||[]).filter(m=>(m.engine||'codebuddy')===engine);
+  return (scheduleModelCatalog().models||[]).filter(m=>(m.engine||'codex')===engine);
 }
 function scheduleDefaultModel(engine){
   const models=scheduleEngineModels(engine);

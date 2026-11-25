@@ -102,7 +102,7 @@ function sopRunRequirements(w){
   const rows=[];
   const executorIds=nodes.filter(n=>n.type==='agent'&&!isPreviewBuildNode(n.id)).map(node=>{
     const role=(state.data?.agents||[]).find(a=>a.id===node.agentId);
-    return role?.executorId||node.executorId||'codebuddy';
+    return role?.executorId||node.executorId||'codex';
   });
   if(w?.preview?.enabled)executorIds.push(workflowPreviewExecutor(w));
   const providers=new Set();
