@@ -447,8 +447,10 @@ func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
 		r.URL.Path = restPath
 		r.URL.RawPath = ""
 		r.Host = target.Host
-		// Disable upstream gzip so ModifyResponse can cleanly rewrite HTML paths
+		// Disable upstream gzip & conditional 304 caching so ModifyResponse always rewrites HTML/JS cleanly
 		r.Header.Del("Accept-Encoding")
+		r.Header.Del("If-None-Match")
+		r.Header.Del("If-Modified-Since")
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		// Rewrite root-relative redirect Location headers
@@ -492,6 +494,8 @@ func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
 			resp.Body = io.NopCloser(bytes.NewReader(newBytes))
 			resp.ContentLength = int64(len(newBytes))
 			resp.Header.Set("Content-Length", strconv.Itoa(len(newBytes)))
+			resp.Header.Del("ETag")
+			resp.Header.Set("Cache-Control", "no-store")
 		} else if strings.Contains(ct, "javascript") {
 			bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 			resp.Body.Close()
@@ -503,6 +507,8 @@ func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
 			resp.Body = io.NopCloser(bytes.NewReader(newBytes))
 			resp.ContentLength = int64(len(newBytes))
 			resp.Header.Set("Content-Length", strconv.Itoa(len(newBytes)))
+			resp.Header.Del("ETag")
+			resp.Header.Set("Cache-Control", "no-store")
 		}
 		return nil
 	}
