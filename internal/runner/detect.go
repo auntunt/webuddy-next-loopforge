@@ -48,6 +48,16 @@ var defaultProviders = []providerSpec{
 	// The official ZCode has no npm package and its --help omits
 	// --output-format, so compatibility is probed with the flags we pass.
 	{Kind: "zcode", Binary: "zcode", VersionFlags: []string{"--output-format", "stream-json", "--mode", "yolo"}},
+	{Kind: "gemini-cli", Binary: "gemini"},
+	{Kind: "aider", Binary: "aider"},
+	{Kind: "cline", Binary: "cline"},
+	{Kind: "qwen-code", Binary: "qwen"},
+	{Kind: "trae", Binary: "trae"},
+	{Kind: "copilot", Binary: "copilot"},
+	{Kind: "amp", Binary: "amp"},
+	{Kind: "goose", Binary: "goose"},
+	{Kind: "windsurf", Binary: "windsurf"},
+	{Kind: "auggie", Binary: "auggie"},
 }
 
 // terminalProviderKind is the built-in remote-terminal capability: the

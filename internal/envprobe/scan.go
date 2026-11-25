@@ -372,8 +372,22 @@ var knownCLIs = []cliSpec{
 	{id: "claude", name: "Claude Code CLI", binary: "claude"},
 	{id: "codebuddy", name: "CodeBuddy CLI", binary: "codebuddy"},
 	{id: "opencode", name: "OpenCode CLI", binary: "opencode"},
-	{id: "cursor", name: "Cursor CLI", binary: "cursor"},
-	{id: "kimi", name: "Kimi CLI", binary: "kimi"},
+	{id: "cursor", name: "Cursor CLI", binary: "cursor-agent"},
+	{id: "agy", name: "Antigravity CLI", binary: "agy"},
+	{id: "kimi", name: "Kimi Code CLI", binary: "kimi"},
+	{id: "pi", name: "Pi Coding Agent", binary: "pi"},
+	{id: "dsh", name: "DeepSeek Harness", binary: "dsh"},
+	{id: "zcode", name: "ZCode CLI", binary: "zcode"},
+	{id: "gemini-cli", name: "Gemini CLI", binary: "gemini"},
+	{id: "aider", name: "Aider CLI", binary: "aider"},
+	{id: "cline", name: "Cline CLI", binary: "cline"},
+	{id: "qwen-code", name: "Qwen Code CLI", binary: "qwen"},
+	{id: "trae", name: "Trae CLI", binary: "trae"},
+	{id: "copilot", name: "GitHub Copilot CLI", binary: "copilot"},
+	{id: "amp", name: "Sourcegraph Amp", binary: "amp"},
+	{id: "goose", name: "Block Goose", binary: "goose"},
+	{id: "windsurf", name: "Windsurf CLI", binary: "windsurf"},
+	{id: "auggie", name: "Augment Code (Auggie)", binary: "auggie"},
 }
 
 func scanCLIs(ctx context.Context) []CLIStatus {
@@ -715,6 +729,64 @@ func enrichCLIAuth(home string, st *CLIStatus) {
 		if fileExists(filepath.Join(home, ".kimi", "config.toml")) || strings.TrimSpace(os.Getenv("MOONSHOT_API_KEY")) != "" {
 			st.AuthMode = "oauth"
 			st.AuthHint = "复用本机 Kimi 配置"
+		}
+	case "agy":
+		if fileExists(filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")) || strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用本机 Antigravity / Gemini 配置"
+		}
+	case "gemini-cli":
+		if fileExists(filepath.Join(home, ".gemini", "oauth_creds.json")) || fileExists(filepath.Join(home, ".gemini", "settings.json")) {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用 ~/.gemini 登录态"
+		} else if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" || strings.TrimSpace(os.Getenv("GOOGLE_API_KEY")) != "" {
+			st.AuthMode = "env_key"
+			st.AuthHint = "复用环境变量 GEMINI_API_KEY"
+		}
+	case "aider":
+		if strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" || strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != "" {
+			st.AuthMode = "env_key"
+			st.AuthHint = "复用环境变量模型 API Key"
+		}
+	case "cline":
+		if fileExists(filepath.Join(home, ".cline", "config.json")) || strings.TrimSpace(os.Getenv("CLINE_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" {
+			st.AuthMode = "env_key"
+			st.AuthHint = "复用本机 Cline 配置/环境变量"
+		}
+	case "qwen-code":
+		if fileExists(filepath.Join(home, ".qwen", "settings.json")) || strings.TrimSpace(os.Getenv("DASHSCOPE_API_KEY")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用 ~/.qwen 或 DASHSCOPE_API_KEY"
+		}
+	case "trae":
+		if fileExists(filepath.Join(home, ".trae", "config.json")) || strings.TrimSpace(os.Getenv("TRAE_API_KEY")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用本机 Trae 登录态"
+		}
+	case "copilot":
+		if fileExists(filepath.Join(home, ".config", "github-copilot", "hosts.json")) || strings.TrimSpace(os.Getenv("GITHUB_TOKEN")) != "" || strings.TrimSpace(os.Getenv("GH_TOKEN")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用 GitHub Copilot / GH Token"
+		}
+	case "amp":
+		if fileExists(filepath.Join(home, ".config", "amp", "settings.json")) || strings.TrimSpace(os.Getenv("AMP_API_KEY")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用本机 Sourcegraph Amp 配置"
+		}
+	case "goose":
+		if fileExists(filepath.Join(home, ".config", "goose", "config.yaml")) || strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用 ~/.config/goose/config.yaml"
+		}
+	case "windsurf":
+		if fileExists(filepath.Join(home, ".codeium", "windsurf", "mcp_config.json")) || strings.TrimSpace(os.Getenv("WINDSURF_API_KEY")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用 ~/.codeium/windsurf 配置"
+		}
+	case "auggie":
+		if fileExists(filepath.Join(home, ".augment", "settings.json")) || strings.TrimSpace(os.Getenv("AUGMENT_API_TOKEN")) != "" {
+			st.AuthMode = "oauth"
+			st.AuthHint = "复用 ~/.augment 配置"
 		}
 	}
 }

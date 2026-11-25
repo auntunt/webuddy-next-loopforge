@@ -256,8 +256,18 @@ var AgentCLIProtocolOptions = map[string][]string{
 	"kimi":     {AgentCLIProtocolChat, AgentCLIProtocolResponses, AgentCLIProtocolMessages},
 	"pi":       {AgentCLIProtocolChat, AgentCLIProtocolResponses, AgentCLIProtocolMessages},
 	"dsh":      {AgentCLIProtocolChat, AgentCLIProtocolResponses, AgentCLIProtocolMessages},
-	"zcode":    {AgentCLIProtocolMessages, AgentCLIProtocolChat, AgentCLIProtocolResponses},
-	"agy":      {AgentCLIProtocolGemini, AgentCLIProtocolChat},
+	"zcode":      {AgentCLIProtocolMessages, AgentCLIProtocolChat, AgentCLIProtocolResponses},
+	"agy":        {AgentCLIProtocolGemini, AgentCLIProtocolChat},
+	"gemini-cli": {AgentCLIProtocolGemini, AgentCLIProtocolChat},
+	"aider":      {AgentCLIProtocolChat, AgentCLIProtocolMessages, AgentCLIProtocolResponses},
+	"cline":      {AgentCLIProtocolMessages, AgentCLIProtocolChat, AgentCLIProtocolResponses},
+	"qwen-code":  {AgentCLIProtocolChat, AgentCLIProtocolResponses},
+	"trae":       {AgentCLIProtocolChat, AgentCLIProtocolMessages},
+	"copilot":    {AgentCLIProtocolChat},
+	"amp":        {AgentCLIProtocolMessages, AgentCLIProtocolChat},
+	"goose":      {AgentCLIProtocolChat, AgentCLIProtocolMessages},
+	"windsurf":   {AgentCLIProtocolChat},
+	"auggie":     {AgentCLIProtocolChat},
 }
 
 // NormalizeAgentCLIProtocol returns a supported protocol choice; unknown

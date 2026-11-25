@@ -253,6 +253,63 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 			argv = append(argv, "--attach", path)
 		}
 		argv = append(argv, extra...)
+	case AgentCLIGemini:
+		argv = []string{binary, "--output-format", "stream-json"}
+		if !readOnly {
+			argv = append(argv, "--yolo")
+		}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		argv = append(append(argv, extra...), "-p", prompt)
+	case AgentCLIAider:
+		argv = []string{binary, "--yes-always", "--no-auto-commits"}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		argv = append(append(argv, extra...), "--message", prompt)
+	case AgentCLICline:
+		argv = []string{binary, "--yolo"}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		argv = append(append(argv, extra...), prompt)
+	case AgentCLIQwenCode:
+		argv = []string{binary, "--output-format", "stream-json"}
+		if !readOnly {
+			argv = append(argv, "--yolo")
+		}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		argv = append(append(argv, extra...), "-p", prompt)
+	case AgentCLITrae:
+		argv = []string{binary}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		argv = append(append(argv, extra...), "-p", prompt)
+	case AgentCLICopilot:
+		argv = []string{binary, "--allow-all-tools"}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		argv = append(append(argv, extra...), "-p", prompt)
+	case AgentCLIAmp:
+		argv = []string{binary, "--execute"}
+		argv = append(append(argv, extra...), prompt)
+	case AgentCLIGoose:
+		argv = []string{binary, "run", "--text", prompt}
+		argv = append(argv, extra...)
+	case AgentCLIWindsurf:
+		argv = []string{binary, "-p", prompt}
+		argv = append(argv, extra...)
+	case AgentCLIAuggie:
+		argv = []string{binary, "--print"}
+		if model != "" {
+			argv = append(argv, "--model", model)
+		}
+		argv = append(append(argv, extra...), prompt)
 	}
 	return CommandSpec{Argv: argv, Provider: kind, AgentCLI: options}
 }

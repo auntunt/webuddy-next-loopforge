@@ -14,12 +14,24 @@ export const EXECUTORS = [
   { id: "pi", icon: "terminal", label: "Pi", detail: "使用 Pi 与个人 API Key。" },
   { id: "dsh", icon: "terminal", label: "DeepSeek Harness", detail: "使用 DeepSeek Harness 与个人 API Key。" },
   { id: "zcode", icon: "terminal", label: "ZCode", detail: "使用 ZCode 与个人 API Key。" },
+  { id: "gemini-cli", icon: "sparkles", label: "Gemini CLI", detail: "Google 官方 Gemini CLI（支持 Google 登录 / GEMINI_API_KEY）。" },
+  { id: "aider", icon: "terminal", label: "Aider", detail: "开源 Git 结对编程代理 Aider（支持 OpenAI / Anthropic / OpenRouter）。" },
+  { id: "cline", icon: "terminal", label: "Cline CLI", detail: "Cline 自主编程代理 CLI（支持 Claude / OpenAI / 自定义网关）。" },
+  { id: "qwen-code", icon: "sparkles", label: "Qwen Code", detail: "阿里通义千问 Qwen Code CLI（支持 DashScope / OpenAI 协议）。" },
+  { id: "trae", icon: "sparkles", label: "Trae CLI", detail: "字节跳动 Trae 编程代理 CLI。" },
+  { id: "copilot", icon: "terminal", label: "GitHub Copilot CLI", detail: "GitHub 官方 Copilot Coding Agent CLI。" },
+  { id: "amp", icon: "terminal", label: "Sourcegraph Amp", detail: "Sourcegraph Amp 编程代理 CLI。" },
+  { id: "goose", icon: "terminal", label: "Block Goose", detail: "Block 开源可扩展编程代理 Goose CLI。" },
+  { id: "windsurf", icon: "sparkles", label: "Windsurf CLI", detail: "Windsurf / Codeium Cascade 编程代理 CLI。" },
+  { id: "auggie", icon: "terminal", label: "Augment Code (Auggie)", detail: "Augment Code 上下文工程编程代理 Auggie CLI。" },
 ];
 
 // Bundled logo per CLI; an unknown CLI falls back to its model's brand.
 const brands = {
   codebuddy: "codebuddy", codex: "codex", "claude-code": "claude",
   opencode: "opencode", cursor: "cursor", agy: "antigravity", kimi: "kimi-code", pi: "pi", dsh: "deepseek", zcode: "zhipu",
+  "gemini-cli": "gemini", aider: "aider", cline: "cline", "qwen-code": "qwen",
+  trae: "trae", copilot: "github", amp: "amp", goose: "goose", windsurf: "windsurf", auggie: "augment",
 };
 export const engineBrand = (id) => Object.hasOwn(brands, id) ? brands[id] : "";
 

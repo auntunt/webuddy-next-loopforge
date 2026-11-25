@@ -27,6 +27,16 @@ const (
 	AgentCLIPi          = "pi"
 	AgentCLIDeepSeek    = "dsh"
 	AgentCLIZCode       = "zcode"
+	AgentCLIGemini      = "gemini-cli"
+	AgentCLIAider       = "aider"
+	AgentCLICline       = "cline"
+	AgentCLIQwenCode    = "qwen-code"
+	AgentCLITrae        = "trae"
+	AgentCLICopilot     = "copilot"
+	AgentCLIAmp         = "amp"
+	AgentCLIGoose       = "goose"
+	AgentCLIWindsurf    = "windsurf"
+	AgentCLIAuggie      = "auggie"
 )
 
 // AgentCLIKinds is the display order of the agent CLIs.
@@ -67,8 +77,8 @@ func AgentCLINeedsBaseURL(kind, protocol string) bool {
 // can, DeepSeek Harness on the official endpoint.
 func agentCLIModelOptional(kind, baseURL string) bool {
 	switch kind {
-	case AgentCLICursor, AgentCLIZCode:
-		// ZCode resolves an unset model itself (applyZCodeCredential).
+	case AgentCLICursor, AgentCLIZCode, AgentCLIGemini, AgentCLIAider, AgentCLICline, AgentCLIQwenCode, AgentCLITrae, AgentCLICopilot, AgentCLIAmp, AgentCLIGoose, AgentCLIWindsurf, AgentCLIAuggie:
+		// These CLIs resolve an unset model to their own default.
 		return true
 	case AgentCLIAntigravity, AgentCLIDeepSeek:
 		return baseURL == ""
@@ -119,6 +129,16 @@ var agentCLIMCPPaths = map[string]string{
 	AgentCLIPi:          ".pi/agent/mcp.json",
 	AgentCLIDeepSeek:    ".dsh/agentflow-mcp.json",
 	AgentCLIZCode:       zcodeConfigPath,
+	AgentCLIGemini:      ".gemini/settings.json",
+	AgentCLIAider:       ".aider/mcp.json",
+	AgentCLICline:       ".cline/mcp_settings.json",
+	AgentCLIQwenCode:    ".qwen/settings.json",
+	AgentCLITrae:        ".trae/mcp.json",
+	AgentCLICopilot:     ".copilot/mcp-config.json",
+	AgentCLIAmp:         ".config/amp/settings.json",
+	AgentCLIGoose:       ".config/goose/mcp.json",
+	AgentCLIWindsurf:    ".codeium/windsurf/mcp_config.json",
+	AgentCLIAuggie:      ".augment/settings.json",
 }
 
 // AgentCLIMCPOptions shapes the MCP configuration of one invocation.
@@ -527,6 +547,72 @@ func ApplyAgentCLICredential(kind string, cred ProviderCredential, options Agent
 		return applyDeepSeekCredential(home, homeEnv, key, baseURL, protocol, model, strings.TrimSpace(options.Effort), options.ImageInput, argv)
 	case AgentCLIZCode:
 		return applyZCodeCredential(home, homeEnv, key, baseURL, protocol, model, strings.TrimSpace(options.Effort), argv)
+	case AgentCLIGemini:
+		env["GEMINI_API_KEY"] = key
+		if baseURL != "" {
+			env["GOOGLE_GEMINI_BASE_URL"] = baseURL
+			env["GEMINI_BASE_URL"] = baseURL
+		}
+	case AgentCLIAider:
+		if protocol == AgentCLIProtocolMessages {
+			env["ANTHROPIC_API_KEY"] = key
+		} else {
+			env["OPENAI_API_KEY"] = key
+			if baseURL != "" {
+				env["OPENAI_API_BASE"] = baseURL
+			}
+		}
+	case AgentCLICline:
+		env["CLINE_API_KEY"] = key
+		if protocol == AgentCLIProtocolMessages {
+			env["ANTHROPIC_API_KEY"] = key
+		} else {
+			env["OPENAI_API_KEY"] = key
+		}
+		if baseURL != "" {
+			env["OPENAI_BASE_URL"] = baseURL
+		}
+	case AgentCLIQwenCode:
+		env["DASHSCOPE_API_KEY"] = key
+		env["OPENAI_API_KEY"] = key
+		if baseURL != "" {
+			env["OPENAI_BASE_URL"] = baseURL
+		}
+	case AgentCLITrae:
+		env["TRAE_API_KEY"] = key
+		if baseURL != "" {
+			env["OPENAI_BASE_URL"] = baseURL
+		}
+	case AgentCLICopilot:
+		env["GH_TOKEN"] = key
+		env["GITHUB_TOKEN"] = key
+	case AgentCLIAmp:
+		env["AMP_API_KEY"] = key
+		if baseURL != "" {
+			env["AMP_URL"] = baseURL
+		}
+	case AgentCLIGoose:
+		if protocol == AgentCLIProtocolMessages {
+			env["ANTHROPIC_API_KEY"] = key
+			env["GOOSE_PROVIDER"] = "anthropic"
+		} else {
+			env["OPENAI_API_KEY"] = key
+			env["GOOSE_PROVIDER"] = "openai"
+			if baseURL != "" {
+				env["OPENAI_HOST"] = baseURL
+			}
+		}
+		if model != "" {
+			env["GOOSE_MODEL"] = model
+		}
+	case AgentCLIWindsurf:
+		env["WINDSURF_API_KEY"] = key
+		env["CODEIUM_API_KEY"] = key
+	case AgentCLIAuggie:
+		env["AUGMENT_API_TOKEN"] = key
+		if baseURL != "" {
+			env["AUGMENT_API_URL"] = baseURL
+		}
 	default:
 		return nil, nil, fmt.Errorf("unknown agent CLI %q", kind)
 	}
@@ -662,6 +748,26 @@ func AgentCLILabel(kind string) string {
 		return "DeepSeek Harness"
 	case AgentCLIZCode:
 		return "ZCode"
+	case AgentCLIGemini:
+		return "Gemini CLI"
+	case AgentCLIAider:
+		return "Aider"
+	case AgentCLICline:
+		return "Cline CLI"
+	case AgentCLIQwenCode:
+		return "Qwen Code"
+	case AgentCLITrae:
+		return "Trae CLI"
+	case AgentCLICopilot:
+		return "GitHub Copilot CLI"
+	case AgentCLIAmp:
+		return "Sourcegraph Amp"
+	case AgentCLIGoose:
+		return "Block Goose"
+	case AgentCLIWindsurf:
+		return "Windsurf CLI"
+	case AgentCLIAuggie:
+		return "Augment Code (Auggie)"
 	}
 	return kind
 }
@@ -671,6 +777,10 @@ func AgentCLIBinary(kind string) string {
 	switch kind {
 	case AgentCLICursor:
 		return "cursor-agent"
+	case AgentCLIGemini:
+		return "gemini"
+	case AgentCLIQwenCode:
+		return "qwen"
 	}
 	return kind
 }

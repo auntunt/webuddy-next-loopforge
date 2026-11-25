@@ -243,6 +243,16 @@ func BuiltInExecutors() []domain.ExecutorDefinition {
 		{ID: "pi", Name: "Pi", Kind: "pi", Binary: "pi", Protocol: "stream-json"},
 		{ID: "dsh", Name: "DeepSeek Harness", Kind: "dsh", Binary: "dsh", Protocol: "stream-json"},
 		{ID: "zcode", Name: "ZCode", Kind: "zcode", Binary: "zcode", Protocol: "stream-json"},
+		{ID: "gemini-cli", Name: "Gemini CLI", Kind: "gemini-cli", Binary: "gemini", Protocol: "stream-json"},
+		{ID: "aider", Name: "Aider", Kind: "aider", Binary: "aider", Protocol: "stream-json"},
+		{ID: "cline", Name: "Cline CLI", Kind: "cline", Binary: "cline", Protocol: "stream-json"},
+		{ID: "qwen-code", Name: "Qwen Code", Kind: "qwen-code", Binary: "qwen", Protocol: "stream-json"},
+		{ID: "trae", Name: "Trae CLI", Kind: "trae", Binary: "trae", Protocol: "stream-json"},
+		{ID: "copilot", Name: "GitHub Copilot CLI", Kind: "copilot", Binary: "copilot", Protocol: "stream-json"},
+		{ID: "amp", Name: "Sourcegraph Amp", Kind: "amp", Binary: "amp", Protocol: "stream-json"},
+		{ID: "goose", Name: "Block Goose", Kind: "goose", Binary: "goose", Protocol: "stream-json"},
+		{ID: "windsurf", Name: "Windsurf CLI", Kind: "windsurf", Binary: "windsurf", Protocol: "stream-json"},
+		{ID: "auggie", Name: "Augment Code (Auggie)", Kind: "auggie", Binary: "auggie", Protocol: "stream-json"},
 	}
 }
 
