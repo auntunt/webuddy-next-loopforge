@@ -216,7 +216,7 @@ func (d *deps) runWebuddyKBBatchUpdate(ctx context.Context, actor, projectID str
 		return kbBatchUpdateReceipt{}, fmt.Errorf("当前项目尚未挂载本地代码仓库，无法执行服务端知识库增量更新")
 	}
 	if limit <= 0 {
-		limit = 3
+		limit = 2
 	}
 	if limit > 5 {
 		limit = 5
@@ -319,9 +319,9 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 		res := builtinagent.Default().Complete(ctx, builtinagent.CompletionRequest{
 			SystemPrompt: sysPrompt,
 			UserPrompt:   userPrompt,
-			MaxTokens:    1400,
+			MaxTokens:    1000,
 			Temperature:  0.15,
-			Timeout:      55 * time.Second,
+			Timeout:      65 * time.Second,
 		})
 		if res.Model != "" {
 			usedModel = res.Model

@@ -64,7 +64,7 @@ function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
         method: "POST",
         body: JSON.stringify({
           projectId: pid,
-          limit: 3,
+          limit: 2,
           query: (spec && spec.query) || "",
         }),
       });
@@ -349,7 +349,7 @@ function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
               boxShadow: "0 1px 3px rgba(37, 99, 235, 0.25)",
             }}
           >
-            {updating ? "正在分析源码并做溯源校验..." : "⚡ 智能增量更新 3 页（带源码溯源）"}
+            {updating ? "正在分析源码并做溯源校验..." : "⚡ 智能增量更新 2 页（带源码溯源）"}
           </button>
         ) : null}
         <button

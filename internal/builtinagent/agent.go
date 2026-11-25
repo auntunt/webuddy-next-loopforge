@@ -236,7 +236,7 @@ func (m *Manager) Complete(ctx context.Context, req CompletionRequest) Completio
 	}
 	perModelTimeout := 12 * time.Second
 	if totalTimeout > 30*time.Second {
-		perModelTimeout = 25 * time.Second
+		perModelTimeout = totalTimeout - 8*time.Second
 	}
 	tctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
