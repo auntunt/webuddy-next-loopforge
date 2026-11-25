@@ -955,12 +955,69 @@ def _kb_git_head(root: Path) -> str:
         return ""
 
 
+def _bootstrap_generic_kb_pages(root: Path, reg: dict) -> dict:
+    """When tmh static parser finds 0 pages (e.g. Node.js/TypeScript/PHP/script repos),
+    auto-seed module knowledge pages grouped by source directory so KB update & browsing work."""
+    if reg:
+        return reg
+    from tmh import kb
+    skip_dirs = {".git", ".tmh", "node_modules", "__pycache__", "dist", "build", "target", ".venv", "venv"}
+    code_exts = {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".py", ".go", ".java", ".kt", ".rb", ".php", ".cs", ".rs", ".sql", ".sh", ".yml", ".yaml", ".md"}
+    groups: dict[str, list[tuple[str, int]]] = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in sorted(dirnames) if d not in skip_dirs and not d.startswith(".")]
+        for fn in sorted(filenames):
+            if fn.startswith(".") or fn == "package-lock.json":
+                continue
+            fp = Path(dirpath) / fn
+            if fp.suffix.lower() not in code_exts:
+                continue
+            rel = fp.relative_to(root).as_posix()
+            parts = rel.split("/")
+            if len(parts) >= 3:
+                grp = f"{parts[0]}/{parts[1]}"
+            elif len(parts) == 2:
+                grp = parts[0]
+            else:
+                grp = "root"
+            try:
+                lines = len(fp.read_text(encoding="utf-8", errors="replace").splitlines())
+            except Exception:
+                lines = 1
+            groups.setdefault(grp, []).append((rel, max(1, lines)))
+    if not groups:
+        return reg
+    with _repo_write_lock(root):
+        reg = kb.load_registry(root)
+        if reg:
+            return reg
+        for grp, flist in sorted(groups.items())[:24]:
+            slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", grp).strip("-") or "root"
+            pid = f"mod:{slug}"
+            p = kb.page_path(root, pid)
+            facts_lines = [f"- `{rel}:1-{min(lines, 120)}`（共 {lines} 行）" for rel, lines in flist[:25]]
+            facts_md = "## 模块源码清单\n" + "\n".join(facts_lines)
+            meta = {"id": pid, "title": f"模块：{grp}", "summary": "", "status": "未分析"}
+            body = kb.skeleton("mod")
+            p.parent.mkdir(parents=True, exist_ok=True)
+            kb._atomic_text(p, kb.render_page(pid, meta, facts_md, body))
+            reg[pid] = {
+                "scope": "自动模块",
+                "status": "未分析",
+                "title": f"模块：{grp}",
+                "summary": "",
+                "files": [rel for rel, _ in flist[:25]],
+            }
+        kb.save_registry(root, reg, _atomic=True)
+    return reg
+
+
 def _kb_status(repo_path: str) -> dict:
     root = Path(repo_path).expanduser().resolve()
     if not root.is_dir():
         raise ValueError(f"仓库目录不存在: {repo_path}")
     from tmh import kb
-    reg = kb.load_registry(root)
+    reg = _bootstrap_generic_kb_pages(root, kb.load_registry(root))
     cov = _kb_coverage_summary(root, reg)
     recent = []
     for pid, meta in (reg or {}).items():
@@ -999,9 +1056,11 @@ def _kb_next(repo_path: str, limit: int, query: str, who: str) -> dict:
         raise ValueError(f"仓库目录不存在: {repo_path}")
     limit = max(1, min(int(limit or 3), 5))
     from tmh import kb
-    reg = kb.load_registry(root)
+    reg = _bootstrap_generic_kb_pages(root, kb.load_registry(root))
     cov = _kb_coverage_summary(root, reg)
     queue = kb.pending(root, reg)
+    if not queue and reg:
+        queue = [pid for pid, r in reg.items() if isinstance(r, dict) and r.get("status") == "未分析"]
     q_low = (query or "").strip().lower()
     picked_pids: list[str] = []
     if q_low:
@@ -1032,10 +1091,23 @@ def _kb_next(repo_path: str, limit: int, query: str, who: str) -> dict:
         kind = kb.page_kind(pid)
         p = kb.page_path(root, pid)
         rel_p = p.relative_to(root).as_posix() if p.is_relative_to(root) else str(p)
+        meta = reg.get(pid) if isinstance(reg.get(pid), dict) else {}
         pack_txt = kb.pack(root, pid)
+        if len(pack_txt.strip()) < 300 and isinstance(meta.get("files"), list):
+            parts = [pack_txt.strip()] if pack_txt.strip() else []
+            for rel_f in meta.get("files")[:6]:
+                fp = root / rel_f
+                if not fp.is_file():
+                    continue
+                try:
+                    lines = fp.read_text(encoding="utf-8", errors="replace").splitlines()[:90]
+                    numbered = "\n".join(f"{i+1}: {ln}" for i, ln in enumerate(lines))
+                    parts.append(f"### 源码文件 `{rel_f}` (1-{len(lines)})\n```\n{numbered}\n```")
+                except Exception:
+                    pass
+            pack_txt = "\n\n".join(parts)
         if len(pack_txt) > 10000:
             pack_txt = pack_txt[:10000] + "\n...(后续上下文已截断)"
-        meta = reg.get(pid) if isinstance(reg.get(pid), dict) else {}
         jobs.append({
             "pageId": pid,
             "kind": kind,

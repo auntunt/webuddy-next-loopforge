@@ -131,6 +131,7 @@ func (h *webuddyEnvHandlers) kbBatchUpdate(c *gin.Context) {
 		ProjectID string `json:"projectId"`
 		Limit     int    `json:"limit"`
 		Query     string `json:"query"`
+		Async     bool   `json:"async"`
 	}
 	_ = c.ShouldBindJSON(&req)
 	actor := "webuddy-ai"
@@ -143,6 +144,16 @@ func (h *webuddyEnvHandlers) kbBatchUpdate(c *gin.Context) {
 	}
 	pid := strings.TrimSpace(req.ProjectID)
 	if authRequired() && pid != "" && !h.requireProjectWriter(c, pid) {
+		return
+	}
+	if req.Async {
+		task := h.deps.startAsyncKBBatchUpdate(actor, pid, req.Limit, req.Query)
+		c.JSON(http.StatusAccepted, gin.H{
+			"ok":     true,
+			"async":  true,
+			"task":   task,
+			"taskId": task.ID,
+		})
 		return
 	}
 	receipt, err := h.deps.runWebuddyKBBatchUpdate(c.Request.Context(), actor, pid, req.Limit, req.Query)

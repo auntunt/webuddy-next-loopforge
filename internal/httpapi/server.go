@@ -580,6 +580,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/webuddy/kb/status", api.webuddyEnv.kbStatus)
 	g.POST("/api/webuddy/kb/batch-update", api.webuddyEnv.kbBatchUpdate)
 	g.POST("/api/webuddy/projects/:id/upload-archive", api.webuddyEnv.uploadProjectArchive)
+	g.GET("/api/webuddy/tasks/active", api.webuddyEnv.activeTasks)
 	g.GET("/api/webuddy/builtin-agent/status", api.webuddyEnv.builtinStatus)
 	g.PUT("/api/webuddy/builtin-agent/config", api.webuddyEnv.builtinSaveConfig)
 	g.POST("/api/webuddy/builtin-agent/chat", api.webuddyKB.builtinChat)

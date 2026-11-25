@@ -274,6 +274,31 @@ function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
     return () => window.removeEventListener("webuddy:kb-updated", onKBUpdated);
   }, [status?.projectId, targetProjectId]);
 
+  const [bgNotice, setBgNotice] = useState("");
+
+  async function handleBackgroundUpdate() {
+    setError("");
+    setBgNotice("");
+    try {
+      const pid = status?.projectId || targetProjectId;
+      const res = await api("/api/webuddy/kb/batch-update", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: pid,
+          limit: 3,
+          query: (spec && spec.query) || "",
+          async: true,
+        }),
+      });
+      if (res?.ok) {
+        setBgNotice("已转入后台持续执行（右下角浮动任务胶囊实时显示进度），你可以随时继续聊其他工作！");
+        window.dispatchEvent(new CustomEvent("webuddy:tasks-changed"));
+      }
+    } catch (err) {
+      setError(err?.message || "启动后台更新失败");
+    }
+  }
+
   async function handleBatchUpdate() {
     setUpdating(true);
     setError("");
@@ -549,27 +574,62 @@ function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
         </div>
       ) : null}
 
+      {bgNotice ? (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: "7px 10px",
+            borderRadius: 8,
+            background: "#eef2ff",
+            color: "#3730a3",
+            fontSize: 12,
+          }}
+        >
+          🚀 {bgNotice}
+        </div>
+      ) : null}
+
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {remaining > 0 ? (
-          <button
-            type="button"
-            disabled={updating}
-            onClick={handleBatchUpdate}
-            style={{
-              appearance: "none",
-              border: "none",
-              borderRadius: 9,
-              padding: "7px 14px",
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: updating ? "wait" : "pointer",
-              background: updating ? "#93c5fd" : "#2563eb",
-              color: "#ffffff",
-              boxShadow: "0 1px 3px rgba(37, 99, 235, 0.25)",
-            }}
-          >
-            {updating ? "正在分析源码并做溯源校验..." : "⚡ 智能增量更新 2 页（带源码溯源）"}
-          </button>
+          <>
+            <button
+              type="button"
+              disabled={updating}
+              onClick={handleBackgroundUpdate}
+              style={{
+                appearance: "none",
+                border: "none",
+                borderRadius: 9,
+                padding: "7px 14px",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                background: "#4f46e5",
+                color: "#ffffff",
+                boxShadow: "0 1px 3px rgba(79, 70, 229, 0.28)",
+              }}
+            >
+              🚀 后台持续更新 3 页（不阻塞工作）
+            </button>
+            <button
+              type="button"
+              disabled={updating}
+              onClick={handleBatchUpdate}
+              style={{
+                appearance: "none",
+                border: "1px solid #bfdbfe",
+                borderRadius: 9,
+                padding: "6px 12px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: updating ? "wait" : "pointer",
+                background: updating ? "#dbeafe" : "#eff6ff",
+                color: "#1d4ed8",
+              }}
+            >
+              {updating ? "正在分析源码并做溯源校验..." : "⚡ 立即更新 2 页"}
+            </button>
+          </>
         ) : null}
         <button
           type="button"
