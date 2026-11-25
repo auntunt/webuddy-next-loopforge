@@ -1286,9 +1286,7 @@ export default function App() {
           inert={!sidebar}
           aria-hidden={!sidebar || undefined}
         >
-          <span className="brand-icon">
-            <HarnessIcon name="workflow" size={20} />
-          </span>
+          <span className="brand-icon" aria-hidden="true" />
           <strong>Webuddy</strong>
         </button>
         <IconButton

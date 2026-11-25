@@ -89,13 +89,12 @@
   width: 28px;
   height: 28px;
   border-radius: 0;
-  background: transparent;
+  background: center / contain no-repeat url("../../web/app/brand/mark-small.svg");
   color: var(--text);
 }
 
-.chat-shell .brand-icon > svg {
-  width: 25px;
-  height: 25px;
+[data-theme="dark"] .chat-shell .brand-icon {
+  background-image: url("../../web/app/brand/mark-small-dark.svg");
 }
 
 .chat-shell .brand > .icon-button {

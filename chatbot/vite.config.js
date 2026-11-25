@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     port: 18769,
     proxy: {
+      "/favicon.svg": api,
       "/api": api,
       "/mcp": api,
       // Workspace IDE tab embeds the platform's vscode-web workbench.
