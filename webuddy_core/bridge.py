@@ -891,6 +891,209 @@ def _confirm_page(repo_path: str, page_id: str, by: str) -> dict:
         return {"ok": True, "pageId": pid, "status": "已确认", "entry": entry}
 
 
+def _kb_coverage_summary(root: Path, reg: dict) -> dict:
+    from tmh import kb
+    cov = kb.coverage(reg)
+    tot_map = cov.get("total") or {}
+    confirmed = int(tot_map.get("已确认", 0))
+    draft = int(tot_map.get("待确认", 0))
+    pending = int(tot_map.get("未分析", 0))
+    stale = int(tot_map.get("过期", 0))
+    facts_only = int(tot_map.get("仅事实", 0))
+    total = sum(int(v) for v in tot_map.values())
+    analyzed = confirmed + draft
+    return {
+        "total": total,
+        "analyzed": analyzed,
+        "confirmed": confirmed,
+        "draft": draft,
+        "pending": pending,
+        "stale": stale,
+        "factsOnly": facts_only,
+        "raw": tot_map,
+    }
+
+
+def _kb_git_head(root: Path) -> str:
+    try:
+        from tmh.util import git_head
+        return (git_head(root) or "")[:10]
+    except Exception:
+        return ""
+
+
+def _kb_status(repo_path: str) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    from tmh import kb
+    reg = kb.load_registry(root)
+    cov = _kb_coverage_summary(root, reg)
+    recent = []
+    for pid, meta in (reg or {}).items():
+        if not isinstance(meta, dict) or meta.get("orphan"):
+            continue
+        upd = str(meta.get("updated") or "").strip()
+        if not upd:
+            continue
+        try:
+            rel_p = kb.page_path(root, pid).relative_to(root).as_posix()
+        except Exception:
+            rel_p = ""
+        recent.append({
+            "pageId": pid,
+            "title": str(meta.get("title") or pid),
+            "summary": str(meta.get("summary") or "")[:140],
+            "status": str(meta.get("status") or ""),
+            "commit": str(meta.get("commit") or ""),
+            "updated": upd,
+            "by": str(meta.get("by") or ""),
+            "relPath": rel_p,
+        })
+    recent.sort(key=lambda x: x["updated"], reverse=True)
+    return {
+        "ok": True,
+        "repoPath": str(root),
+        "gitHead": _kb_git_head(root),
+        "coverage": cov,
+        "recentUpdated": recent[:8],
+    }
+
+
+def _kb_next(repo_path: str, limit: int, query: str, who: str) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    limit = max(1, min(int(limit or 3), 5))
+    from tmh import kb
+    reg = kb.load_registry(root)
+    cov = _kb_coverage_summary(root, reg)
+    queue = kb.pending(root, reg)
+    q_low = (query or "").strip().lower()
+    picked_pids: list[str] = []
+    if q_low:
+        tokens = [t for t in re.split(r"[\s,，、/]+", q_low) if t]
+        for pid in queue:
+            if pid == "structure":
+                continue
+            meta = reg.get(pid) if isinstance(reg.get(pid), dict) else {}
+            hay = " ".join([
+                pid,
+                str(meta.get("title") or ""),
+                str(meta.get("summary") or ""),
+            ]).lower()
+            if any(tok in hay for tok in tokens):
+                picked_pids.append(pid)
+                if len(picked_pids) >= limit:
+                    break
+    if len(picked_pids) < limit:
+        for pid in queue:
+            if pid == "structure" or pid in picked_pids:
+                continue
+            picked_pids.append(pid)
+            if len(picked_pids) >= limit:
+                break
+
+    jobs = []
+    for pid in picked_pids:
+        kind = kb.page_kind(pid)
+        p = kb.page_path(root, pid)
+        rel_p = p.relative_to(root).as_posix() if p.is_relative_to(root) else str(p)
+        pack_txt = kb.pack(root, pid)
+        if len(pack_txt) > 10000:
+            pack_txt = pack_txt[:10000] + "\n...(后续上下文已截断)"
+        meta = reg.get(pid) if isinstance(reg.get(pid), dict) else {}
+        jobs.append({
+            "pageId": pid,
+            "kind": kind,
+            "relPath": rel_p,
+            "currentTitle": str(meta.get("title") or pid),
+            "requiredSections": list(kb.SECTIONS.get(kind, [])),
+            "instructions": kb.instructions(root, pid),
+            "packText": pack_txt,
+        })
+    return {
+        "ok": True,
+        "repoPath": str(root),
+        "gitHead": _kb_git_head(root),
+        "coverage": cov,
+        "remaining": len(queue),
+        "jobs": jobs,
+    }
+
+
+def _kb_commit(repo_path: str, page_id: str, title: str, summary: str, body: str, who: str) -> dict:
+    root = Path(repo_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"仓库目录不存在: {repo_path}")
+    pid = (page_id or "").strip()
+    if not pid:
+        raise ValueError("pageId 不能为空")
+    from tmh import kb, kb_structure
+    p = kb.page_path(root, pid)
+    if not p.exists():
+        raise ValueError(f"知识页文件不存在: {p}")
+
+    existing = p.read_text(encoding="utf-8")
+    pg = kb.parse_page(existing)
+    meta = dict(pg.get("meta") or {})
+    facts = pg.get("facts") or ""
+    clean_title = (title or "").strip()
+    clean_summary = (summary or "").strip()
+    if clean_title:
+        meta["title"] = clean_title
+    if clean_summary:
+        meta["summary"] = clean_summary[:115]
+    candidate = kb.render_page(pid, meta, facts, (body or "").strip())
+    errs, info = kb.validate_content(root, pid, candidate)
+    if errs:
+        return {
+            "ok": False,
+            "pageId": pid,
+            "errors": errs,
+        }
+
+    with _repo_write_lock(root):
+        kb._atomic_text(p, candidate)
+        ok, done_errs = kb.done(root, pid, who=who or "webuddy-ai")
+        if not ok:
+            # Roll back to previous content if kb.done rejected it
+            kb._atomic_text(p, existing)
+            return {
+                "ok": False,
+                "pageId": pid,
+                "errors": done_errs,
+            }
+        reg = kb.load_registry(root)
+        entry = reg.get(pid) if isinstance(reg.get(pid), dict) else {}
+        cov = _kb_coverage_summary(root, reg)
+
+    refs = []
+    seen_refs = set()
+    for m in kb_structure.REFERENCE.finditer(body or ""):
+        ref_str = m.group()
+        if ref_str not in seen_refs:
+            seen_refs.add(ref_str)
+            refs.append(ref_str)
+            if len(refs) >= 6:
+                break
+
+    rel_p = p.relative_to(root).as_posix() if p.is_relative_to(root) else str(p)
+    return {
+        "ok": True,
+        "pageId": pid,
+        "title": str(entry.get("title") or info.get("title") or clean_title or pid),
+        "summary": str(entry.get("summary") or info.get("summary") or clean_summary),
+        "status": str(entry.get("status") or "待确认"),
+        "commit": str(entry.get("commit") or _kb_git_head(root)),
+        "updated": str(entry.get("updated") or time.strftime("%Y-%m-%d %H:%M")),
+        "by": str(entry.get("by") or who or "webuddy-ai"),
+        "relPath": rel_p,
+        "evidenceRefs": refs,
+        "coverage": cov,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Webuddy KB & Code Graph Bridge")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -949,6 +1152,22 @@ def main() -> int:
     p_cf.add_argument("--page-id", required=True)
     p_cf.add_argument("--by", default="user")
 
+    p_kbs = sub.add_parser("kb-status")
+    p_kbs.add_argument("--repo", required=True)
+
+    p_kbn = sub.add_parser("kb-next")
+    p_kbn.add_argument("--repo", required=True)
+    p_kbn.add_argument("--limit", type=int, default=3)
+    p_kbn.add_argument("--query", default="")
+    p_kbn.add_argument("--who", default="webuddy-ai")
+
+    p_kbc = sub.add_parser("kb-commit")
+    p_kbc.add_argument("--repo", required=True)
+    p_kbc.add_argument("--page-id", required=True)
+    p_kbc.add_argument("--title", required=True)
+    p_kbc.add_argument("--summary", required=True)
+    p_kbc.add_argument("--who", default="webuddy-ai")
+
     args = parser.parse_args()
     try:
         if args.cmd == "scan":
@@ -976,6 +1195,13 @@ def main() -> int:
             out = _answer_question(args.repo, args.num, args.text, args.by)
         elif args.cmd == "confirm-page":
             out = _confirm_page(args.repo, args.page_id, args.by)
+        elif args.cmd == "kb-status":
+            out = _kb_status(args.repo)
+        elif args.cmd == "kb-next":
+            out = _kb_next(args.repo, args.limit, args.query, args.who)
+        elif args.cmd == "kb-commit":
+            body_text = sys.stdin.read()
+            out = _kb_commit(args.repo, args.page_id, args.title, args.summary, body_text, args.who)
         else:
             raise ValueError(f"unknown command: {args.cmd}")
         sys.stdout.write(json.dumps(out, ensure_ascii=False))

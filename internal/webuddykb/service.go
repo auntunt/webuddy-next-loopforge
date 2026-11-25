@@ -64,6 +64,10 @@ func resolveBridgePath() string {
 }
 
 func (s *Service) runJSON(ctx context.Context, args ...string) (json.RawMessage, error) {
+	return s.runJSONWithStdin(ctx, "", args...)
+}
+
+func (s *Service) runJSONWithStdin(ctx context.Context, stdinText string, args ...string) (json.RawMessage, error) {
 	timeout := s.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -73,6 +77,9 @@ func (s *Service) runJSON(ctx context.Context, args ...string) (json.RawMessage,
 
 	cmdArgs := append([]string{s.BridgePath}, args...)
 	cmd := exec.CommandContext(cctx, s.PythonBin, cmdArgs...)
+	if stdinText != "" {
+		cmd.Stdin = strings.NewReader(stdinText)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -235,4 +242,46 @@ func (s *Service) ConfirmPage(ctx context.Context, repoPath, pageID, by string) 
 		args = append(args, "--by", strings.TrimSpace(by))
 	}
 	return s.runJSON(ctx, args...)
+}
+
+func (s *Service) KBStatus(ctx context.Context, repoPath string) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	if p == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径")
+	}
+	return s.runJSON(ctx, "kb-status", "--repo", p)
+}
+
+func (s *Service) KBNext(ctx context.Context, repoPath string, limit int, query, who string) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	if p == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径")
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	if limit > 5 {
+		limit = 5
+	}
+	args := []string{"kb-next", "--repo", p, "--limit", strconv.Itoa(limit)}
+	if q := strings.TrimSpace(query); q != "" {
+		args = append(args, "--query", q)
+	}
+	if w := strings.TrimSpace(who); w != "" {
+		args = append(args, "--who", w)
+	}
+	return s.runJSON(ctx, args...)
+}
+
+func (s *Service) KBCommit(ctx context.Context, repoPath, pageID, title, summary, body, who string) (json.RawMessage, error) {
+	p := strings.TrimSpace(repoPath)
+	pid := strings.TrimSpace(pageID)
+	if p == "" || pid == "" {
+		return nil, apperr.New(apperr.Invalid, "需要提供仓库路径与知识页 ID")
+	}
+	args := []string{"kb-commit", "--repo", p, "--page-id", pid, "--title", strings.TrimSpace(title), "--summary", strings.TrimSpace(summary)}
+	if w := strings.TrimSpace(who); w != "" {
+		args = append(args, "--who", w)
+	}
+	return s.runJSONWithStdin(ctx, body, args...)
 }

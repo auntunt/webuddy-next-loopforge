@@ -1,7 +1,385 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 
-export default function WebuddyActionCard({
+export default function WebuddyActionCard(props) {
+  if (props?.spec?.type === "kb_update") {
+    return <KBUpdateCard {...props} />;
+  }
+  return <EnvConfirmCard {...props} />;
+}
+
+function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
+  const targetProjectId = (spec && spec.projectId) || projectId || "";
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
+  const [batchPages, setBatchPages] = useState([]);
+  const [batchModel, setBatchModel] = useState("");
+  const [batchDelta, setBatchDelta] = useState(0);
+  const [error, setError] = useState("");
+
+  const fetchStatus = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const q = targetProjectId
+        ? `?projectId=${encodeURIComponent(targetProjectId)}`
+        : "";
+      const data = await api(`/api/webuddy/kb/status${q}`);
+      setStatus(data);
+    } catch (err) {
+      setError(err?.message || "知识库状态核验失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [targetProjectId]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  useEffect(() => {
+    const onKBUpdated = (e) => {
+      const detail = e?.detail;
+      if (!detail || !detail.status) return;
+      const myPid = status?.projectId || targetProjectId;
+      if (!myPid || !detail.projectId || myPid === detail.projectId) {
+        setStatus(detail.status);
+        if (Array.isArray(detail.updatedPages) && detail.updatedPages.length) {
+          setBatchPages(detail.updatedPages);
+        }
+        if (detail.model) setBatchModel(detail.model);
+      }
+    };
+    window.addEventListener("webuddy:kb-updated", onKBUpdated);
+    return () => window.removeEventListener("webuddy:kb-updated", onKBUpdated);
+  }, [status?.projectId, targetProjectId]);
+
+  async function handleBatchUpdate() {
+    setUpdating(true);
+    setError("");
+    try {
+      const pid = status?.projectId || targetProjectId;
+      const res = await api("/api/webuddy/kb/batch-update", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: pid,
+          limit: 3,
+          query: (spec && spec.query) || "",
+        }),
+      });
+      const updatedList = Array.isArray(res?.updatedPages) ? res.updatedPages : [];
+      if (updatedList.length > 0) {
+        setBatchPages(updatedList);
+        setBatchDelta((prev) => prev + updatedList.length);
+      }
+      if (res?.model) setBatchModel(res.model);
+      const nextStatus = {
+        ok: true,
+        projectId: res?.projectId || pid,
+        projectName: res?.projectName || status?.projectName || pid,
+        repoPath: res?.repoPath || status?.repoPath || "",
+        gitHead: res?.gitHead || status?.gitHead || "",
+        coverage: res?.coverageAfter || status?.coverage || {},
+        recentUpdated: res?.recentUpdated || status?.recentUpdated || [],
+        verifiedAt: res?.verifiedAt || new Date().toISOString(),
+      };
+      setStatus(nextStatus);
+      window.dispatchEvent(
+        new CustomEvent("webuddy:kb-updated", {
+          detail: {
+            projectId: nextStatus.projectId,
+            status: nextStatus,
+            updatedPages: updatedList,
+            model: res?.model || "",
+          },
+        }),
+      );
+      if (updatedList.length === 0 && Array.isArray(res?.failedPages) && res.failedPages.length > 0) {
+        const firstErr = res.failedPages[0]?.errors?.[0] || "源码溯源校验未通过";
+        setError(`本次更新未写入：${firstErr}`);
+      }
+    } catch (err) {
+      setError(err?.message || "增量更新失败");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  const cov = status?.coverage || {};
+  const total = Number(cov.total || 0);
+  const confirmed = Number(cov.confirmed || 0);
+  const draft = Number(cov.draft || 0);
+  const analyzed = Number(cov.analyzed || confirmed + draft);
+  const pending = Number(cov.pending || 0);
+  const stale = Number(cov.stale || 0);
+  const remaining = pending + stale;
+  const pct = total > 0 ? Math.min(100, Math.round((analyzed / total) * 100)) : 0;
+  const confirmedPct = total > 0 ? Math.min(100, Math.round((confirmed / total) * 100)) : 0;
+  const draftPct = Math.max(0, pct - confirmedPct);
+
+  const displayPages =
+    batchPages.length > 0
+      ? batchPages
+      : Array.isArray(status?.recentUpdated)
+        ? status.recentUpdated.slice(0, 4)
+        : [];
+
+  const title =
+    (spec && spec.title) ||
+    (batchPages.length > 0
+      ? `知识库已实时增量更新（+${batchPages.length} 页 · 源码溯源通过）`
+      : autoDetected
+        ? "服务端知识库可信增量更新（无需沙箱 git clone）"
+        : "知识库实时覆盖率与源码溯源核验");
+
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        marginBottom: 8,
+        borderRadius: 14,
+        border: `1px solid ${batchPages.length > 0 || remaining === 0 ? "#86efac" : "#c7d2fe"}`,
+        background:
+          batchPages.length > 0 || remaining === 0
+            ? "linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)"
+            : "linear-gradient(180deg, #f5f7ff 0%, #ffffff 100%)",
+        padding: "14px 16px",
+        boxShadow: "0 2px 10px rgba(15, 23, 42, 0.05)",
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 10,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600, color: "#0f172a" }}>
+          <span style={{ fontSize: 15 }}>📚</span>
+          <span>{title}</span>
+          {status?.projectName ? (
+            <span style={{ fontWeight: 500, color: "#64748b", fontSize: 12 }}>
+              · {status.projectName}
+            </span>
+          ) : null}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {status?.gitHead ? (
+            <code
+              style={{
+                fontSize: 11,
+                color: "#334155",
+                background: "#f1f5f9",
+                padding: "2px 7px",
+                borderRadius: 6,
+              }}
+            >
+              HEAD {status.gitHead}
+            </code>
+          ) : null}
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: "#dcfce7",
+              color: "#15803d",
+            }}
+          >
+            源码溯源已启用
+          </span>
+        </div>
+      </div>
+
+      {loading && !status ? (
+        <div style={{ color: "#64748b", padding: "6px 0" }}>正在向服务端实时核验知识库覆盖率...</div>
+      ) : (
+        <>
+          <div
+            style={{
+              padding: "10px 12px",
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.85)",
+              border: "1px solid rgba(148,163,184,0.22)",
+              marginBottom: 10,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 6,
+                fontSize: 12,
+                color: "#334155",
+              }}
+            >
+              <span>
+                <strong>已分析 {analyzed}</strong> / 共 {total} 页（{pct}%）
+                {batchDelta > 0 ? (
+                  <span style={{ color: "#15803d", fontWeight: 600, marginLeft: 6 }}>
+                    本次新增 +{batchDelta} 页
+                  </span>
+                ) : null}
+              </span>
+              <span style={{ color: "#64748b" }}>
+                已确认 {confirmed} · 待确认 {draft} · 未分析 {pending}
+                {stale > 0 ? ` · 过期 ${stale}` : ""}
+              </span>
+            </div>
+            <div
+              style={{
+                height: 8,
+                borderRadius: 999,
+                background: "#e2e8f0",
+                overflow: "hidden",
+                display: "flex",
+              }}
+            >
+              {confirmedPct > 0 ? (
+                <div style={{ width: `${confirmedPct}%`, background: "#16a34a", transition: "width 0.3s" }} />
+              ) : null}
+              {draftPct > 0 ? (
+                <div style={{ width: `${draftPct}%`, background: "#2563eb", transition: "width 0.3s" }} />
+              ) : null}
+            </div>
+          </div>
+
+          {displayPages.length > 0 ? (
+            <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#475569" }}>
+                {batchPages.length > 0 ? "本次实时更新与源码溯源回执" : "最近可信溯源更新记录"}
+              </div>
+              {displayPages.map((pg) => (
+                <div
+                  key={pg.pageId}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 9,
+                    background: "rgba(255,255,255,0.82)",
+                    border: "1px solid rgba(148,163,184,0.22)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontWeight: 600, color: "#0f172a", fontSize: 12.5 }}>
+                      ✅ {pg.title || pg.pageId}
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                      {pg.commit ? (
+                        <code style={{ fontSize: 10.5, color: "#475569", background: "#f1f5f9", padding: "1px 5px", borderRadius: 4 }}>
+                          @{pg.commit}
+                        </code>
+                      ) : null}
+                      <span style={{ fontSize: 11, color: "#64748b" }}>{pg.updated || ""}</span>
+                    </div>
+                  </div>
+                  {pg.summary ? (
+                    <div style={{ fontSize: 12, color: "#475569", marginTop: 3 }}>{pg.summary}</div>
+                  ) : null}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 5 }}>
+                    {pg.relPath ? (
+                      <code style={{ fontSize: 10.5, color: "#0369a1", background: "#e0f2fe", padding: "1px 6px", borderRadius: 4 }}>
+                        {pg.relPath}
+                      </code>
+                    ) : null}
+                    {Array.isArray(pg.evidenceRefs) &&
+                      pg.evidenceRefs.slice(0, 3).map((ref) => (
+                        <code
+                          key={ref}
+                          style={{
+                            fontSize: 10.5,
+                            color: "#15803d",
+                            background: "#dcfce7",
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                          }}
+                        >
+                          证据 {ref}
+                        </code>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {error ? (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: "7px 10px",
+            borderRadius: 8,
+            background: "#fef2f2",
+            color: "#b91c1c",
+            fontSize: 12,
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {remaining > 0 ? (
+          <button
+            type="button"
+            disabled={updating}
+            onClick={handleBatchUpdate}
+            style={{
+              appearance: "none",
+              border: "none",
+              borderRadius: 9,
+              padding: "7px 14px",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: updating ? "wait" : "pointer",
+              background: updating ? "#93c5fd" : "#2563eb",
+              color: "#ffffff",
+              boxShadow: "0 1px 3px rgba(37, 99, 235, 0.25)",
+            }}
+          >
+            {updating ? "正在分析源码并做溯源校验..." : "⚡ 智能增量更新 3 页（带源码溯源）"}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          disabled={loading || updating}
+          onClick={fetchStatus}
+          style={{
+            appearance: "none",
+            border: "1px solid #cbd5e1",
+            borderRadius: 9,
+            padding: "6px 12px",
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: loading ? "wait" : "pointer",
+            background: "#ffffff",
+            color: "#334155",
+          }}
+        >
+          🔄 刷新实时覆盖率
+        </button>
+        {status?.verifiedAt ? (
+          <span style={{ fontSize: 11, color: "#64748b", marginLeft: 4 }}>
+            服务端实时核验：{new Date(status.verifiedAt).toLocaleTimeString()}
+            {batchModel ? ` · ${batchModel}` : ""}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EnvConfirmCard({
   spec = null,
   projectId = "",
   autoDetected = false,

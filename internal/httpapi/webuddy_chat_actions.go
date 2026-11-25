@@ -272,12 +272,17 @@ func webuddyAssistantToolSpecs() []map[string]any {
 			"description": "一键为当前项目自动配置并实时核验工作区环境（自动创建 native 轻量工作区沙箱、检查知识库与在线执行机），返回真实核验回执。配置完成后请在回复中输出一个 webuddy-card 代码块让用户直观看到生效状态。",
 			"inputSchema": json.RawMessage(`{"type":"object","properties":{"projectId":{"type":"string","description":"可选项目ID，默认当前会话项目"}}}`),
 		},
+		{
+			"name":        "webuddy_kb_update",
+			"description": "直接在服务端调用本地源码仓与内置大模型，批量增量分析并更新当前项目的“未分析/过期”知识库页面（每页强制通过真实源码 file:line 溯源校验与 Git Commit 盖章），无需在沙箱里 git clone。完成后请在回复末尾输出一个语言为 webuddy-card 的 JSON 代码块（type 为 kb_update），让用户直观看到覆盖率进度条与源码溯源清单。",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{"projectId":{"type":"string","description":"可选项目ID，默认当前会话项目"},"limit":{"type":"integer","description":"本次增量更新页数，默认3，最大5"},"query":{"type":"string","description":"可选聚焦关键词（如 审批、用户、订单），优先更新匹配页面"}}}`),
+		},
 	}
 }
 
 func isWebuddyAssistantTool(name string) bool {
 	switch name {
-	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env":
+	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update":
 		return true
 	default:
 		return false
@@ -318,6 +323,26 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 			"actions":   actions,
 			"readiness": after,
 			"uiHint":    fmt.Sprintf("请在最终回复中附带一个 ```webuddy-card 代码块，内容为 {\"type\":\"env_confirm\",\"projectId\":%q,\"title\":\"工作区环境已自动配置并核验\",\"summary\":\"已启用轻量工作区沙箱并核验通过\"}，让用户在对话内直接看到实时绿色生效卡片。", after.ProjectID),
+		})
+		return mcpToolTextResult(string(out), false), nil
+	}
+
+	if name == "webuddy_kb_update" {
+		actor := strings.TrimSpace(session.User.LoginName)
+		if actor == "" && session.User.ID > 0 {
+			actor = fmt.Sprintf("user-%d", session.User.ID)
+		}
+		if actor == "" {
+			actor = "webuddy-ai"
+		}
+		receipt, err := h.deps.runWebuddyKBBatchUpdate(ctx, actor, pid, intArg("limit", 3), strArg("query"))
+		if err != nil {
+			return mcpToolTextResult(err.Error(), true), nil
+		}
+		out, _ := json.Marshal(map[string]any{
+			"ok":      receipt.OK,
+			"receipt": receipt,
+			"uiHint":  fmt.Sprintf("请在最终回复末尾附带一个语言为 webuddy-card 的 fenced JSON 代码块：{\"type\":\"kb_update\",\"projectId\":%q,\"title\":\"知识库已完成增量更新与源码溯源核验\"}，前端会自动渲染实时覆盖率进度条、源码 file:line 溯源清单以及「继续智能更新」按钮。", receipt.ProjectID),
 		})
 		return mcpToolTextResult(string(out), false), nil
 	}

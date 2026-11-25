@@ -363,14 +363,20 @@ const markdownComponents = {
 const emptyAssets = [];
 const missingSandboxRe =
   /(local\s*沙箱|generic-docker|缺少可用的工作区|无法进入仓库读取|配置可用的\s*Docker\s*或\s*native|不能用于工作区)/i;
+const kbUpdateHintRe =
+  /(知识库.*(未分析|待确认|无法通过\s*Git|无法.*更新)|未分析.*知识|继续更新.*知识库)/i;
 
 export function RichContent({ message, assets = emptyAssets, projectId = "" }) {
   const text = typeof message === "string" ? message : visibleText(message);
   const context = useMemo(() => ({ assets, projectId }), [assets, projectId]);
+  const hasExplicitCard = Boolean(text) && text.includes("```webuddy-card");
   const showAutoEnvCard =
+    Boolean(text) && !hasExplicitCard && missingSandboxRe.test(text);
+  const showAutoKBCard =
     Boolean(text) &&
-    !text.includes("```webuddy-card") &&
-    missingSandboxRe.test(text);
+    !hasExplicitCard &&
+    !showAutoEnvCard &&
+    kbUpdateHintRe.test(text);
   const markdown = useMemo(() => (
     <Markdown
       remarkPlugins={[remarkGfm, remarkWorkspaceLinks]}
@@ -386,6 +392,13 @@ export function RichContent({ message, assets = emptyAssets, projectId = "" }) {
         {markdown}
         {showAutoEnvCard ? (
           <WebuddyActionCard projectId={projectId} autoDetected />
+        ) : null}
+        {showAutoKBCard ? (
+          <WebuddyActionCard
+            spec={{ type: "kb_update" }}
+            projectId={projectId}
+            autoDetected
+          />
         ) : null}
       </div>
     </MarkdownAssets.Provider>
