@@ -33,19 +33,48 @@ export default function WebuddyActionCard({
     fetchReadiness();
   }, [fetchReadiness]);
 
+  useEffect(() => {
+    const onEnvUpdated = (e) => {
+      const detail = e?.detail;
+      if (!detail || !detail.readiness) return;
+      const myPid = readiness?.projectId || targetProjectId;
+      if (!myPid || !detail.projectId || myPid === detail.projectId) {
+        setReadiness(detail.readiness);
+        if (Array.isArray(detail.actions) && detail.actions.length > 0) {
+          setActions(detail.actions);
+        }
+      }
+    };
+    window.addEventListener("webuddy:env-updated", onEnvUpdated);
+    return () => window.removeEventListener("webuddy:env-updated", onEnvUpdated);
+  }, [readiness?.projectId, targetProjectId]);
+
   async function handleAutoConfigure() {
     setConfiguring(true);
     setError("");
     try {
+      const pid = readiness?.projectId || targetProjectId;
       const res = await api("/api/webuddy/env/auto-configure", {
         method: "POST",
         body: JSON.stringify({
-          projectId: readiness?.projectId || targetProjectId,
+          projectId: pid,
         }),
       });
       if (Array.isArray(res?.actions)) setActions(res.actions);
-      if (res?.readiness) setReadiness(res.readiness);
-      else await fetchReadiness();
+      if (res?.readiness) {
+        setReadiness(res.readiness);
+        window.dispatchEvent(
+          new CustomEvent("webuddy:env-updated", {
+            detail: {
+              projectId: res.readiness.projectId || pid,
+              readiness: res.readiness,
+              actions: res.actions || [],
+            },
+          }),
+        );
+      } else {
+        await fetchReadiness();
+      }
     } catch (err) {
       setError(err?.message || "自动配置失败");
     } finally {
