@@ -468,6 +468,9 @@ func callChatCompletions(ctx context.Context, baseURL, token, model string, req 
 		"temperature": req.Temperature,
 		"max_tokens":  req.MaxTokens,
 	}
+	if strings.Contains(strings.ToLower(baseURL), "openrouter.ai") {
+		chatBody["reasoning"] = map[string]any{"effort": "none"}
+	}
 	return postJSON(ctx, strings.TrimRight(baseURL, "/")+"/chat/completions", token, chatBody, extraHeaders)
 }
 
@@ -485,7 +488,7 @@ func postJSON(ctx context.Context, endpoint, token string, body any, extraHeader
 	for k, v := range extraHeaders {
 		httpReq.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := &http.Client{}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", err
