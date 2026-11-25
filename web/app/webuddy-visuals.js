@@ -329,7 +329,7 @@
             if (!viewer || !docPath) return;
             viewer.innerHTML = '<div class="wb-panel"><p class="wb-subtitle">正在读取 ' + esc(docPath) + ' ...</p></div>';
             try {
-              const url = '/api/webuddy/kb/read?repoPath=' + encodeURIComponent(ov.repoPath || '') + '&path=' + encodeURIComponent(docPath);
+              const url = '/api/webuddy/kb/file?repoPath=' + encodeURIComponent(ov.repoPath || '') + '&path=' + encodeURIComponent(docPath);
               const r = await fetch(url, { credentials: 'same-origin' });
               const d = await r.json();
               viewer.innerHTML =
