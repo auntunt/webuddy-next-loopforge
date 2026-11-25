@@ -248,6 +248,133 @@ func (h *webuddyEnvHandlers) autoConfigure(c *gin.Context) {
 	})
 }
 
+// POST /api/webuddy/sop/quick-create
+// Allows 1-click standardized SOP creation from AI chat confirmation cards,
+// automatically generating codex-backed stage agents and a published WorkflowDefinition.
+func (h *webuddyEnvHandlers) sopQuickCreate(c *gin.Context) {
+	var input struct {
+		ProjectID   string `json:"projectId"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Generic     bool   `json:"generic"`
+		Steps       []struct {
+			Name     string `json:"name"`
+			Prompt   string `json:"prompt"`
+			Artifact string `json:"artifact"`
+		} `json:"steps"`
+	}
+	if !decode(c, &input) {
+		return
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "SOP 名称不能为空"})
+		return
+	}
+	pid := strings.TrimSpace(input.ProjectID)
+	if authRequired() && pid != "" && !h.requireProjectWriter(c, pid) {
+		return
+	}
+	if len(input.Steps) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "至少需要 1 个执行步骤"})
+		return
+	}
+
+	actor := "平台"
+	if u, ok := h.requestUser(c.Request, true); ok && u != nil && strings.TrimSpace(u.LoginName) != "" {
+		actor = strings.TrimSpace(u.LoginName)
+	}
+	slug := sanitizeRepoSlug(name)
+	if slug == "" {
+		slug = "custom"
+	}
+	suffix := randomID()
+	if len(suffix) > 6 {
+		suffix = suffix[:6]
+	}
+	wfID := "sop-" + slug + "-" + suffix
+	now := time.Now().UTC()
+
+	nodes := make([]domain.WorkflowNode, 0, len(input.Steps))
+	edges := make([]domain.WorkflowEdge, 0, len(input.Steps))
+	for i, st := range input.Steps {
+		stepName := strings.TrimSpace(st.Name)
+		if stepName == "" {
+			stepName = fmt.Sprintf("阶段 %d", i+1)
+		}
+		stepPrompt := strings.TrimSpace(st.Prompt)
+		if stepPrompt == "" {
+			stepPrompt = fmt.Sprintf("完成「%s」阶段工作并输出清晰结论与验证依据。", stepName)
+		}
+		artifact := strings.TrimSpace(st.Artifact)
+		if artifact == "" {
+			artifact = fmt.Sprintf("step-%d-report.md", i+1)
+		}
+		nodeID := fmt.Sprintf("step-%d", i+1)
+		agentID := fmt.Sprintf("%s-agent-%d", wfID, i+1)
+		ag := domain.AgentDefinition{
+			ID:            agentID,
+			Name:          fmt.Sprintf("%s · %s", name, stepName),
+			Description:   stepName,
+			ProjectID:     pid,
+			Version:       1,
+			ExecutorID:    "codex",
+			KnowledgeBase: true,
+			PlatformMCP:   true,
+			Prompt:        stepPrompt + "\n\n任务输入：{{input}}",
+		}
+		if err := h.repo.PutAgent(ag); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("保存阶段 Agent 失败: %v", err)})
+			return
+		}
+		nodes = append(nodes, domain.WorkflowNode{
+			ID:          nodeID,
+			Name:        stepName,
+			Type:        "agent",
+			AgentID:     agentID,
+			MaxAttempts: 2,
+			ArtifactOutputs: []domain.ArtifactContract{{
+				Name:      nodeID + "-report",
+				Path:      artifact,
+				MediaType: "text/markdown",
+				Required:  true,
+			}},
+			Position: domain.Position{X: float64(100 + i*240), Y: 200},
+		})
+		if i > 0 {
+			edges = append(edges, domain.WorkflowEdge{
+				ID:     fmt.Sprintf("e%d", i),
+				Source: fmt.Sprintf("step-%d", i),
+				Target: nodeID,
+				When:   "success",
+			})
+		}
+	}
+
+	wf := domain.WorkflowDefinition{
+		ID:          wfID,
+		Name:        name,
+		Description: strings.TrimSpace(input.Description),
+		ProjectID:   pid,
+		Version:     1,
+		Revision:    1,
+		Status:      "published",
+		Owner:       actor,
+		Generic:     input.Generic || pid == "",
+		UpdatedAt:   now,
+		Nodes:       nodes,
+		Edges:       edges,
+	}
+	if err := h.repo.PutWorkflow(wf); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("保存 SOP 失败: %v", err)})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"ok":       true,
+		"workflow": wf,
+	})
+}
+
 // ---------- Direct Webuddy Tools inside Assistant Chat ----------
 
 func webuddyAssistantToolSpecs() []map[string]any {
@@ -282,12 +409,17 @@ func webuddyAssistantToolSpecs() []map[string]any {
 			"description": "直接在平台服务端为当前项目一键启动 Web 服务并打穿 HTTPS 预览通道（/app-preview/<projectId>/），自动安装缺失依赖并分配本地端口。当用户想查看页面内容、打开后台、预览界面或体验部署效果时直接调用。完成后请在回复末尾输出语言为 webuddy-card 的 JSON 代码块（type 为 live_preview），前端会自动内嵌实时可交互页面预览。",
 			"inputSchema": json.RawMessage(`{"type":"object","properties":{"projectId":{"type":"string","description":"可选项目ID，默认当前会话项目"}}}`),
 		},
+		{
+			"name":        "webuddy_list_sops",
+			"description": "免沙箱秒查当前项目及平台内置的所有已发布 SOP 流程（含 pstack 拆分的 4 条通用 SOP），在识别到用户需求或需要推荐/使用 SOP 时调用，用于准确填写 issue_confirm / sop_confirm 卡片里的 SOP ID。",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{"projectId":{"type":"string","description":"可选项目ID，默认当前会话项目"}}}`),
+		},
 	}
 }
 
 func isWebuddyAssistantTool(name string) bool {
 	switch name {
-	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start":
+	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start", "webuddy_list_sops":
 		return true
 	default:
 		return false
@@ -349,6 +481,34 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 			"receipt": receipt,
 			"uiHint":  fmt.Sprintf("请在最终回复末尾附带一个语言为 webuddy-card 的 fenced JSON 代码块：{\"type\":\"kb_update\",\"projectId\":%q,\"title\":\"知识库已完成增量更新与源码溯源核验\"}，前端会自动渲染实时覆盖率进度条、源码 file:line 溯源清单以及「继续智能更新」按钮。", receipt.ProjectID),
 		})
+		return mcpToolTextResult(string(out), false), nil
+	}
+
+	if name == "webuddy_list_sops" {
+		type sopBrief struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Generic     bool   `json:"generic"`
+			Steps       int    `json:"steps"`
+		}
+		var list []sopBrief
+		for _, wf := range h.repo.Workflows() {
+			if wf.Status != "published" && wf.Status != "" {
+				continue
+			}
+			if !wf.Generic && !wf.Shared && pid != "" && wf.ProjectID != "" && wf.ProjectID != pid {
+				continue
+			}
+			list = append(list, sopBrief{
+				ID:          wf.ID,
+				Name:        wf.Name,
+				Description: wf.Description,
+				Generic:     wf.Generic || wf.Shared,
+				Steps:       len(wf.Nodes),
+			})
+		}
+		out, _ := json.Marshal(map[string]any{"ok": true, "sops": list})
 		return mcpToolTextResult(string(out), false), nil
 	}
 

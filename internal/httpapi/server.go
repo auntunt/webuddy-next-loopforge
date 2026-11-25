@@ -577,6 +577,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.POST("/api/webuddy/env/set-default-runner", api.webuddyEnv.setDefaultRunner)
 	g.GET("/api/webuddy/env/project-readiness", api.webuddyEnv.projectReadiness)
 	g.POST("/api/webuddy/env/auto-configure", api.webuddyEnv.autoConfigure)
+	g.POST("/api/webuddy/sop/quick-create", api.webuddyEnv.sopQuickCreate)
 	g.GET("/api/webuddy/kb/status", api.webuddyEnv.kbStatus)
 	g.POST("/api/webuddy/kb/batch-update", api.webuddyEnv.kbBatchUpdate)
 	g.POST("/api/webuddy/projects/:id/upload-archive", api.webuddyEnv.uploadProjectArchive)

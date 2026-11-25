@@ -2,6 +2,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 
 export default function WebuddyActionCard(props) {
+  if (props?.spec?.type === "issue_confirm") {
+    return <IssueConfirmCard {...props} />;
+  }
+  if (props?.spec?.type === "sop_confirm") {
+    return <SopConfirmCard {...props} />;
+  }
   if (props?.spec?.type === "live_preview") {
     return <LivePreviewCard {...props} />;
   }
@@ -12,6 +18,834 @@ export default function WebuddyActionCard(props) {
     return <UploadArchiveCard {...props} />;
   }
   return <EnvConfirmCard {...props} />;
+}
+
+function jumpParentHash(hash) {
+  try {
+    if (window.top && window.top !== window) {
+      window.top.location.hash = hash;
+      return;
+    }
+  } catch {
+    // ignore cross-frame error
+  }
+  window.location.hash = hash;
+}
+
+function IssueConfirmCard({ spec = null, projectId = "" }) {
+  const targetProjectId = (spec && spec.projectId) || projectId || "";
+  const [title, setTitle] = useState((spec && spec.title) || "");
+  const [description, setDescription] = useState((spec && spec.description) || "");
+  const [sops, setSops] = useState([]);
+  const [repos, setRepos] = useState([]);
+  const [workflowId, setWorkflowId] = useState((spec && spec.suggestedSopId) || "");
+  const [repositoryId, setRepositoryId] = useState("");
+  const [loadingMeta, setLoadingMeta] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [createdIssue, setCreatedIssue] = useState(null);
+  const [startedRun, setStartedRun] = useState(null);
+  const [error, setError] = useState("");
+
+  const impactedModules = Array.isArray(spec?.impactedModules)
+    ? spec.impactedModules.filter(Boolean)
+    : [];
+
+  useEffect(() => {
+    let active = true;
+    api("/api/bootstrap")
+      .then((boot) => {
+        if (!active) return;
+        const allWfs = Array.isArray(boot?.workflows) ? boot.workflows : [];
+        const usableSops = allWfs.filter(
+          (w) =>
+            (w.status === "published" || !w.status) &&
+            (w.generic || w.shared || !targetProjectId || w.projectId === targetProjectId)
+        );
+        setSops(usableSops);
+        const allRepos = Array.isArray(boot?.repositories) ? boot.repositories : [];
+        const projRepos = targetProjectId
+          ? allRepos.filter((r) => r.projectId === targetProjectId)
+          : allRepos;
+        setRepos(projRepos);
+        if (projRepos.length > 0) {
+          setRepositoryId(projRepos[0].id);
+        }
+        if (spec?.suggestedSopId) {
+          const matched = usableSops.find((w) => w.id === spec.suggestedSopId);
+          if (matched) setWorkflowId(matched.id);
+        } else if (usableSops.length > 0) {
+          const pstackDef = usableSops.find((w) => w.id === "pstack-verifiable-delivery");
+          if (pstackDef) setWorkflowId(pstackDef.id);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoadingMeta(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [targetProjectId, spec?.suggestedSopId]);
+
+  async function submitIssue(andRun) {
+    if (!title.trim()) {
+      setError("请填写需求标题");
+      return;
+    }
+    if (!targetProjectId) {
+      setError("请先在右上角选择目标项目");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const payload = {
+        projectId: targetProjectId,
+        title: title.trim(),
+        description: description.trim(),
+        kind: "requirement",
+        priority: "medium",
+      };
+      if (workflowId) payload.workflowId = workflowId;
+      if (repositoryId) {
+        payload.repositoryId = repositoryId;
+        payload.repositoryIds = [repositoryId];
+      }
+      const issue = await api("/api/issues", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setCreatedIssue(issue);
+      if (andRun && workflowId) {
+        const run = await api("/api/runs", {
+          method: "POST",
+          body: JSON.stringify({
+            workflowId,
+            projectId: targetProjectId,
+            input: `需求 [${issue?.key || issue?.id || ""}] ${title.trim()}\n\n${description.trim()}`,
+          }),
+        });
+        setStartedRun(run);
+      }
+    } catch (err) {
+      setError(err?.message || "创建需求失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function triggerRunAfterCreate() {
+    if (!workflowId || !targetProjectId) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const run = await api("/api/runs", {
+        method: "POST",
+        body: JSON.stringify({
+          workflowId,
+          projectId: targetProjectId,
+          input: `需求 [${createdIssue?.key || createdIssue?.id || ""}] ${title.trim()}\n\n${description.trim()}`,
+        }),
+      });
+      setStartedRun(run);
+    } catch (err) {
+      setError(err?.message || "启动 SOP 执行失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const done = Boolean(createdIssue);
+  return (
+    <div
+      className="webuddy-action-card"
+      style={{
+        marginTop: 12,
+        marginBottom: 8,
+        padding: "14px 16px",
+        borderRadius: 14,
+        border: done
+          ? "1px solid rgba(22, 163, 74, 0.4)"
+          : "1px solid rgba(99, 102, 241, 0.32)",
+        background: done
+          ? "linear-gradient(180deg, rgba(240, 253, 244, 0.94), rgba(255, 255, 255, 0.98))"
+          : "linear-gradient(180deg, rgba(238, 242, 255, 0.85), rgba(255, 255, 255, 0.98))",
+        boxShadow: "0 2px 10px rgba(15, 23, 42, 0.05)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          flexWrap: "wrap",
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: done ? "#16a34a" : "#4f46e5",
+              display: "inline-block",
+              flexShrink: 0,
+            }}
+          />
+          <strong style={{ fontSize: 13.5, color: "#0f172a" }}>
+            {done
+              ? `已规范化建单 · ${createdIssue.key || createdIssue.id}`
+              : "AI 识别到可执行需求 · 确认后规范建单"}
+          </strong>
+        </div>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: done ? "#15803d" : "#4338ca",
+            background: done ? "#dcfce7" : "#e0e7ff",
+            padding: "2px 8px",
+            borderRadius: 999,
+          }}
+        >
+          {done ? (startedRun ? "已建单并启动 SOP" : "已同步至需求列表") : "工作台 ↔ 知识库 ↔ 需求联动"}
+        </span>
+      </div>
+
+      {impactedModules.length > 0 ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          <span style={{ fontSize: 11.5, color: "#64748b" }}>📚 知识库关联范围：</span>
+          {impactedModules.slice(0, 6).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => jumpParentHash("#/knowledgebase")}
+              title="点击前往知识库查看代码图谱"
+              style={{
+                appearance: "none",
+                border: "1px solid #bfdbfe",
+                borderRadius: 6,
+                padding: "2px 7px",
+                fontSize: 11,
+                background: "#eff6ff",
+                color: "#1d4ed8",
+                cursor: "pointer",
+              }}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {!done ? (
+        <div style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="输入规范化需求标题..."
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: "1px solid #cbd5e1",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#0f172a",
+              background: "#ffffff",
+            }}
+          />
+          <textarea
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="需求背景、改动范围与验收标准..."
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: "1px solid #cbd5e1",
+              fontSize: 12.5,
+              lineHeight: 1.5,
+              color: "#334155",
+              background: "#ffffff",
+              resize: "vertical",
+            }}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <label style={{ display: "grid", gap: 4, fontSize: 11.5, color: "#475569" }}>
+              <span>交付方式 / 推荐 SOP</span>
+              <select
+                value={workflowId}
+                onChange={(e) => setWorkflowId(e.target.value)}
+                disabled={loadingMeta}
+                style={{
+                  padding: "6px 8px",
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  fontSize: 12,
+                  background: "#ffffff",
+                  color: "#0f172a",
+                }}
+              >
+                <option value="">不使用 SOP（轻量直接交付）</option>
+                {sops.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: 4, fontSize: 11.5, color: "#475569" }}>
+              <span>关联代码仓库</span>
+              <select
+                value={repositoryId}
+                onChange={(e) => setRepositoryId(e.target.value)}
+                disabled={loadingMeta}
+                style={{
+                  padding: "6px 8px",
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  fontSize: 12,
+                  background: "#ffffff",
+                  color: "#0f172a",
+                }}
+              >
+                {repos.length === 0 ? <option value="">暂未绑定仓库（宽松模式）</option> : null}
+                {repos.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            padding: "9px 11px",
+            borderRadius: 9,
+            background: "rgba(255,255,255,0.85)",
+            border: "1px solid rgba(22,163,74,0.22)",
+            marginBottom: 10,
+            fontSize: 12.5,
+            color: "#1e293b",
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>✅ {createdIssue.title}</div>
+          {startedRun ? (
+            <div style={{ marginTop: 4, fontSize: 12, color: "#15803d" }}>
+              🚀 已自动触发 SOP 执行（Run ID: <code>{startedRun.id}</code>）
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {error ? (
+        <div style={{ marginBottom: 8, padding: "7px 10px", borderRadius: 8, background: "#fef2f2", color: "#b91c1c", fontSize: 12 }}>
+          ❌ {error}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {!done ? (
+          <>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => submitIssue(false)}
+              style={{
+                appearance: "none",
+                border: "none",
+                borderRadius: 9,
+                padding: "7px 14px",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: submitting ? "wait" : "pointer",
+                background: "#4f46e5",
+                color: "#ffffff",
+              }}
+            >
+              {submitting ? "正在建单..." : "✅ 确认这是需求并建单"}
+            </button>
+            {workflowId ? (
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => submitIssue(true)}
+                style={{
+                  appearance: "none",
+                  border: "1px solid #c7d2fe",
+                  borderRadius: 9,
+                  padding: "7px 13px",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: submitting ? "wait" : "pointer",
+                  background: "#eef2ff",
+                  color: "#4338ca",
+                }}
+              >
+                🚀 建单并立即按 SOP 执行
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => jumpParentHash("#/issues")}
+              style={{
+                appearance: "none",
+                border: "none",
+                borderRadius: 9,
+                padding: "7px 14px",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                background: "#16a34a",
+                color: "#ffffff",
+              }}
+            >
+              🔗 前往需求列表查看
+            </button>
+            {!startedRun && workflowId ? (
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={triggerRunAfterCreate}
+                style={{
+                  appearance: "none",
+                  border: "1px solid #86efac",
+                  borderRadius: 9,
+                  padding: "7px 13px",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: submitting ? "wait" : "pointer",
+                  background: "#f0fdf4",
+                  color: "#15803d",
+                }}
+              >
+                ▶ 立即按 SOP 启动执行
+              </button>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SopConfirmCard({ spec = null, projectId = "" }) {
+  const targetProjectId = (spec && spec.projectId) || projectId || "";
+  const [mode, setMode] = useState((spec && spec.mode) === "run" ? "run" : "create");
+  const [name, setName] = useState((spec && spec.name) || (spec && spec.title) || "");
+  const [description, setDescription] = useState((spec && spec.description) || "");
+  const [generic, setGeneric] = useState(Boolean(spec?.generic));
+  const [steps, setSteps] = useState(
+    Array.isArray(spec?.steps) && spec.steps.length > 0
+      ? spec.steps.map((s, idx) =>
+          typeof s === "string"
+            ? { name: s, prompt: `完成「${s}」阶段并输出可验证结论。` }
+            : { name: s.name || `阶段 ${idx + 1}`, prompt: s.prompt || "" }
+        )
+      : [
+          { name: "现状与影响评估", prompt: "先查询项目知识库与受影响源码，明确最小改动范围。" },
+          { name: "执行与实证验证", prompt: "按规范实施改动并附带真实命令与验证证据。" },
+        ]
+  );
+  const [sops, setSops] = useState([]);
+  const [selectedSopId, setSelectedSopId] = useState((spec && spec.sopId) || "");
+  const [runInput, setRunInput] = useState((spec && spec.input) || (spec && spec.description) || "");
+  const [submitting, setSubmitting] = useState(false);
+  const [createdWf, setCreatedWf] = useState(null);
+  const [startedRun, setStartedRun] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api("/api/bootstrap")
+      .then((boot) => {
+        if (!active) return;
+        const allWfs = Array.isArray(boot?.workflows) ? boot.workflows : [];
+        const usable = allWfs.filter(
+          (w) =>
+            (w.status === "published" || !w.status) &&
+            (w.generic || w.shared || !targetProjectId || w.projectId === targetProjectId)
+        );
+        setSops(usable);
+        if (!selectedSopId && usable.length > 0) {
+          setSelectedSopId(usable[0].id);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [targetProjectId, selectedSopId]);
+
+  async function handleCreateSop() {
+    if (!name.trim()) {
+      setError("请填写 SOP 名称");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await api("/api/webuddy/sop/quick-create", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: targetProjectId,
+          name: name.trim(),
+          description: description.trim(),
+          generic,
+          steps,
+        }),
+      });
+      setCreatedWf(res?.workflow || { id: "new-sop", name: name.trim() });
+      if (res?.workflow?.id) {
+        setSelectedSopId(res.workflow.id);
+      }
+    } catch (err) {
+      setError(err?.message || "构建 SOP 失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleRunSop() {
+    if (!selectedSopId) {
+      setError("请选择要执行的 SOP");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const run = await api("/api/runs", {
+        method: "POST",
+        body: JSON.stringify({
+          workflowId: selectedSopId,
+          projectId: targetProjectId,
+          input: runInput.trim() || `按 SOP (${selectedSopId}) 执行当前项目任务`,
+        }),
+      });
+      setStartedRun(run);
+    } catch (err) {
+      setError(err?.message || "启动 SOP 执行失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const isDone = mode === "create" ? Boolean(createdWf) : Boolean(startedRun);
+
+  return (
+    <div
+      className="webuddy-action-card"
+      style={{
+        marginTop: 12,
+        marginBottom: 8,
+        padding: "14px 16px",
+        borderRadius: 14,
+        border: isDone
+          ? "1px solid rgba(22, 163, 74, 0.4)"
+          : "1px solid rgba(14, 165, 233, 0.34)",
+        background: isDone
+          ? "linear-gradient(180deg, rgba(240, 253, 244, 0.94), rgba(255, 255, 255, 0.98))"
+          : "linear-gradient(180deg, rgba(240, 249, 255, 0.88), rgba(255, 255, 255, 0.98))",
+        boxShadow: "0 2px 10px rgba(15, 23, 42, 0.05)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          flexWrap: "wrap",
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: isDone ? "#16a34a" : "#0284c7",
+              display: "inline-block",
+              flexShrink: 0,
+            }}
+          />
+          <strong style={{ fontSize: 13.5, color: "#0f172a" }}>
+            {mode === "create"
+              ? createdWf
+                ? `SOP 已规范构建并发布 · ${createdWf.name}`
+                : "AI 识别到可沉淀流程 · 确认构建标准 SOP"
+              : startedRun
+              ? `SOP 已启动执行 · ${startedRun.id}`
+              : "一键使用 SOP 执行任务"}
+          </strong>
+        </div>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: isDone ? "#15803d" : "#0369a1",
+            background: isDone ? "#dcfce7" : "#e0f2fe",
+            padding: "2px 8px",
+            borderRadius: 999,
+          }}
+        >
+          默认执行器：Codex
+        </span>
+      </div>
+
+      {mode === "create" ? (
+        !createdWf ? (
+          <div style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="SOP 名称（如：报销模块发布前核验 SOP）"
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#ffffff",
+              }}
+            />
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="适用场景与目标..."
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "7px 10px",
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                fontSize: 12.5,
+                background: "#ffffff",
+              }}
+            />
+            <div style={{ display: "grid", gap: 6 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, color: "#475569" }}>
+                标准执行步骤（共 {steps.length} 步 · Codex 驱动）
+              </div>
+              {steps.map((st, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: "7px 10px",
+                    borderRadius: 8,
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
+                    fontSize: 12,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                    {idx + 1}. {st.name}
+                  </div>
+                  {st.prompt ? (
+                    <div style={{ color: "#64748b", marginTop: 2 }}>{st.prompt}</div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#475569" }}>
+              <input
+                type="checkbox"
+                checked={generic}
+                onChange={(e) => setGeneric(e.target.checked)}
+              />
+              设为平台通用 SOP（所有项目均可复用）
+            </label>
+          </div>
+        ) : (
+          <div
+            style={{
+              padding: "9px 11px",
+              borderRadius: 9,
+              background: "rgba(255,255,255,0.85)",
+              border: "1px solid rgba(22,163,74,0.22)",
+              marginBottom: 10,
+              fontSize: 12.5,
+              color: "#1e293b",
+            }}
+          >
+            ✅ 已自动生成 {steps.length} 个 Codex 阶段角色并发布为标准 SOP（ID: <code>{createdWf.id}</code>）
+          </div>
+        )
+      ) : !startedRun ? (
+        <div style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+          <select
+            value={selectedSopId}
+            onChange={(e) => setSelectedSopId(e.target.value)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: "1px solid #cbd5e1",
+              fontSize: 12.5,
+              background: "#ffffff",
+              color: "#0f172a",
+            }}
+          >
+            {sops.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+          <textarea
+            rows={2}
+            value={runInput}
+            onChange={(e) => setRunInput(e.target.value)}
+            placeholder="输入本次 SOP 执行的任务说明..."
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "7px 10px",
+              borderRadius: 8,
+              border: "1px solid #cbd5e1",
+              fontSize: 12.5,
+              background: "#ffffff",
+            }}
+          />
+        </div>
+      ) : (
+        <div
+          style={{
+            padding: "9px 11px",
+            borderRadius: 9,
+            background: "rgba(255,255,255,0.85)",
+            border: "1px solid rgba(22,163,74,0.22)",
+            marginBottom: 10,
+            fontSize: 12.5,
+            color: "#15803d",
+          }}
+        >
+          🚀 已启动 SOP 运行实例（Run ID: <code>{startedRun.id}</code>）
+        </div>
+      )}
+
+      {error ? (
+        <div style={{ marginBottom: 8, padding: "7px 10px", borderRadius: 8, background: "#fef2f2", color: "#b91c1c", fontSize: 12 }}>
+          ❌ {error}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {mode === "create" ? (
+          !createdWf ? (
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={handleCreateSop}
+              style={{
+                appearance: "none",
+                border: "none",
+                borderRadius: 9,
+                padding: "7px 14px",
+                fontSize: 12.5,
+                fontWeight: 600,
+                cursor: submitting ? "wait" : "pointer",
+                background: "#0284c7",
+                color: "#ffffff",
+              }}
+            >
+              {submitting ? "正在构建发布..." : "✅ 确认构建并发布 SOP"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => jumpParentHash("#/sops")}
+                style={{
+                  appearance: "none",
+                  border: "none",
+                  borderRadius: 9,
+                  padding: "7px 14px",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  background: "#16a34a",
+                  color: "#ffffff",
+                }}
+              >
+                🔗 去 SOP 页面查看
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("run")}
+                style={{
+                  appearance: "none",
+                  border: "1px solid #86efac",
+                  borderRadius: 9,
+                  padding: "7px 13px",
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  background: "#f0fdf4",
+                  color: "#15803d",
+                }}
+              >
+                ▶ 立即使用此 SOP 执行
+              </button>
+            </>
+          )
+        ) : !startedRun ? (
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={handleRunSop}
+            style={{
+              appearance: "none",
+              border: "none",
+              borderRadius: 9,
+              padding: "7px 14px",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: submitting ? "wait" : "pointer",
+              background: "#0284c7",
+              color: "#ffffff",
+            }}
+          >
+            {submitting ? "正在启动..." : "▶ 立即按此 SOP 启动执行"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => jumpParentHash("#/issues")}
+            style={{
+              appearance: "none",
+              border: "none",
+              borderRadius: 9,
+              padding: "7px 14px",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              background: "#16a34a",
+              color: "#ffffff",
+            }}
+          >
+            🔗 前往需求/运行视图查看进度
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function LivePreviewCard({ spec = null, projectId = "", autoDetected = false }) {
