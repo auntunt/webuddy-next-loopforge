@@ -101,8 +101,10 @@ func detectLocalAuth(id string) (bool, string) {
 		}
 		return false, "未检测到 ~/.codex/auth.json 或网关配置"
 	case "claude":
-		if fileExists(filepath.Join(home, ".claude", ".credentials.json")) || fileExists(filepath.Join(home, ".claude.json")) {
-			return true, "复用本机 Claude 登录态"
+		if raw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json")); err == nil && len(bytes.TrimSpace(raw)) > 2 {
+			if strings.Contains(string(raw), "accessToken") || strings.Contains(string(raw), "token") || strings.Contains(string(raw), "apiKey") {
+				return true, "复用本机 Claude 登录态"
+			}
 		}
 		if raw, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil {
 			var parsed struct {
@@ -112,7 +114,7 @@ func detectLocalAuth(id string) (bool, string) {
 				return true, "复用本机 ~/.claude/settings.json 网关配置"
 			}
 		}
-		if strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" {
+		if strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != "" || strings.TrimSpace(os.Getenv("ANTHROPIC_AUTH_TOKEN")) != "" {
 			return true, "复用环境变量 ANTHROPIC_API_KEY"
 		}
 		return false, "未检测到本机 Claude 登录态"
@@ -301,6 +303,22 @@ func DetectExecutors() []ExecutorInfo {
 	return out
 }
 
+// PickDefaultExecutor dynamically selects the first available and logged-in
+// executor, falling back to the first available installed CLI.
+func PickDefaultExecutor(execs []ExecutorInfo) string {
+	for _, ex := range execs {
+		if ex.Available && ex.LoggedIn {
+			return ex.ID
+		}
+	}
+	for _, ex := range execs {
+		if ex.Available {
+			return ex.ID
+		}
+	}
+	return ""
+}
+
 // CLIExecutor invokes real coding-agent CLIs in non-interactive review mode.
 type CLIExecutor struct {
 	Timeout time.Duration
@@ -468,8 +486,11 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 		diagnoser = NewCLIExecutor()
 	}
 	reviewer := strings.TrimSpace(input.Reviewer)
+	if reviewer == "" || strings.EqualFold(reviewer, "auto") {
+		reviewer = PickDefaultExecutor(DetectExecutors())
+	}
 	if reviewer == "" {
-		return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "请选择独立审查执行器（如 codex / claude / codebuddy / opencode）")
+		return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "服务端未检测到可用的代码审查执行器，请先安装并登录任一 CLI（如 codex / claude / codebuddy / opencode）")
 	}
 
 	diff := input.Diff

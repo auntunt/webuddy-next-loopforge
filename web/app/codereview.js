@@ -5,8 +5,8 @@
       title: '',
       issueId: '',
       runId: '',
-      writer: 'codex',
-      reviewer: 'claude',
+      writer: 'developer',
+      reviewer: '',
       model: '',
       baseRef: 'HEAD~1',
       headRef: 'HEAD',
@@ -199,12 +199,16 @@
       crState.canPickDir = !!execData.canPickDir;
       crState.serverHost = execData.host || repoData.host || '';
       crState.repos = repoData.repos || [];
-      // Auto-select an available reviewer if current draft's reviewer is unavailable.
+      // Dynamically pick the first available & logged-in reviewer (never hardcode a specific CLI).
       if (crState.executors.length > 0) {
         const d0 = activeDraft();
         const curExec = crState.executors.find(ex => ex.id === d0.reviewer);
-        if (!curExec || !curExec.available) {
-          const best = crState.executors.find(ex => ex.available && ex.loggedIn) || crState.executors.find(ex => ex.available);
+        if (!curExec || !curExec.available || !curExec.loggedIn) {
+          const defId = execData.defaultExecutor || '';
+          const best =
+            (defId && crState.executors.find(ex => ex.id === defId && ex.available)) ||
+            crState.executors.find(ex => ex.available && ex.loggedIn) ||
+            crState.executors.find(ex => ex.available);
           if (best) d0.reviewer = best.id;
         }
       }
@@ -313,9 +317,10 @@
       { id: 'codebuddy', name: 'CodeBuddy CLI', available: false },
       { id: 'opencode', name: 'OpenCode CLI', available: false },
     ];
-    const execOpts = execList.map(ex =>
-      '<option value="' + esc(ex.id) + '" ' + (ex.id === d.reviewer ? 'selected' : '') + '>' + esc(ex.name) + (ex.available ? '（服务端已安装）' : '（未检测到）') + '</option>'
-    ).join('');
+    const execOpts = execList.map(ex => {
+      const statusTag = ex.available ? (ex.loggedIn ? '（已就绪）' : '（已安装·未登录）') : '（未安装）';
+      return '<option value="' + esc(ex.id) + '" ' + (ex.id === d.reviewer ? 'selected' : '') + '>' + esc(ex.name) + statusTag + '</option>';
+    }).join('');
     const modelCandidates = Array.from(new Set(execList.flatMap(ex => Array.isArray(ex.models) ? ex.models : [])));
     const modelDatalist = modelCandidates.length
       ? '<datalist id="wbCrModelList">' + modelCandidates.map(m => '<option value="' + esc(m) + '"></option>').join('') + '</datalist>'
@@ -400,12 +405,53 @@
     );
   }
 
+  const HUMAN_FILE_ROLES = [
+    { key: 'production_code', label: '正式代码', hint: '核心业务与逻辑改动，建议重点复核', defaultOpen: true },
+    { key: 'config', label: '配置与门禁', hint: '配置、构建、CI 与规则变更', defaultOpen: true },
+    { key: 'process_artifact', label: '过程残余（应废弃）', hint: '临时日志/过程产物，合入前请确认清理', defaultOpen: true, warn: true },
+    { key: 'test_code', label: '测试代码', hint: '测试文件改动，默认折叠可按需展开', defaultOpen: false },
+    { key: 'spec_doc', label: '文档与说明', hint: 'Markdown / 说明文档，按需展开', defaultOpen: false },
+  ];
+
+  function classifyDiffFileRole(path) {
+    const p = String(path || '').toLowerCase();
+    if (/(^|\/)(tmp|temp|scratch|\.webuddy-local|logs?)(\/|$)|\.(log|tmp|bak|swp)$/.test(p)) return 'process_artifact';
+    if (/(^|\/)(\.github\/workflows|dockerfile|docker-compose|makefile|eslint|prettier|tsconfig|golangci|pytest\.ini|pyproject\.toml|package\.json|go\.mod|go\.sum|vite\.config|webpack\.config|nginx)/.test(p) || /\.(ya?ml|toml|ini|env|conf)$/.test(p)) return 'config';
+    if (/(^|\/)(tests?|__tests__|spec)(\/|$)|(_test\.go|\.test\.[jt]sx?|\.spec\.[jt]sx?|test_[^/]+\.py)$/.test(p)) return 'test_code';
+    if (/\.(md|mdx|txt|rst)$|(^|\/)(readme|changelog|license|docs\/)/.test(p)) return 'spec_doc';
+    return 'production_code';
+  }
+
+  function detectTamperSignals(fileBlocks) {
+    const signals = [];
+    for (const f of fileBlocks) {
+      if (f.role === 'config' && /(workflow|eslint|golangci|tsconfig|dockerfile|gate|policy)/i.test(f.path)) {
+        signals.push({ kind: '门禁/CI 配置被改', file: f.path, detail: '修改了构建、检查器或工作流配置，请人工确认未放宽门禁' });
+      }
+      for (const ln of f.lines) {
+        if (!ln.startsWith('+') || ln.startsWith('+++')) continue;
+        if (/@ts-ignore|@ts-nocheck|eslint-disable|nolint|#\s*noqa|#\s*type:\s*ignore|pragma:\s*no\s*cover/i.test(ln)) {
+          signals.push({ kind: '新增抑制标记', file: f.path, detail: ln.slice(1).trim().slice(0, 90) });
+          break;
+        }
+        if (f.role === 'test_code' && /\.(skip|only)\s*\(|t\.Skip\s*\(|@pytest\.mark\.skip|\bx(it|describe)\s*\(/.test(ln)) {
+          signals.push({ kind: '测试被跳过或停用', file: f.path, detail: ln.slice(1).trim().slice(0, 90) });
+          break;
+        }
+      }
+    }
+    return signals.slice(0, 8);
+  }
+
   function renderColoredDiff(diffText) {
     if (!diffText || !diffText.trim()) return '';
-    const blocks = diffText.split(/(?=^diff --git )/m).filter(Boolean);
-    const cards = blocks.map(block => {
+    const rawBlocks = diffText.split(/(?=^diff --git )/m).filter(Boolean);
+    const parsed = rawBlocks.map(block => {
       const lines = block.split('\n');
       const header = (lines[0] || '').replace(/^diff --git /, '');
+      const m = header.match(/b\/(.+)$/);
+      const path = (m && m[1]) || header || 'diff';
+      const role = classifyDiffFileRole(path);
       let added = 0, removed = 0;
       const rendered = lines.slice(1).map(ln => {
         let cls = '';
@@ -414,14 +460,42 @@
         else if (ln.startsWith('-') && !ln.startsWith('---')) { cls = 'del'; removed++; }
         return '<div class="wb-diff-line ' + cls + '">' + esc(ln) + '</div>';
       }).join('');
+      return { path, header, role, added, removed, lines, rendered };
+    });
+
+    const signals = detectTamperSignals(parsed);
+    const tamperBanner = signals.length
+      ? '<div class="wb-finding-card" style="margin-bottom:12px;border-color:rgba(245,158,11,0.45);background:rgba(245,158,11,0.07)">' +
+          '<div class="wb-item-top" style="margin-bottom:6px"><strong style="color:#b45309;font-size:13px">⚠ 人工重点关注 · 疑似门禁或测试弱化 (' + signals.length + ')</strong></div>' +
+          signals.map(s =>
+            '<div style="font-size:12.5px;line-height:1.5;margin-top:3px"><span class="wb-badge unknown" style="margin-right:6px">' + esc(s.kind) + '</span><code>' + esc(s.file) + '</code> — ' + esc(s.detail) + '</div>'
+          ).join('') +
+        '</div>'
+      : '';
+
+    const groupsHTML = HUMAN_FILE_ROLES.map(roleMeta => {
+      const items = parsed.filter(f => f.role === roleMeta.key);
+      if (!items.length) return '';
+      const sumAdd = items.reduce((n, x) => n + x.added, 0);
+      const sumDel = items.reduce((n, x) => n + x.removed, 0);
+      const fileCards = items.map(f =>
+        '<details class="wb-diff-file"' + (roleMeta.defaultOpen ? ' open' : '') + '>' +
+          '<summary><code>' + esc(f.path) + '</code><span class="wb-actions"><span class="wb-badge pass">+' + f.added + '</span><span class="wb-badge fail">-' + f.removed + '</span></span></summary>' +
+          '<div class="wb-diff-body">' + f.rendered + '</div>' +
+        '</details>'
+      ).join('');
       return (
-        '<details class="wb-diff-file" open>' +
-          '<summary><code>' + esc(header || 'diff') + '</code><span class="wb-actions"><span class="wb-badge pass">+' + added + '</span><span class="wb-badge fail">-' + removed + '</span></span></summary>' +
-          '<div class="wb-diff-body">' + rendered + '</div>' +
+        '<details class="wb-diff-role-group" style="margin-bottom:10px;border:1px solid var(--line,#e5e7eb);border-radius:10px;padding:8px 12px;' + (roleMeta.warn ? 'border-color:rgba(239,68,68,0.4);background:rgba(239,68,68,0.03);' : '') + '"' + (roleMeta.defaultOpen ? ' open' : '') + '>' +
+          '<summary style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;list-style:none">' +
+            '<span>' + esc(roleMeta.label) + ' <span style="font-weight:400;color:var(--muted,#6b7280);font-size:12px">(' + items.length + ' 个文件 · ' + esc(roleMeta.hint) + ')</span></span>' +
+            '<span class="wb-actions"><span class="wb-badge pass">+' + sumAdd + '</span><span class="wb-badge fail">-' + sumDel + '</span></span>' +
+          '</summary>' +
+          '<div class="wb-diff-files" style="margin-top:8px">' + fileCards + '</div>' +
         '</details>'
       );
     }).join('');
-    return '<div class="wb-panel"><h3>彩色 Unified Diff 逐行阅读器</h3><div class="wb-diff-files">' + cards + '</div></div>';
+
+    return '<div class="wb-panel"><h3>人工分级 Diff 阅读器（按文件角色自动分组 · 共 ' + parsed.length + ' 个文件）</h3>' + tamperBanner + groupsHTML + '</div>';
   }
 
   async function createSampleReview() {
@@ -570,8 +644,30 @@
       (targetRunId ? '<button type="button" class="button ghost small" id="wbCrOpenRun">打开关联运行</button>' : '') +
       '<button type="button" class="button ghost small" id="wbCrPublishSharedKB">📚 沉淀为团队共享知识</button>';
 
+    const currentFb = feedbacks.find(fb => fb.current);
+    const receiptHTML = currentFb
+      ? '<div class="wb-panel" style="border-color:rgba(16,185,129,0.45);background:rgba(16,185,129,0.06)">' +
+          '<div class="wb-item-top" style="margin-bottom:6px">' +
+            '<div style="display:flex;align-items:center;gap:8px"><strong style="color:#065f46">✓ 已人工复核签收</strong><span class="wb-badge pass">绑定当前快照</span></div>' +
+            '<button type="button" class="button ghost small" id="wbCrCopyBindingFp" data-fp="' + esc(r.binding || '') + '">复制凭证指纹 ' + esc((r.binding || '').slice(0, 10)) + '</button>' +
+          '</div>' +
+          '<div class="wb-meta" style="margin-bottom:6px"><span>签收人：<b>' + esc(currentFb.actor) + '</b></span><span>复核耗时：' + currentFb.minutes + ' 分钟</span><span>发现遗漏：' + (currentFb.missed || []).length + ' 项</span><span>' + esc(new Date(currentFb.createdAt).toLocaleString()) + '</span></div>' +
+          (currentFb.note ? '<div style="font-size:13px;background:rgba(255,255,255,0.75);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:8px 10px">' + esc(currentFb.note) + '</div>' : '') +
+        '</div>'
+      : '';
+
+    const quickReasonPills = [
+      { label: '核心逻辑已逐行核对通过', text: '已逐行核对正式代码与配置变更，边界条件与权限校验符合预期，确认放行。' },
+      { label: 'AI 阻断项属实，需返工', text: '已核实 AI 提出的阻断问题属实，需退回修复后重新发起审查。' },
+      { label: 'AI 提示为误报，业务允许', text: '已结合业务上下文核对，AI 提示属于误报，当前实现符合业务约定。' },
+      { label: '发现 AI 遗漏边界条件', text: '已人工补充核查，发现 AI 遗漏边界场景，已在上方遗漏项中记录。' },
+    ].map((p, idx) =>
+      '<button type="button" class="button ghost small wb-cr-reason-pill" data-reason="' + esc(p.text) + '" style="border-style:dashed;font-size:12px">+ ' + esc(p.label) + '</button>'
+    ).join('');
+
     return (
       '<div style="display:flex;flex-direction:column;gap:14px">' +
+        receiptHTML +
         '<div class="wb-panel" style="border-left:4px solid ' + nextBannerColor + '">' +
           '<div class="wb-item-top"><strong>下一步动作</strong><div class="wb-actions">' + nextButtons + verdictBadge(r.verdict) + '</div></div>' +
           '<div style="font-size:13px;margin-top:4px">' + esc(nextActionText) + '</div>' +
@@ -611,7 +707,10 @@
               '<div class="wb-field"><label>实际人工复核分钟数 (0-1440)</label><input type="number" name="minutes" min="0" max="1440" value="10" required></div>' +
               '<div class="wb-field"><label>人工另行发现的遗漏问题（每行一条，可选）</label><textarea name="missed" rows="2" placeholder="AI 漏报的问题"></textarea></div>' +
             '</div>' +
-            '<div class="wb-field"><label>复核范围与说明（必填）</label><textarea name="note" rows="2" required placeholder="说明实际核对的文件范围与结论"></textarea></div>' +
+            '<div class="wb-field"><label>复核范围与说明（必填）</label>' +
+              '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">' + quickReasonPills + '</div>' +
+              '<textarea name="note" id="wbCrFeedbackNote" rows="2" required placeholder="说明实际核对的文件范围与结论（也可点击上方常用理由快速填入）"></textarea>' +
+            '</div>' +
             '<div class="wb-actions"><button type="submit" class="button primary">提交人工反馈</button></div>' +
           '</form>' +
         '</div>' +
@@ -756,6 +855,22 @@
         }
       });
     }
+
+    root.querySelector('#wbCrCopyBindingFp')?.addEventListener('click', e => {
+      const fp = e.currentTarget.dataset.fp || '';
+      if (fp && navigator.clipboard) {
+        navigator.clipboard.writeText(fp).then(() => notify('已复制复核凭证指纹 ' + fp.slice(0, 12))).catch(() => {});
+      }
+    });
+    root.querySelectorAll('.wb-cr-reason-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ta = root.querySelector('#wbCrFeedbackNote');
+        if (ta) {
+          ta.value = btn.dataset.reason || '';
+          ta.focus();
+        }
+      });
+    });
 
     const fbForm = root.querySelector('#wbFeedbackForm');
     root.querySelector('#wbCrPublishSharedKB')?.addEventListener('click', async () => {

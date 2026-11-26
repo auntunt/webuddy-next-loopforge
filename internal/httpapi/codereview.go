@@ -206,10 +206,12 @@ func (h *codeReviewHandlers) summary(c *gin.Context) {
 // GET /api/codereview/executors
 func (h *codeReviewHandlers) executors(c *gin.Context) {
 	host, _ := os.Hostname()
+	execs := codereview.DetectExecutors()
 	c.JSON(http.StatusOK, gin.H{
-		"host":       host,
-		"canPickDir": runtime.GOOS == "darwin",
-		"executors":  codereview.DetectExecutors(),
+		"host":            host,
+		"canPickDir":      runtime.GOOS == "darwin",
+		"defaultExecutor": codereview.PickDefaultExecutor(execs),
+		"executors":       execs,
 	})
 }
 
