@@ -57,7 +57,15 @@
   }
 
   async function reqJSON(url, opts) {
-    const res = await fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts));
+    const reqOpts = Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts);
+    let res;
+    try {
+      res = await fetch(url, reqOpts);
+    } catch (err) {
+      // Retry once on transient proxy/HTTP3 socket resets ("Failed to fetch")
+      await new Promise(r => setTimeout(r, 400));
+      res = await fetch(url, reqOpts);
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || ('请求失败: ' + res.status));
     return data;
