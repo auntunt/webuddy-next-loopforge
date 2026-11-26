@@ -881,6 +881,27 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 				}
 			}
 			if err == nil && submitted == nil {
+				// If the executor exited cleanly and all required artifact contracts are already
+				// present and valid, auto-advance instead of blocking on a missing submit_gate_result call.
+				if len(effectiveNode.ArtifactOutputs) > 0 {
+					live, _ := e.repo.RunState(runID)
+					if validateArtifactOutputs(outputs, live, effectiveNode) == nil {
+						submitted = &domain.GateResult{
+							Decision: "pass",
+							Reason:   "执行器未调用 submit_gate_result，但全部必需交付物已通过产物契约校验，自动推进下游",
+						}
+						e.observe(runID, node.ID, domain.TelemetryEvent{
+							Category:   "verification",
+							Name:       "gate.submit.auto_pass",
+							Phase:      "finish",
+							Level:      "info",
+							Message:    submitted.Reason,
+							Attributes: map[string]any{"contracts": len(effectiveNode.ArtifactOutputs), "iteration": iteration},
+						})
+					}
+				}
+			}
+			if err == nil && submitted == nil {
 				err = fmt.Errorf("未收到 submit_gate_result，恢复 CLI session 后仍未提交")
 			}
 			if err != nil {
