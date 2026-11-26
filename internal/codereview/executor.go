@@ -204,8 +204,34 @@ func lookupCLIPath(binary string) (string, bool) {
 	return "", false
 }
 
+func isSensitivePlatformEnv(kv string) bool {
+	upper := strings.ToUpper(kv)
+	for _, prefix := range []string{
+		"AGENTFLOW_MYSQL_DSN=",
+		"AGENTFLOW_DATABASE_URL=",
+		"DATABASE_URL=",
+		"AGENTFLOW_SESSION_SECRET=",
+		"AGENTFLOW_AUTH_SECRET=",
+		"AGENTFLOW_ENCRYPT_KEY=",
+		"MYSQL_PWD=",
+		"MYSQL_PASSWORD=",
+	} {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func expandedCLIEnv(resolvedBin string) []string {
-	env := os.Environ()
+	rawEnv := os.Environ()
+	env := make([]string, 0, len(rawEnv)+1)
+	for _, kv := range rawEnv {
+		if isSensitivePlatformEnv(kv) {
+			continue
+		}
+		env = append(env, kv)
+	}
 	extra := make([]string, 0, 8)
 	if dir := filepath.Dir(resolvedBin); dir != "" && dir != "." {
 		extra = append(extra, dir)
@@ -303,9 +329,13 @@ func (e *CLIExecutor) DiagnoseBatch(ctx context.Context, req BatchRequest) (Batc
 	}
 
 	cmd := exec.CommandContext(cctx, resolvedBin, args...)
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Env = expandedCLIEnv(resolvedBin)
 	if strings.TrimSpace(req.RepoPath) != "" {
 		cmd.Dir = strings.TrimSpace(req.RepoPath)
+	} else if tmpDir, err := os.MkdirTemp("", "webuddy-cr-*"); err == nil {
+		defer os.RemoveAll(tmpDir)
+		cmd.Dir = tmpDir
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -455,6 +485,7 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 	}
 
 	if strings.TrimSpace(diff) == "" && repoPath != "" {
+		const gitEmptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 		if baseCommit == "" {
 			baseCommit = "HEAD~1"
 		}
@@ -462,15 +493,26 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 			headCommit = "HEAD"
 		}
 		var err error
-		baseCommit, err = gitOutput(ctx, repoPath, "rev-parse", baseCommit)
-		if err != nil {
-			return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "无法解析基准提交: "+err.Error())
-		}
 		headCommit, err = gitOutput(ctx, repoPath, "rev-parse", headCommit)
 		if err != nil {
 			return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "无法解析目标提交: "+err.Error())
 		}
-		diff, err = gitOutputRaw(ctx, repoPath, "diff", baseCommit+".."+headCommit)
+		origBase := baseCommit
+		baseCommit, err = gitOutput(ctx, repoPath, "rev-parse", origBase)
+		if err != nil {
+			// Single-commit repos (e.g. imported code archives) have no HEAD~1;
+			// fall back to Git's empty tree hash so the initial commit can be reviewed cleanly.
+			if origBase == "HEAD~1" {
+				baseCommit = gitEmptyTreeHash
+			} else {
+				return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "无法解析基准提交: "+err.Error())
+			}
+		}
+		if baseCommit == gitEmptyTreeHash {
+			diff, err = gitOutputRaw(ctx, repoPath, "diff", gitEmptyTreeHash, headCommit)
+		} else {
+			diff, err = gitOutputRaw(ctx, repoPath, "diff", baseCommit+".."+headCommit)
+		}
 		if err != nil {
 			return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "获取 git diff 失败: "+err.Error())
 		}
@@ -486,6 +528,7 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 	parts := make([]domain.CodeReviewPart, 0, len(batches))
 	answers := make([]BatchDiagnosis, 0, len(batches))
 	failedCall := false
+	failedReason := ""
 
 	for i, b := range batches {
 		prompt := BuildBatchPrompt(i+1, len(batches), b.Header, b.Text)
@@ -501,6 +544,10 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 		})
 		if err != nil {
 			failedCall = true
+			failedReason = strings.TrimSpace(err.Error())
+			if len(failedReason) > 200 {
+				failedReason = failedReason[:200] + "…"
+			}
 			diag.Verdict = "unknown"
 		}
 		if diag.Verdict != "pass" && diag.Verdict != "fail" {
@@ -540,7 +587,11 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 		if i >= len(parts) {
 			uncovered = append(uncovered, fmt.Sprintf("第 %d 批 %s：未送审", i+1, b.Header))
 		} else if parts[i].Verdict == "unknown" {
-			uncovered = append(uncovered, fmt.Sprintf("第 %d 批 %s：未形成有效结论", i+1, b.Header))
+			if failedReason != "" && i == len(parts)-1 {
+				uncovered = append(uncovered, fmt.Sprintf("第 %d 批 %s：执行器失败（%s）", i+1, b.Header, failedReason))
+			} else {
+				uncovered = append(uncovered, fmt.Sprintf("第 %d 批 %s：未形成有效结论", i+1, b.Header))
+			}
 		}
 	}
 	if binary {

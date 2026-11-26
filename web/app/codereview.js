@@ -19,6 +19,7 @@
   const crState = {
     reviews: [],
     executors: [],
+    canPickDir: false,
     serverHost: '',
     repos: [],
     issues: [],
@@ -195,8 +196,18 @@
       crState.reviews = listData.reviews || [];
       crState.summary = sumData;
       crState.executors = execData.executors || [];
+      crState.canPickDir = !!execData.canPickDir;
       crState.serverHost = execData.host || repoData.host || '';
       crState.repos = repoData.repos || [];
+      // Auto-select an available reviewer if current draft's reviewer is unavailable.
+      if (crState.executors.length > 0) {
+        const d0 = activeDraft();
+        const curExec = crState.executors.find(ex => ex.id === d0.reviewer);
+        if (!curExec || !curExec.available) {
+          const best = crState.executors.find(ex => ex.available && ex.loggedIn) || crState.executors.find(ex => ex.available);
+          if (best) d0.reviewer = best.id;
+        }
+      }
       const rawPid = currentProjectId();
       crState.issues = (Array.isArray(issuesData) ? issuesData : []).filter(x => !rawPid || x.projectId === rawPid).slice(0, 30);
       crState.tasks = Array.isArray(tasksData) ? tasksData : [];
@@ -210,12 +221,18 @@
           || projectRunIds.has(x.id);
       }).slice(0, 30);
       const matchActive = rawPid && crState.repos.find(r => r.projectId === rawPid && r.exists);
-      if (matchActive && crState.selectedRepoPath !== matchActive.localPath) {
-        crState.selectedRepoPath = matchActive.localPath;
-        const d = activeDraft();
-        d.baseRef = 'HEAD~1';
-        d.headRef = 'HEAD';
-        await loadGitRefs(crState.selectedRepoPath);
+      if (matchActive) {
+        if (crState.selectedRepoPath !== matchActive.localPath) {
+          crState.selectedRepoPath = matchActive.localPath;
+          const d = activeDraft();
+          d.baseRef = 'HEAD~1';
+          d.headRef = 'HEAD';
+          await loadGitRefs(crState.selectedRepoPath);
+        }
+      } else if (rawPid) {
+        // Active project has no local repository: clear stale selection from previous project.
+        crState.selectedRepoPath = '';
+        crState.gitRefs = { isGit: false, branches: [], commits: [] };
       } else if (!crState.selectedRepoPath && crState.repos.length > 0) {
         const hit = crState.repos.find(r => r.exists && r.isGit) || crState.repos[0];
         if (hit) {
@@ -321,7 +338,7 @@
           '<h3 style="margin:0">发起代码审查</h3>' +
           '<button type="button" class="button ghost small" id="wbCancelCreateReview">关闭</button>' +
         '</div>' +
-        (crState.submitError ? '<div class="wb-finding-card" style="margin-bottom:10px;border-color:rgba(239,68,68,0.4)"><span class="wb-badge fail">审查失败：' + esc(crState.submitError) + '</span></div>' : '') +
+        (crState.submitError ? '<div class="wb-finding-card" style="margin-bottom:10px;border-color:rgba(239,68,68,0.4);background:rgba(239,68,68,0.06);max-width:100%;box-sizing:border-box;"><div style="color:#dc2626;font-size:12.5px;line-height:1.5;white-space:normal;word-break:break-word;overflow-wrap:anywhere;"><strong>审查失败：</strong>' + esc(crState.submitError) + '</div></div>' : '') +
         '<form id="wbCreateReviewForm" class="wb-form">' +
           '<div class="wb-toolbar" style="gap:8px;flex-wrap:wrap">' +
             '<select name="repoPath" id="wbCrRepoSelect" style="flex:1;min-width:200px">' +
@@ -339,7 +356,7 @@
               '<div class="wb-tabs" style="border:none;padding:0">' +
                 '<button type="button" class="wb-tab ' + (isAuto ? 'active' : '') + '" data-cr-mode="auto">AI 自动审查</button>' +
                 '<button type="button" class="wb-tab ' + (!isAuto ? 'active' : '') + '" data-cr-mode="manual">手动录入</button>' +
-                '<button type="button" class="button ghost small" id="wbCrPickRepoBtn" style="margin-left:auto">+ 选本地目录</button>' +
+                (crState.canPickDir ? '<button type="button" class="button ghost small" id="wbCrPickRepoBtn" style="margin-left:auto">+ 选本地目录</button>' : '') +
               '</div>' +
               '<div class="wb-form-row">' +
                 '<div class="wb-field"><label>编写者</label><input type="text" name="writer" value="' + esc(d.writer) + '" placeholder="codex"></div>' +
@@ -702,18 +719,19 @@
         if (isAuto) render();
         try {
           const url = isAuto ? '/api/codereview/reviews/run' : '/api/codereview/reviews';
-          const pickedRepo = crState.repos.find(r => r.localPath === crState.selectedRepoPath);
+          const isPasteOnly = !!(d.diff && d.diff.trim());
+          const pickedRepo = !isPasteOnly ? crState.repos.find(r => r.localPath === crState.selectedRepoPath) : null;
           const payload = {
-            projectId: (pickedRepo && pickedRepo.projectId) || currentProjectId(),
+            projectId: isPasteOnly ? currentProjectId() : ((pickedRepo && pickedRepo.projectId) || currentProjectId()),
             issueId: d.issueId || '',
             runId: d.runId || '',
             title: (d.title || '').trim() || '最新代码改动审查',
             writer: d.writer || 'developer',
             reviewer: d.reviewer,
             model: d.model || '',
-            repoPath: crState.selectedRepoPath,
-            baseRef: crState.gitRefs.isGit ? d.baseRef : '',
-            headRef: crState.gitRefs.isGit ? d.headRef : '',
+            repoPath: isPasteOnly ? '' : crState.selectedRepoPath,
+            baseRef: !isPasteOnly && crState.gitRefs.isGit ? d.baseRef : '',
+            headRef: !isPasteOnly && crState.gitRefs.isGit ? d.headRef : '',
             diff: d.diff,
           };
           if (!isAuto) {
@@ -744,13 +762,23 @@
       if (!crState.detail || !crState.detail.review) return;
       const rev = crState.detail.review;
       const blockingText = (rev.blocking || []).map((b, i) => `${i + 1}. ${b}`).join('\n');
+      const uncoveredText = (rev.uncovered || []).map((u, i) => `- ${u}`).join('\n');
+      let bodyText = blockingText;
+      if (!bodyText) {
+        if (rev.verdict === 'pass' && rev.complete) {
+          bodyText = `审查通过（共 ${rev.totalParts} 批 Diff 全量覆盖，Base: ${rev.baseCommit || '-'}）。`;
+        } else {
+          const statusLabel = rev.verdict === 'fail' ? '阻断未通过' : '待核实 / 未完全覆盖';
+          bodyText = `审查结论：${statusLabel}（共 ${rev.totalParts} 批，Base: ${rev.baseCommit || '-'}）。` + (uncoveredText ? `\n\n未覆盖/异常说明：\n${uncoveredText}` : '');
+        }
+      }
       try {
         await reqJSON('/api/webuddy/kb/shared', {
           method: 'POST',
           body: JSON.stringify({
             title: `代码审查沉淀：${rev.title}`,
             summary: `结论: ${rev.verdict} · Writer(${rev.writer}) / Reviewer(${rev.reviewer}) · 阻断项 ${(rev.blocking || []).length} 个`,
-            content: blockingText || `审查通过（共 ${rev.totalParts} 批 Diff 全量覆盖，Base: ${rev.baseCommit || '-'}）。`,
+            content: bodyText,
             sourceType: 'code_review',
             sourceProjectId: rev.projectId || '',
             commit: rev.baseCommit || '',

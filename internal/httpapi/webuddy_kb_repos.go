@@ -55,6 +55,10 @@ func inspectLocalRepo(p string) (exists, hasGraph, hasKB, isGit bool) {
 // GET /api/webuddy/kb/repos
 // Returns all imported projects/repositories with local paths and live disk status.
 func (h *webuddyKBHandlers) repos(c *gin.Context) {
+	var visible map[string]bool
+	if authRequired() {
+		visible = h.visibleProjectIDSetForRequest(c.Request)
+	}
 	projects := h.repo.Projects()
 	projName := make(map[string]string, len(projects))
 	for _, p := range projects {
@@ -63,6 +67,9 @@ func (h *webuddyKBHandlers) repos(c *gin.Context) {
 	allRepos := h.repo.Repositories()
 	items := make([]localRepoItem, 0, len(allRepos))
 	for _, r := range allRepos {
+		if visible != nil && !visible[r.ProjectID] {
+			continue
+		}
 		lp := strings.TrimSpace(r.LocalPath)
 		if lp == "" {
 			continue
@@ -242,7 +249,21 @@ type gitRefItem struct {
 // GET /api/webuddy/kb/git-refs?repoPath=...
 // Returns local branches and recent commits for dropdown selection in Code Review.
 func (h *webuddyKBHandlers) gitRefs(c *gin.Context) {
-	rp := strings.TrimSpace(c.Query("repoPath"))
+	rp := strings.TrimRight(strings.TrimSpace(c.Query("repoPath")), "/")
+	if authRequired() {
+		visible := h.visibleProjectIDSetForRequest(c.Request)
+		allowed := false
+		for _, r := range h.repo.Repositories() {
+			if strings.TrimRight(strings.TrimSpace(r.LocalPath), "/") == rp && visible[r.ProjectID] {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "无权访问该仓库的 Git 引用"})
+			return
+		}
+	}
 	ex, _, _, isGit := inspectLocalRepo(rp)
 	if !ex || !isGit {
 		c.JSON(http.StatusOK, gin.H{"isGit": false, "branches": []gitRefItem{}, "commits": []gitRefItem{}})
