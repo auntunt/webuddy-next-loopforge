@@ -539,7 +539,7 @@ func (s *Service) RunAutomatedReviewWithProgress(ctx context.Context, input RunA
 				return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "无法解析基准提交: "+err.Error())
 			}
 		}
-		excludeLockfiles := []string{
+		excludeNoisyFiles := []string{
 			"--", ".",
 			":!package-lock.json", ":!**/package-lock.json",
 			":!pnpm-lock.yaml", ":!**/pnpm-lock.yaml",
@@ -547,12 +547,22 @@ func (s *Service) RunAutomatedReviewWithProgress(ctx context.Context, input RunA
 			":!go.sum", ":!**/go.sum",
 			":!Cargo.lock", ":!**/Cargo.lock",
 			":!poetry.lock", ":!**/poetry.lock",
+			":!.DS_Store", ":!**/.DS_Store",
+			":!*.png", ":!**/*.png",
+			":!*.jpg", ":!**/*.jpg",
+			":!*.jpeg", ":!**/*.jpeg",
+			":!*.gif", ":!**/*.gif",
+			":!*.ico", ":!**/*.ico",
+			":!*.webp", ":!**/*.webp",
+			":!*.woff", ":!**/*.woff",
+			":!*.woff2", ":!**/*.woff2",
+			":!*.ttf", ":!**/*.ttf",
 		}
 		if baseCommit == gitEmptyTreeHash {
-			args := append([]string{"diff", gitEmptyTreeHash, headCommit}, excludeLockfiles...)
+			args := append([]string{"diff", gitEmptyTreeHash, headCommit}, excludeNoisyFiles...)
 			diff, err = gitOutputRaw(ctx, repoPath, args...)
 		} else {
-			args := append([]string{"diff", baseCommit + ".." + headCommit}, excludeLockfiles...)
+			args := append([]string{"diff", baseCommit + ".." + headCommit}, excludeNoisyFiles...)
 			diff, err = gitOutputRaw(ctx, repoPath, args...)
 		}
 		if err != nil {

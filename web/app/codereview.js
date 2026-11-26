@@ -680,6 +680,48 @@
       '<button type="button" class="button ghost small wb-cr-reason-pill" data-reason="' + esc(p.text) + '" style="border-style:dashed;font-size:12px">+ ' + esc(p.label) + '</button>'
     ).join('');
 
+    const blockingList = r.blocking || [];
+    const advisoryList = r.advisory || [];
+    const findingsOverviewHTML = (blockingList.length || advisoryList.length || r.guide)
+      ? '<div class="wb-panel" style="' + (blockingList.length ? 'border-color:rgba(239,68,68,0.35);' : '') + '">' +
+          '<div class="wb-item-top" style="margin-bottom:10px">' +
+            '<h3 style="margin:0">审查发现总览（阻断 ' + blockingList.length + ' 项 · 建议 ' + advisoryList.length + ' 项）</h3>' +
+            '<div class="wb-actions">' +
+              (blockingList.length || r.guide ? '<button type="button" class="button ghost small" id="wbCrCopyFixGuide">复制修复清单</button>' : '') +
+              '<button type="button" class="button ghost small" id="wbCrJumpFeedback">去人工复核 ↓</button>' +
+            '</div>' +
+          '</div>' +
+          (blockingList.length
+            ? '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:' + (advisoryList.length || r.guide ? '12px' : '0') + '">' +
+                blockingList.map((item, idx) =>
+                  '<div class="wb-finding-card" style="border-color:rgba(239,68,68,0.28);background:rgba(239,68,68,0.04);padding:10px 12px">' +
+                    '<div style="display:flex;align-items:flex-start;gap:8px">' +
+                      '<span class="wb-badge fail" style="flex-shrink:0">阻断 #' + (idx + 1) + '</span>' +
+                      '<div style="font-size:13px;line-height:1.55;white-space:normal;word-break:break-word">' + esc(item) + '</div>' +
+                    '</div>' +
+                  '</div>'
+                ).join('') +
+              '</div>'
+            : '') +
+          (advisoryList.length
+            ? '<details style="margin-bottom:' + (r.guide ? '8px' : '0') + '">' +
+                '<summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--muted,#6b7280)">查看建议项（' + advisoryList.length + ' 项，不阻断交付）</summary>' +
+                '<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">' +
+                  advisoryList.map((item, idx) =>
+                    '<div style="font-size:12.5px;line-height:1.5;padding:6px 10px;border-radius:8px;background:var(--bg-soft,#f8fafc);border:1px solid var(--line,#e5e7eb)"><b>#' + (idx + 1) + '</b> ' + esc(item) + '</div>'
+                  ).join('') +
+                '</div>' +
+              '</details>'
+            : '') +
+          (r.guide
+            ? '<details style="margin-top:6px">' +
+                '<summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:#2563eb">查看 AI 修复建议（Guide）</summary>' +
+                '<pre style="margin:8px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-soft,#f8fafc);border:1px solid var(--line,#e5e7eb);font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;font-family:inherit">' + esc(r.guide) + '</pre>' +
+              '</details>'
+            : '') +
+        '</div>'
+      : '';
+
     return (
       '<div style="display:flex;flex-direction:column;gap:14px">' +
         receiptHTML +
@@ -688,6 +730,7 @@
           '<div style="font-size:13px;margin-top:4px">' + esc(nextActionText) + '</div>' +
         '</div>' +
         gateTrackHTML +
+        findingsOverviewHTML +
         '<div class="wb-panel">' +
           '<div class="wb-item-top" style="margin-bottom:10px">' +
             '<h3 style="margin:0;font-size:16px">' + esc(r.title) + '</h3>' +
@@ -892,6 +935,26 @@
         }
       });
     }
+
+    root.querySelector('#wbCrCopyFixGuide')?.addEventListener('click', () => {
+      const r = crState.detail && crState.detail.review;
+      if (!r) return;
+      const lines = [];
+      if ((r.blocking || []).length) {
+        lines.push('## 阻断问题 (' + r.blocking.length + ')');
+        r.blocking.forEach((b, i) => lines.push((i + 1) + '. ' + b));
+      }
+      if (r.guide) {
+        lines.push('\n## 修复建议\n' + r.guide);
+      }
+      if (lines.length && navigator.clipboard) {
+        navigator.clipboard.writeText(lines.join('\n')).then(() => notify('已复制修复清单，可直接发给 AI 工作台修复')).catch(() => {});
+      }
+    });
+    root.querySelector('#wbCrJumpFeedback')?.addEventListener('click', () => {
+      const el = root.querySelector('#wbFeedbackForm');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
 
     root.querySelector('#wbCrCopyBindingFp')?.addEventListener('click', e => {
       const fp = e.currentTarget.dataset.fp || '';
