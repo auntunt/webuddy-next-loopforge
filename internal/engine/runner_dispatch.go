@@ -269,6 +269,16 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 		invocation.ReportOutputs = true
 		invocation.Inputs = reported.inputs
 		invocation.OutputFiles = artifactOutputFiles(run, node)
+		hasKnowledgeOut := false
+		for _, f := range invocation.OutputFiles {
+			if f == domain.KnowledgeArtifactBasename {
+				hasKnowledgeOut = true
+				break
+			}
+		}
+		if !hasKnowledgeOut {
+			invocation.OutputFiles = append(invocation.OutputFiles, domain.KnowledgeArtifactBasename)
+		}
 		if path := strings.TrimSpace(options.GateResultPath); path != "" {
 			invocation.OutputFiles = append(invocation.OutputFiles, path)
 		}

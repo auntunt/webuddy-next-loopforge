@@ -362,7 +362,7 @@ func (e *Engine) finishAt(id string, generation int, status, msg string) {
 	if delivered != nil {
 		_ = e.repo.MarkIssueDeliveredFromSOPMRs(delivered.ExecutionContext.IssueID, e.deliveryMRsFromRun(*delivered), deliveredAt)
 	}
-	if status == "succeeded" && e.OnRunSettled != nil {
+	if (status == "succeeded" || status == "failed") && e.OnRunSettled != nil {
 		if settledRun, ok := e.repo.RunState(id); ok && settledRun.ExecutionContext.ParentRunID == "" {
 			hook := e.OnRunSettled
 			go hook(settledRun)

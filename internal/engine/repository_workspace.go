@@ -165,6 +165,9 @@ func prepareRepository(ctx context.Context, workspace string, repository domain.
 		if _, err := gitwork.Watch(ctx, workspace, watch, args...); err != nil {
 			return fmt.Errorf("git clone: %w", err)
 		}
+		if localIsDir {
+			gitwork.LinkLocalDependencyDirs(localPath, workspace)
+		}
 		return nil
 	}
 	// Docker bind-mounts this directory. Replacing it (RemoveAll + MkdirAll)

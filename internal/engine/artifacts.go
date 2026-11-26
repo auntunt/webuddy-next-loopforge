@@ -3,6 +3,7 @@ package engine
 import (
 	"agentflow/internal/domain"
 	"agentflow/internal/runtime"
+	"bytes"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -326,6 +327,20 @@ func collectArtifactsMode(outputs nodeOutputs, run domain.Run, node domain.Workf
 			artifact := newArtifact(run.ID, node.ID, attempt, contract.Name, clean, mediaType, content)
 			artifact.RepositoryDir = rc.WorkspaceDir
 			out = append(out, artifact)
+		}
+	}
+	// Always capture optional workspace-root knowledge.md if the Agent produced it
+	// so SOP lessons (including failure retrospectives) can be harvested into Shared KB.
+	hasKnowledgeArtifact := false
+	for _, a := range out {
+		if strings.TrimSpace(a.Path) == domain.KnowledgeArtifactBasename || strings.TrimSpace(a.Name) == domain.KnowledgeArtifactBasename {
+			hasKnowledgeArtifact = true
+			break
+		}
+	}
+	if !hasKnowledgeArtifact {
+		if kRaw, kErr := outputs.readFile(domain.KnowledgeArtifactBasename); kErr == nil && len(bytes.TrimSpace(kRaw)) > 0 && len(kRaw) <= maxArtifactBytes {
+			out = append(out, newArtifact(run.ID, node.ID, attempt, domain.KnowledgeArtifactBasename, domain.KnowledgeArtifactBasename, "text/markdown", kRaw))
 		}
 	}
 	patchTargets := run.RepositoryContexts()

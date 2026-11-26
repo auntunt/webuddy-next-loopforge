@@ -195,7 +195,11 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 			}
 			title, summary, _, body := parseKBMdFrontmatter(art.Content, "")
 			if title == "" {
-				title = "SOP 交付沉淀：" + strings.TrimSpace(settled.WorkflowSnapshot.Name)
+				if settled.Status == "failed" {
+					title = "SOP 踩坑沉淀：" + strings.TrimSpace(settled.WorkflowSnapshot.Name)
+				} else {
+					title = "SOP 交付沉淀：" + strings.TrimSpace(settled.WorkflowSnapshot.Name)
+				}
 			}
 			if summary == "" {
 				runes := []rune(strings.TrimSpace(body))
@@ -204,6 +208,10 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 				} else {
 					summary = string(runes)
 				}
+			}
+			tags := []string{projName, "SOP沉淀", settled.WorkflowSnapshot.Name}
+			if settled.Status == "failed" {
+				tags = append(tags, "失败复盘")
 			}
 			_, _ = defaultSharedKBStore.upsert(SharedKnowledgeItem{
 				TenantID:          tid,
@@ -214,12 +222,14 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 				SourceProjectID:   pid,
 				SourceProjectName: projName,
 				SourceRelPath:     "runs/" + settled.ID + "/" + art.NodeID + "/knowledge.md",
-				Tags:              []string{projName, "SOP沉淀", settled.WorkflowSnapshot.Name},
+				Tags:              tags,
 				Author:            "SOP自动沉淀",
 			})
 		}
-		// 2. Auto-trigger incremental KB scan & stale page update for the project!
-		_ = d.startAsyncKBBatchUpdate("sop-auto-sync", pid, 3, "", false)
+		// 2. Auto-trigger incremental KB scan & stale page update for succeeded runs!
+		if settled.Status == "succeeded" {
+			_ = d.startAsyncKBBatchUpdate("sop-auto-sync", pid, 3, "", false)
+		}
 	}
 	api := &Server{
 		deps:            d,

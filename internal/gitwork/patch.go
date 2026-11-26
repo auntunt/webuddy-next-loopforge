@@ -150,6 +150,23 @@ func PatchInventory(workspace string) ([]byte, error) {
 	if len(bytes.TrimSpace(summary)) == 0 {
 		return nil, nil
 	}
+	if unified, diffErr := diffAgainstBaseline(workspace, sha, "--no-color", "-U3"); diffErr == nil && len(bytes.TrimSpace(unified)) > 0 {
+		const maxInlineDiffBytes = 64 * 1024
+		trimmedDiff := unified
+		truncated := false
+		if len(trimmedDiff) > maxInlineDiffBytes {
+			trimmedDiff = trimmedDiff[:maxInlineDiffBytes]
+			truncated = true
+		}
+		var combined bytes.Buffer
+		combined.Write(bytes.TrimRight(summary, "\n"))
+		combined.WriteString("\n\n--- unified diff ---\n")
+		combined.Write(trimmedDiff)
+		if truncated {
+			combined.WriteString("\n... (diff truncated at 64KB; inspect workspace for full diff)\n")
+		}
+		summary = combined.Bytes()
+	}
 	if len(summary) > MaxPatchBytes {
 		return nil, fmt.Errorf("repository-patch exceeds %d bytes", MaxPatchBytes)
 	}
