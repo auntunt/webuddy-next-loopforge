@@ -21,6 +21,70 @@ func (s *Service) MergeSourceBranchMR(project, sourceBranch string) (string, err
 	return s.EnsureAndMergeBranchMR(project, sourceBranch, "", "", "")
 }
 
+// CreateBranchPR finds an existing open PR/MR or creates a new one from
+// sourceBranch → targetBranch WITHOUT automatically merging it, so humans can
+// review and merge with Webuddy's attached code-review & signoff evidence.
+func (s *Service) CreateBranchPR(project, sourceBranch, targetBranch, title, description string) (domain.DeliveryMR, error) {
+	project = strings.TrimSpace(project)
+	src := strings.TrimSpace(sourceBranch)
+	tgt := strings.TrimSpace(targetBranch)
+	if strings.HasPrefix(project, "github:") {
+		return s.githubCreateBranchPR(project, src, tgt, title, description)
+	}
+	if src == "" {
+		return domain.DeliveryMR{}, errors.New("source branch is required")
+	}
+	if tgt == "" {
+		tgt = "main"
+	}
+	if src == tgt {
+		return domain.DeliveryMR{}, fmt.Errorf("源分支与目标分支不能相同 (%s)", src)
+	}
+	if project == "" {
+		return domain.DeliveryMR{}, errors.New("未配置远端仓库标识")
+	}
+	client, _, err := s.gongfengClientForRemoteProject(project)
+	if err != nil {
+		return domain.DeliveryMR{}, err
+	}
+	_, iid, found, searchErr := s.findOpenBranchMR(client, project, src, tgt)
+	if searchErr != nil {
+		return domain.DeliveryMR{}, searchErr
+	}
+	if !found {
+		createTitle := strings.TrimSpace(title)
+		if createTitle == "" {
+			createTitle = fmt.Sprintf("Webuddy: %s → %s", src, tgt)
+		}
+		createDesc := strings.TrimSpace(description)
+		if createDesc == "" {
+			createDesc = fmt.Sprintf("由 Webuddy 将 `%s` 提请合入 `%s`。", src, tgt)
+		}
+		_, createErr := client.Clone(30*time.Second).CallTool("create_merge_request", map[string]any{
+			"project_id":    project,
+			"source_branch": src,
+			"target_branch": tgt,
+			"title":         createTitle,
+			"description":   createDesc,
+		})
+		_, iid, found, searchErr = s.findOpenBranchMR(client, project, src, tgt)
+		if searchErr != nil {
+			return domain.DeliveryMR{}, searchErr
+		}
+		if !found {
+			if createErr != nil {
+				return domain.DeliveryMR{}, fmt.Errorf("create MR %s → %s: %w", src, tgt, createErr)
+			}
+			return domain.DeliveryMR{}, fmt.Errorf("create_merge_request did not return an id")
+		}
+	}
+	return domain.DeliveryMR{
+		Project: project,
+		IID:     iid,
+		State:   "opened",
+	}, nil
+}
+
 // EnsureAndMergeBranchMR finds or creates a Gongfeng MR from source→target and
 // merges it with a merge commit. The source branch is kept. An empty target
 // only merges an already-open MR for the source (no create). Same source and

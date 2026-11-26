@@ -326,3 +326,199 @@ func (h *codeReviewHandlers) getJob(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, snap)
 }
+
+func buildReviewPREvidenceBody(detail codereview.ReviewDetail) string {
+	r := detail.Review
+	var b strings.Builder
+	b.WriteString("## Webuddy 代码审查与人工签收凭证\n\n")
+	verdictLabel := "待核实 (unknown)"
+	switch r.Verdict {
+	case "pass":
+		verdictLabel = "通过 (pass)"
+	case "fail":
+		verdictLabel = "阻断 (fail · 已人工复核放行)"
+	}
+	fmt.Fprintf(&b, "- **审查结论**：%s\n", verdictLabel)
+	fmt.Fprintf(&b, "- **独立审查**：Writer `%s` ≠ Reviewer `%s`（共 %d 批）\n", r.Writer, r.Reviewer, r.TotalParts)
+	if r.IssueID != "" {
+		fmt.Fprintf(&b, "- **关联需求**：`%s`\n", r.IssueID)
+	}
+	if r.RunID != "" {
+		fmt.Fprintf(&b, "- **关联运行**：`%s`\n", r.RunID)
+	}
+	fmt.Fprintf(&b, "- **Diff SHA256**：`%s`\n", r.DiffSHA256)
+	fmt.Fprintf(&b, "- **凭证指纹 (Binding)**：`%s`\n", r.Binding)
+	for _, fb := range detail.Feedback {
+		if fb.Current {
+			fmt.Fprintf(&b, "- **人工复核签收**：`%s`（耗时 %d 分钟，%s）\n", fb.Actor, fb.Minutes, fb.CreatedAt.UTC().Format(time.RFC3339))
+			if strings.TrimSpace(fb.Note) != "" {
+				fmt.Fprintf(&b, "- **复核说明**：%s\n", strings.TrimSpace(fb.Note))
+			}
+			break
+		}
+	}
+	if len(r.Blocking) > 0 {
+		b.WriteString("\n### 审查阻断项记录\n")
+		for i, item := range r.Blocking {
+			fmt.Fprintf(&b, "%d. %s\n", i+1, item)
+		}
+	}
+	return b.String()
+}
+
+// POST /api/codereview/reviews/:id/deliver-pr
+// Enforces the code-review blocking gate, attaches review + signoff evidence,
+// and creates a remote PR/MR (without auto-merging) or returns patch_only mode
+// for archive/local-only repositories without a configured remote.
+func (h *codeReviewHandlers) deliverPR(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	detail, err := h.svc.GetReview(id)
+	if err != nil {
+		render(c, detail, err)
+		return
+	}
+	pid := strings.TrimSpace(detail.Review.ProjectID)
+	if authRequired() {
+		if pid == "" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "无权操作未归属项目的审查记录"})
+			return
+		}
+		if !h.requireProjectWriter(c, pid) {
+			return
+		}
+	}
+
+	var input struct {
+		SourceBranch string `json:"sourceBranch"`
+		TargetBranch string `json:"targetBranch"`
+		Title        string `json:"title"`
+	}
+	_ = c.ShouldBindJSON(&input)
+
+	hasCurrentSignoff := false
+	for _, fb := range detail.Feedback {
+		if fb.Current {
+			hasCurrentSignoff = true
+			break
+		}
+	}
+	if detail.Review.Verdict == "fail" && !hasCurrentSignoff {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "当前代码审查存在阻断项且尚未完成人工复核签收，已拦截 PR 提交。请先修复阻断项，或在本页提交人工复核反馈后再发起 PR。",
+			"blocked": true,
+		})
+		return
+	}
+
+	desc := buildReviewPREvidenceBody(detail)
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		title = strings.TrimSpace(detail.Review.Title)
+	}
+	if title == "" {
+		title = "Webuddy 交付变更"
+	}
+
+	// Resolve remote project & default target branch from project repositories.
+	remoteProject := ""
+	defaultTarget := strings.TrimSpace(input.TargetBranch)
+	if h.repo != nil && pid != "" {
+		for _, r := range h.repo.Repositories() {
+			if r.ProjectID != pid {
+				continue
+			}
+			if rp := strings.TrimSpace(r.GongfengProjectID); rp != "" {
+				remoteProject = rp
+				if defaultTarget == "" && strings.TrimSpace(r.DefaultBranch) != "" {
+					defaultTarget = strings.TrimSpace(r.DefaultBranch)
+				}
+				break
+			}
+		}
+	}
+
+	// Graceful fallback for local/archive-imported repositories with no remote.
+	if remoteProject == "" || h.sync == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"mode":        "patch_only",
+			"patchUrl":    "/api/codereview/reviews/" + id + "/patch",
+			"description": desc,
+			"message":     "当前项目为本地/压缩包导入仓库（未绑定 GitHub/工蜂远端），已生成带审查与签收凭证的交付 Patch，可直接一键下载交付。",
+		})
+		return
+	}
+
+	srcBranch := strings.TrimSpace(input.SourceBranch)
+	if srcBranch == "" && detail.Review.RunID != "" && h.repo != nil {
+		if run, ok := h.repo.Run(detail.Review.RunID); ok && strings.TrimSpace(run.Repository.WorkBranch) != "" {
+			srcBranch = strings.TrimSpace(run.Repository.WorkBranch)
+		}
+	}
+	if srcBranch == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请填写要提交 PR 的源分支名（例如 feature/...）"})
+		return
+	}
+	if defaultTarget == "" {
+		defaultTarget = "main"
+	}
+
+	mr, err := h.sync.CreateBranchPR(remoteProject, srcBranch, defaultTarget, title, desc)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "创建远端 PR/MR 失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"mode":        "pr_created",
+		"mr":          mr,
+		"description": desc,
+		"message":     "已创建 PR/MR（未自动合并），并附带 Webuddy 代码审查与人工签收凭证。",
+	})
+}
+
+// GET /api/codereview/reviews/:id/patch
+// Exports a tamper-evident .patch artifact with review + human signoff metadata
+// so local/archive-imported repos without a remote still have a complete delivery handoff.
+func (h *codeReviewHandlers) exportPatch(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	detail, err := h.svc.GetReview(id)
+	if err != nil {
+		render(c, detail, err)
+		return
+	}
+	if authRequired() {
+		if detail.Review.ProjectID == "" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "无权导出未归属项目的审查 Patch"})
+			return
+		}
+		if !h.requireProjectReader(c, detail.Review.ProjectID) {
+			return
+		}
+	}
+	var b strings.Builder
+	b.WriteString("# Webuddy Delivery Patch\n")
+	fmt.Fprintf(&b, "# Review-ID: %s\n", detail.Review.ID)
+	fmt.Fprintf(&b, "# Verdict: %s\n", detail.Review.Verdict)
+	fmt.Fprintf(&b, "# Writer: %s | Reviewer: %s\n", detail.Review.Writer, detail.Review.Reviewer)
+	fmt.Fprintf(&b, "# Diff-SHA256: %s\n", detail.Review.DiffSHA256)
+	fmt.Fprintf(&b, "# Binding-Fingerprint: %s\n", detail.Review.Binding)
+	for _, fb := range detail.Feedback {
+		if fb.Current {
+			fmt.Fprintf(&b, "# Human-Signoff: %s (%s) - %s\n", fb.Actor, fb.CreatedAt.UTC().Format(time.RFC3339), strings.ReplaceAll(strings.TrimSpace(fb.Note), "\n", " "))
+			break
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(detail.Review.DiffPreview)
+	if !strings.HasSuffix(detail.Review.DiffPreview, "\n") {
+		b.WriteString("\n")
+	}
+
+	safeID := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '_'
+	}, detail.Review.ID)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="webuddy-review-%s.patch"`, safeID))
+	c.Data(http.StatusOK, "text/x-patch; charset=utf-8", []byte(b.String()))
+}

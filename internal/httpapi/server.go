@@ -551,6 +551,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/codereview/jobs/:jobId", api.codeReview.getJob)
 	g.GET("/api/codereview/reviews/:id", api.codeReview.get)
 	g.POST("/api/codereview/reviews/:id/feedback", api.codeReview.saveFeedback)
+	g.POST("/api/codereview/reviews/:id/deliver-pr", api.codeReview.deliverPR)
+	g.GET("/api/codereview/reviews/:id/patch", api.codeReview.exportPatch)
 	g.GET("/api/codereview/summary", api.codeReview.summary)
 
 	// --- webuddy knowledge base & code graph ---

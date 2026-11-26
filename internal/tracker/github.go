@@ -210,6 +210,36 @@ func (s *Service) githubFindBranch(project, branch string) (domain.DeliveryMR, b
 	return p.delivery(project), true, nil
 }
 
+func (s *Service) githubCreateBranchPR(project, branch, target, title, description string) (domain.DeliveryMR, error) {
+	if strings.TrimSpace(branch) == "" {
+		return domain.DeliveryMR{}, fmt.Errorf("source branch is required")
+	}
+	if strings.TrimSpace(target) == "" {
+		target = "main"
+	}
+	if branch == target {
+		return domain.DeliveryMR{}, fmt.Errorf("源分支与目标分支不能相同 (%s)", branch)
+	}
+	g, err := s.githubClient(project)
+	if err != nil {
+		return domain.DeliveryMR{}, err
+	}
+	p, found, err := g.findPull(branch, target)
+	if err != nil {
+		return domain.DeliveryMR{}, err
+	}
+	if found && p.State != "closed" {
+		return p.delivery(project), nil
+	}
+	if strings.TrimSpace(title) == "" {
+		title = "Webuddy: " + branch + " → " + target
+	}
+	if err := g.request("POST", "/pulls", map[string]any{"head": branch, "base": target, "title": title, "body": description}, &p); err != nil {
+		return domain.DeliveryMR{}, err
+	}
+	return p.delivery(project), nil
+}
+
 func (s *Service) githubMergeBranch(project, branch, target, title, description string) (string, error) {
 	if branch == "" {
 		return "", fmt.Errorf("source branch is required")

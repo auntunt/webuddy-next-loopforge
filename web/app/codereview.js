@@ -665,6 +665,8 @@
         : '') +
       (r.issueId ? '<button type="button" class="button ghost small" id="wbCrOpenIssue">打开关联需求</button>' : '') +
       (targetRunId ? '<button type="button" class="button ghost small" id="wbCrOpenRun">打开关联运行</button>' : '') +
+      '<button type="button" class="button ' + (r.verdict === 'pass' || hasCurrentFb ? 'primary' : 'ghost') + ' small" id="wbCrDeliverPR">🚀 发起 PR / MR</button>' +
+      '<a class="button ghost small" href="/api/codereview/reviews/' + encodeURIComponent(r.id) + '/patch" download style="text-decoration:none">📦 导出交付 Patch</a>' +
       '<button type="button" class="button ghost small" id="wbCrPublishSharedKB">📚 沉淀为团队共享知识</button>';
 
     const currentFb = feedbacks.find(fb => fb.current);
@@ -943,6 +945,46 @@
         }
       });
     }
+
+    root.querySelector('#wbCrDeliverPR')?.addEventListener('click', async e => {
+      const btn = e.currentTarget;
+      const rev = crState.detail && crState.detail.review;
+      if (!rev) return;
+      const srcBranch = (crState.linkedRun && crState.linkedRun.repository && crState.linkedRun.repository.workBranch) || '';
+      btn.disabled = true;
+      const origText = btn.textContent;
+      btn.textContent = '提交中…';
+      try {
+        const res = await reqJSON('/api/codereview/reviews/' + encodeURIComponent(rev.id) + '/deliver-pr', {
+          method: 'POST',
+          body: JSON.stringify({ sourceBranch: srcBranch, title: rev.title }),
+        });
+        if (res.mode === 'pr_created') {
+          const url = res.mr && res.mr.url;
+          notify('✅ ' + (res.message || 'PR/MR 已创建') + (url ? '：' + url : ''));
+          if (url) window.open(url, '_blank', 'noopener,noreferrer');
+        } else if (res.mode === 'patch_only') {
+          notify('📦 ' + (res.message || '本地仓库已切换为交付 Patch 下载'));
+          if (res.patchUrl) {
+            const a = document.createElement('a');
+            a.href = res.patchUrl;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          }
+        }
+      } catch (err) {
+        notify('⛔ ' + (err.message || '发起 PR/MR 失败'));
+        const fb = root.querySelector('#wbFeedbackForm');
+        if (fb && String(err.message || '').includes('人工复核')) {
+          fb.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+    });
 
     root.querySelector('#wbCrCopyFixGuide')?.addEventListener('click', () => {
       const r = crState.detail && crState.detail.review;
