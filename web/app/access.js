@@ -29,7 +29,7 @@ function getPublicBaseURL(){
 // 保留 http，因为把只提供 HTTP 的端口改成 https:// 会指向一个没有 TLS 的端口。
 function accessPublicBaseURL(configured, page){
   const secure = page?.protocol === 'https:';
-  const fallback = (secure ? 'https:' : 'http:') + '//' + (page?.host || 'loopforge.example.com');
+  const fallback = (secure ? 'https:' : 'http:') + '//' + (page?.host || 'webuddy.example.com');
   const raw = String(configured || '').trim();
   if(!raw) return fallback;
   const explicitScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw);
