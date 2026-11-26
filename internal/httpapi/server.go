@@ -184,8 +184,11 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 			projName = p.Name
 		}
 		tid := defaultTenantStore.projectTenant(pid)
-		// 1. Auto-harvest any knowledge.md artifact from this SOP run into the Tenant Shared KB!
-		for _, art := range settled.Artifacts {
+		// 1. Auto-harvest the latest non-empty knowledge.md artifact from this SOP run
+		// into the Tenant Shared KB (deduplicated to 1 entry per run).
+		var latestKnowledge *domain.Artifact
+		for i := range settled.Artifacts {
+			art := settled.Artifacts[i]
 			ap := strings.TrimSpace(art.Path)
 			if ap != domain.KnowledgeArtifactBasename && !strings.HasSuffix(ap, "/"+domain.KnowledgeArtifactBasename) && strings.TrimSpace(art.Name) != domain.KnowledgeArtifactBasename {
 				continue
@@ -193,12 +196,23 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 			if strings.TrimSpace(art.Content) == "" {
 				continue
 			}
-			title, summary, _, body := parseKBMdFrontmatter(art.Content, "")
-			if title == "" {
+			cp := art
+			latestKnowledge = &cp
+		}
+		if latestKnowledge != nil {
+			title, summary, _, body := parseKBMdFrontmatter(latestKnowledge.Content, "")
+			tl := strings.ToLower(strings.TrimSpace(title))
+			if tl == "" || tl == "knowledge" || tl == "knowledge.md" || tl == "知识沉淀" || tl == "经验总结" {
+				topic := strings.TrimSpace(settled.WorkflowSnapshot.Name)
+				if settled.ExecutionContext.IssueID != "" {
+					if iss, ok := s.Issue(settled.ExecutionContext.IssueID); ok && strings.TrimSpace(iss.Title) != "" {
+						topic = strings.TrimSpace(iss.Title)
+					}
+				}
 				if settled.Status == "failed" {
-					title = "SOP 踩坑沉淀：" + strings.TrimSpace(settled.WorkflowSnapshot.Name)
+					title = "SOP 踩坑沉淀：" + topic
 				} else {
-					title = "SOP 交付沉淀：" + strings.TrimSpace(settled.WorkflowSnapshot.Name)
+					title = "SOP 交付沉淀：" + topic
 				}
 			}
 			if summary == "" {
@@ -221,7 +235,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 				SourceType:        "sop_lesson",
 				SourceProjectID:   pid,
 				SourceProjectName: projName,
-				SourceRelPath:     "runs/" + settled.ID + "/" + art.NodeID + "/knowledge.md",
+				SourceRelPath:     "runs/" + settled.ID + "/knowledge.md",
 				Tags:              tags,
 				Author:            "SOP自动沉淀",
 			})

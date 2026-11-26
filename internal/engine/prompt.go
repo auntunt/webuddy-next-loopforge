@@ -93,6 +93,9 @@ func applyPromptPlaceholders(st *repo.Store, wf domain.WorkflowDefinition, node 
 	if boundary := stageBoundaryDirective(wf, node); boundary != "" {
 		prompt += "\n\n" + boundary + "\n"
 	}
+	if archiveMR := archiveMRDeliveryDirective(run, node); archiveMR != "" {
+		prompt += "\n\n" + archiveMR + "\n"
+	}
 	return prompt
 }
 
@@ -125,6 +128,27 @@ func stageBoundaryDirective(wf domain.WorkflowDefinition, node domain.WorkflowNo
 		return ""
 	}
 	return "## 阶段职责边界（强制）\n\n本节点为「只读规划与方案设计阶段」，下游已有独立的代码实现与测试验证节点：\n- 严禁修改仓库中的任何业务源代码文件或创建代码 git commit；\n- 严禁在本节点因测试未运行或外部依赖问题提交 `fail` 终止整条流水线；\n- 只需阅读仓库代码与上下文，在工作区根目录产出本节点声明的文档/报告后，调用 `submit_gate_result` 提交 `pass` 推进下游实现节点。"
+}
+
+func archiveMRDeliveryDirective(run domain.Run, node domain.WorkflowNode) string {
+	idLower := strings.ToLower(strings.TrimSpace(node.ID))
+	nameLower := strings.ToLower(strings.TrimSpace(node.Name))
+	isMRNode := idLower == "mr" || idLower == "create-mr" || idLower == "pr" ||
+		strings.Contains(nameLower, "发起 mr") || strings.Contains(nameLower, "创建 mr") ||
+		strings.Contains(nameLower, "合并请求")
+	if !isMRNode {
+		return ""
+	}
+	repos := run.RepositoryContexts()
+	if len(repos) == 0 {
+		return ""
+	}
+	for _, rc := range repos {
+		if strings.TrimSpace(rc.CloneURL) != "" || (rc.Provider != "archive" && rc.Provider != "local") {
+			return ""
+		}
+	}
+	return "## 本地归档仓交付指引（强制）\n\n当前项目绑定的是本地压缩包/目录归档仓库（无远端 GitHub/GitLab/工蜂托管平台，且 `origin` 指向宿主机只读归档目录）：\n- 无需执行 `git push` 或调用远端托管平台 MR/PR API，不要因缺少远端托管平台而提交 `fail`；\n- 请核对工作区仓库当前工作分支的提交记录（`git log -1`）与变更统计（`git diff --stat`），确认改动已真实提交且工作区干净；\n- 按契约在工作区根目录产出 `mr-body.md` 与 `mr-report.md`（注明「本地归档仓交付：已提交至本地工作分支，可通过 Webuddy 代码审查与 Patch 补丁导出完成人工合入」），然后调用 `submit_gate_result` 提交 `pass` 推进下游交付汇总节点。"
 }
 
 // promptRepositoryLine renders the {{repository}} placeholder value for the

@@ -41,6 +41,11 @@ func (e *Engine) verifyRunMRs(run domain.Run, gitToken string, pending func(doma
 	var problems []string
 	unverifiable := false
 	for _, rc := range run.RepositoryContexts() {
+		if strings.TrimSpace(rc.CloneURL) == "" && (rc.Provider == "archive" || rc.Provider == "local") {
+			// Local archive/folder repositories have no remote hosting platform;
+			// local work-branch commits + patch artifacts satisfy delivery.
+			continue
+		}
 		work := writableWorkBranch(rc)
 		if work == "" {
 			continue
@@ -56,11 +61,6 @@ func (e *Engine) verifyRunMRs(run domain.Run, gitToken string, pending func(doma
 			continue
 		}
 		if pushed.Ahead == 0 {
-			continue
-		}
-		if strings.TrimSpace(rc.CloneURL) == "" && (rc.Provider == "archive" || rc.Provider == "local") {
-			// Local archive/folder repositories have no remote hosting platform;
-			// pushing the work branch to the local repository satisfies delivery.
 			continue
 		}
 		project := strings.TrimSpace(rc.GongfengProjectID)
