@@ -473,15 +473,25 @@ type RunAutomatedReviewInput struct {
 	Writer     string `json:"writer"`
 	Reviewer   string `json:"reviewer"` // codex | claude | codebuddy | opencode
 	Model      string `json:"model"`
+	Async      bool   `json:"async,omitempty"`
 }
 
+// ProgressFunc receives live batch progress updates during automated review.
+type ProgressFunc func(completed, total int, currentHeader string)
+
 // RunAutomatedReview executes Webuddy's exact batched independent diff review loop:
-//   - splits complete diff into 14k parts (never dropping a character)
+//   - packs complete diff into 14k parts (never dropping a character)
 //   - calls independent reviewer CLI per batch
 //   - verifies git HEAD did not mutate mid-review (same_base)
 //   - detects binary patches and uncovered batches
 //   - aggregates blocking/advisory/AC/scope/verdict and persists tamper-evident Binding
 func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedReviewInput, actor string, diagnoser BatchDiagnoser) (domain.CodeReviewRecord, error) {
+	return s.RunAutomatedReviewWithProgress(ctx, input, actor, diagnoser, nil)
+}
+
+// RunAutomatedReviewWithProgress executes an automated review and emits live
+// batch progress updates via onProgress.
+func (s *Service) RunAutomatedReviewWithProgress(ctx context.Context, input RunAutomatedReviewInput, actor string, diagnoser BatchDiagnoser, onProgress ProgressFunc) (domain.CodeReviewRecord, error) {
 	if diagnoser == nil {
 		diagnoser = NewCLIExecutor()
 	}
@@ -529,10 +539,21 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 				return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "无法解析基准提交: "+err.Error())
 			}
 		}
+		excludeLockfiles := []string{
+			"--", ".",
+			":!package-lock.json", ":!**/package-lock.json",
+			":!pnpm-lock.yaml", ":!**/pnpm-lock.yaml",
+			":!yarn.lock", ":!**/yarn.lock",
+			":!go.sum", ":!**/go.sum",
+			":!Cargo.lock", ":!**/Cargo.lock",
+			":!poetry.lock", ":!**/poetry.lock",
+		}
 		if baseCommit == gitEmptyTreeHash {
-			diff, err = gitOutputRaw(ctx, repoPath, "diff", gitEmptyTreeHash, headCommit)
+			args := append([]string{"diff", gitEmptyTreeHash, headCommit}, excludeLockfiles...)
+			diff, err = gitOutputRaw(ctx, repoPath, args...)
 		} else {
-			diff, err = gitOutputRaw(ctx, repoPath, "diff", baseCommit+".."+headCommit)
+			args := append([]string{"diff", baseCommit + ".." + headCommit}, excludeLockfiles...)
+			diff, err = gitOutputRaw(ctx, repoPath, args...)
 		}
 		if err != nil {
 			return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "获取 git diff 失败: "+err.Error())
@@ -543,7 +564,7 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 		return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "请提供 Unified Diff 或指定有改动的本地 Git 仓库")
 	}
 
-	batches := SplitDiffParts(diff, PartSize)
+	batches := PackDiffParts(diff, PartSize)
 	binary := DetectBinary(diff)
 
 	parts := make([]domain.CodeReviewPart, 0, len(batches))
@@ -552,6 +573,9 @@ func (s *Service) RunAutomatedReview(ctx context.Context, input RunAutomatedRevi
 	failedReason := ""
 
 	for i, b := range batches {
+		if onProgress != nil {
+			onProgress(i, len(batches), shortDiffHeader(b.Header))
+		}
 		prompt := BuildBatchPrompt(i+1, len(batches), b.Header, b.Text)
 		diag, err := diagnoser.DiagnoseBatch(ctx, BatchRequest{
 			Index:    i + 1,

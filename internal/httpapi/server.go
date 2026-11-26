@@ -548,6 +548,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/codereview/reviews", api.codeReview.list)
 	g.POST("/api/codereview/reviews", api.codeReview.create)
 	g.POST("/api/codereview/reviews/run", api.codeReview.runAutomated)
+	g.GET("/api/codereview/jobs/:jobId", api.codeReview.getJob)
 	g.GET("/api/codereview/reviews/:id", api.codeReview.get)
 	g.POST("/api/codereview/reviews/:id/feedback", api.codeReview.saveFeedback)
 	g.GET("/api/codereview/summary", api.codeReview.summary)

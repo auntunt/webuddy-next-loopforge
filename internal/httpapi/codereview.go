@@ -1,11 +1,15 @@
 package httpapi
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"agentflow/internal/codereview"
 	"agentflow/internal/domain"
@@ -13,12 +17,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type codeReviewJob struct {
+	ID               string                   `json:"jobId"`
+	ProjectID        string                   `json:"projectId"`
+	Status           string                   `json:"status"` // running | succeeded | failed
+	CompletedBatches int                      `json:"completedBatches"`
+	TotalBatches     int                      `json:"totalBatches"`
+	CurrentHeader    string                   `json:"currentHeader"`
+	StartedAt        time.Time                `json:"startedAt"`
+	ElapsedSec       int                      `json:"elapsedSec"`
+	Review           *domain.CodeReviewRecord `json:"review,omitempty"`
+	Error            string                   `json:"error,omitempty"`
+}
+
 // codeReviewHandlers exposes Webuddy's Complete Diff Code Review + Human Feedback
 // endpoints over HTTP.
 type codeReviewHandlers struct {
 	*deps
 	svc       *codereview.Service
 	diagnoser codereview.BatchDiagnoser
+	jobsMu    sync.Mutex
+	jobs      map[string]*codeReviewJob
 }
 
 func (h *codeReviewHandlers) actor(r *http.Request) (string, bool) {
@@ -230,6 +249,79 @@ func (h *codeReviewHandlers) runAutomated(c *gin.Context) {
 	if actor == "" {
 		actor = "anonymous"
 	}
+	if input.Async || c.Query("async") == "1" {
+		jobID := fmt.Sprintf("crjob-%d", time.Now().UnixNano())
+		job := &codeReviewJob{
+			ID:            jobID,
+			ProjectID:     pid,
+			Status:        "running",
+			CurrentHeader: "正在读取仓库 Diff 与智能分批打包…",
+			StartedAt:     time.Now().UTC(),
+		}
+		h.jobsMu.Lock()
+		if h.jobs == nil {
+			h.jobs = make(map[string]*codeReviewJob)
+		}
+		// Keep memory bounded to recent jobs.
+		if len(h.jobs) > 100 {
+			cutoff := time.Now().Add(-2 * time.Hour)
+			for k, v := range h.jobs {
+				if v.Status != "running" && v.StartedAt.Before(cutoff) {
+					delete(h.jobs, k)
+				}
+			}
+		}
+		h.jobs[jobID] = job
+		h.jobsMu.Unlock()
+
+		go func(in codereview.RunAutomatedReviewInput, act string, j *codeReviewJob) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+			defer cancel()
+			rec, err := h.svc.RunAutomatedReviewWithProgress(ctx, in, act, h.diagnoser, func(completed, total int, header string) {
+				h.jobsMu.Lock()
+				j.CompletedBatches = completed
+				j.TotalBatches = total
+				j.CurrentHeader = header
+				h.jobsMu.Unlock()
+			})
+			h.jobsMu.Lock()
+			defer h.jobsMu.Unlock()
+			if err != nil {
+				j.Status = "failed"
+				j.Error = err.Error()
+				return
+			}
+			j.Status = "succeeded"
+			j.CompletedBatches = rec.TotalParts
+			j.TotalBatches = rec.TotalParts
+			j.CurrentHeader = "审查完成"
+			cp := rec
+			j.Review = &cp
+		}(input, actor, job)
+
+		c.JSON(http.StatusAccepted, job)
+		return
+	}
 	rec, err := h.svc.RunAutomatedReview(c.Request.Context(), input, actor, h.diagnoser)
 	render(c, rec, err)
+}
+
+// GET /api/codereview/jobs/:jobId
+func (h *codeReviewHandlers) getJob(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("jobId"))
+	h.jobsMu.Lock()
+	j, ok := h.jobs[id]
+	if !ok {
+		h.jobsMu.Unlock()
+		c.JSON(http.StatusNotFound, gin.H{"error": "审查任务不存在或已过期"})
+		return
+	}
+	snap := *j
+	snap.ElapsedSec = int(time.Since(j.StartedAt).Seconds())
+	h.jobsMu.Unlock()
+
+	if authRequired() && snap.ProjectID != "" && !h.requireProjectReader(c, snap.ProjectID) {
+		return
+	}
+	c.JSON(http.StatusOK, snap)
 }

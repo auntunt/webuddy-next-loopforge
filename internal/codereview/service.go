@@ -76,6 +76,89 @@ func SplitDiffParts(diff string, partSize int) []DiffPart {
 	return out
 }
 
+// PackDiffParts splits a unified diff by file boundaries and packs consecutive
+// small files into batches up to partSize runes, preserving every character
+// while dramatically reducing per-file CLI round-trips.
+func PackDiffParts(diff string, partSize int) []DiffPart {
+	if partSize <= 0 {
+		partSize = PartSize
+	}
+	if diff == "" {
+		return nil
+	}
+	blocks := splitByDiffGit(diff)
+	var out []DiffPart
+
+	var buf strings.Builder
+	bufRunes := 0
+	var headers []string
+
+	flush := func() {
+		if buf.Len() == 0 {
+			return
+		}
+		chunk := buf.String()
+		hdr := ""
+		if len(headers) == 1 {
+			hdr = headers[0]
+		} else if len(headers) > 1 {
+			hdr = fmt.Sprintf("%s 等 %d 个文件", shortDiffHeader(headers[0]), len(headers))
+		}
+		out = append(out, DiffPart{
+			Header: hdr,
+			Text:   chunk,
+			SHA256: sha256Hex(chunk),
+		})
+		buf.Reset()
+		bufRunes = 0
+		headers = nil
+	}
+
+	for _, block := range blocks {
+		if block == "" {
+			continue
+		}
+		header := block
+		if idx := strings.IndexByte(block, '\n'); idx >= 0 {
+			header = block[:idx]
+		}
+		runes := []rune(block)
+		if len(runes) <= partSize {
+			if bufRunes > 0 && bufRunes+len(runes) > partSize {
+				flush()
+			}
+			buf.WriteString(block)
+			bufRunes += len(runes)
+			headers = append(headers, header)
+			continue
+		}
+		// Large single file: flush pending small files first, then split by partSize.
+		flush()
+		for start := 0; start < len(runes); start += partSize {
+			end := start + partSize
+			if end > len(runes) {
+				end = len(runes)
+			}
+			chunk := string(runes[start:end])
+			out = append(out, DiffPart{
+				Header: header,
+				Text:   chunk,
+				SHA256: sha256Hex(chunk),
+			})
+		}
+	}
+	flush()
+	return out
+}
+
+func shortDiffHeader(header string) string {
+	h := strings.TrimPrefix(strings.TrimSpace(header), "diff --git ")
+	if idx := strings.Index(h, " b/"); idx >= 0 {
+		return h[idx+3:]
+	}
+	return h
+}
+
 func splitByDiffGit(diff string) []string {
 	const marker = "diff --git "
 	var blocks []string

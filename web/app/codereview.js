@@ -37,6 +37,7 @@
     draftsByProject: {},
     submitError: '',
     runningAI: false,
+    activeJob: null,
     loading: false,
   };
 
@@ -344,6 +345,20 @@
           '<button type="button" class="button ghost small" id="wbCancelCreateReview">关闭</button>' +
         '</div>' +
         (crState.submitError ? '<div class="wb-finding-card" style="margin-bottom:10px;border-color:rgba(239,68,68,0.4);background:rgba(239,68,68,0.06);max-width:100%;box-sizing:border-box;"><div style="color:#dc2626;font-size:12.5px;line-height:1.5;white-space:normal;word-break:break-word;overflow-wrap:anywhere;"><strong>审查失败：</strong>' + esc(crState.submitError) + '</div></div>' : '') +
+        (crState.runningAI && crState.activeJob ? (function () {
+          const j = crState.activeJob;
+          const total = j.totalBatches || 0;
+          const done = j.completedBatches || 0;
+          const pct = total > 0 ? Math.min(99, Math.max(5, Math.round((done / total) * 100))) : 8;
+          const label = total > 0 ? ('正在审查第 ' + Math.min(done + 1, total) + ' / ' + total + ' 批') : '正在读取 Diff 并打包分批…';
+          return (
+            '<div class="wb-finding-card" style="margin-bottom:10px;border-color:rgba(59,130,246,0.35);background:rgba(59,130,246,0.05)">' +
+              '<div class="wb-item-top" style="margin-bottom:6px"><strong style="color:#1d4ed8;font-size:13px">⚡ ' + esc(label) + '</strong><span class="wb-meta" style="margin:0">已耗时 ' + (j.elapsedSec || 0) + 's</span></div>' +
+              '<div style="height:6px;border-radius:999px;background:rgba(59,130,246,0.14);overflow:hidden;margin-bottom:6px"><div style="height:100%;width:' + pct + '%;background:#2563eb;transition:width 0.35s ease"></div></div>' +
+              '<div style="font-size:12px;color:var(--muted,#6b7280);white-space:normal;word-break:break-word">' + esc(j.currentHeader || '准备中…') + '</div>' +
+            '</div>'
+          );
+        })() : '') +
         '<form id="wbCreateReviewForm" class="wb-form">' +
           '<div class="wb-toolbar" style="gap:8px;flex-wrap:wrap">' +
             '<select name="repoPath" id="wbCrRepoSelect" style="flex:1;min-width:200px">' +
@@ -833,21 +848,43 @@
             headRef: !isPasteOnly && crState.gitRefs.isGit ? d.headRef : '',
             diff: d.diff,
           };
-          if (!isAuto) {
+          if (isAuto) {
+            payload.async = true;
+          } else {
             payload.blocking = lines(d.blocking);
             payload.advisory = lines(d.advisory);
           }
-          const created = await reqJSON(url, {
+          const resp = await reqJSON(url, {
             method: 'POST',
             body: JSON.stringify(payload),
           });
+          let created = resp;
+          if (isAuto && resp && resp.jobId) {
+            crState.activeJob = resp;
+            render();
+            while (true) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const st = await reqJSON('/api/codereview/jobs/' + encodeURIComponent(resp.jobId));
+              crState.activeJob = st;
+              if (st.status === 'succeeded' && st.review) {
+                created = st.review;
+                break;
+              }
+              if (st.status === 'failed') {
+                throw new Error(st.error || 'AI 审查执行失败');
+              }
+              render();
+            }
+          }
           notify('审查完成（' + created.verdict + '），共 ' + created.totalParts + ' 批');
           resetDraft();
+          crState.activeJob = null;
           crState.showCreate = false;
           crState.selectedId = created.id;
           await loadCodeReviewView();
         } catch (err) {
           crState.submitError = err.message;
+          crState.activeJob = null;
           notify(err.message);
         } finally {
           crState.runningAI = false;

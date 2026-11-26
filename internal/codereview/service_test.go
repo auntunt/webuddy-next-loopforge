@@ -168,8 +168,9 @@ func TestRunAutomatedReviewBatchedAggregation(t *testing.T) {
 	}
 	defer store.Close()
 	svc := codereview.NewService(store, func() string { return "auto-1" })
-	diff := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n+func a() {}\n" +
-		"diff --git a/b.go b/b.go\n--- a/b.go\n+++ b/b.go\n@@ -1 +1 @@\n+func b() {}\n"
+	pad := strings.Repeat("// pad-line\n", 700)
+	diff := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n+func a() {}\n+" + pad +
+		"diff --git a/b.go b/b.go\n--- a/b.go\n+++ b/b.go\n@@ -1 +1 @@\n+func b() {}\n+" + pad
 
 	diag := &fakeDiagnoser{}
 	rec, err := svc.RunAutomatedReview(context.Background(), codereview.RunAutomatedReviewInput{
