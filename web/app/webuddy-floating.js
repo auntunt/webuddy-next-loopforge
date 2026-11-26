@@ -170,11 +170,11 @@
         const nextRunning = new Set();
         taskRes.tasks.forEach(t => {
           if (t.status === 'running') nextRunning.add(t.id);
-          if (t.status === 'done' && fState.lastRunningIds.has(t.id) && t.kind === 'kb_update') {
-            window.dispatchEvent(new CustomEvent('webuddy:kb-updated', { detail: { projectId: t.projectId, status: 'done' } }));
+          if ((t.status === 'done' || t.status === 'error') && fState.lastRunningIds.has(t.id) && t.kind === 'kb_update') {
+            window.dispatchEvent(new CustomEvent('webuddy:kb-updated', { detail: { projectId: t.projectId, status: t.status, error: t.error || '' } }));
             const frame = document.getElementById('collaborationFrame') || document.querySelector('iframe[src*="native-chat"]');
             try {
-              frame?.contentWindow?.postMessage({ type: 'webuddy-kb-updated', projectId: t.projectId }, location.origin);
+              frame?.contentWindow?.postMessage({ type: 'webuddy-kb-updated', projectId: t.projectId, status: t.status, error: t.error || '' }, location.origin);
             } catch (_) {}
           }
         });

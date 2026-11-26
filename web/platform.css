@@ -2212,7 +2212,7 @@ html[data-theme="light"] body{color-scheme:light}html[data-theme="light"] .platf
 .confirm-modal-footer .button.danger-btn:hover{background:#be123c;border-color:#be123c}
 
 /* ================= 堆叠式 Toast 通知系统 ================= */
-.toast-container{position:fixed;top:20px;right:24px;z-index:99999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.toast-container{position:fixed;top:68px;right:24px;z-index:99999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
 .toast-item{pointer-events:auto;min-width:260px;max-width:400px;padding:11px 10px 11px 14px;border-radius:10px;background:var(--hui-surface);border:1px solid var(--hui-border);box-shadow:var(--hui-popover-shadow);display:flex;align-items:center;gap:10px;font:500 13px/1.45 var(--hui-sans);color:var(--hui-text);animation:toastItemIn .2s cubic-bezier(0.16, 1, 0.3, 1);transition:all .2s ease}
 .toast-item.leaving{opacity:0;transform:translateY(-8px) scale(0.96)}
 @keyframes toastItemIn{from{opacity:0;transform:translateY(-10px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}

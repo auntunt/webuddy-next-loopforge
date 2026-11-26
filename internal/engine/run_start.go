@@ -3,7 +3,11 @@ package engine
 import (
 	"agentflow/internal/domain"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"time"
 )
@@ -114,7 +118,7 @@ func (e *Engine) startWorkflowDefinition(wf domain.WorkflowDefinition, input str
 	if err != nil {
 		return domain.Run{}, err
 	}
-	e.selectSOPExecutionTarget(&executionContext)
+	e.selectSOPExecutionTarget(&executionContext, repositories...)
 	wf.ExecutorDefaults = nil
 	if executionContext.ResponsibleUserID > 0 {
 		wf.ExecutorDefaults, _, err = e.planSOPExecutors(wf, executionContext, false)
@@ -202,10 +206,23 @@ func (e *Engine) startWorkflowDefinition(wf domain.WorkflowDefinition, input str
 	return r, nil
 }
 
-func (e *Engine) selectSOPExecutionTarget(executionContext *domain.TelemetryContext) {
+func (e *Engine) selectSOPExecutionTarget(executionContext *domain.TelemetryContext, repositories ...domain.RepositoryContext) {
 	if executionContext.ParentRunID == "" && !executionContext.ExecutionPinned {
 		executionContext.ExecutionRunnerID = e.repo.DefaultRunner(executionContext.ResponsibleUserID)
 		executionContext.WorkspaceRunID = ""
+	}
+	// Archive / local-path-only repositories live on the control-plane host disk
+	// (e.g. /opt/webuddy-loopforge/uploaded-repos/<slug>) and cannot be cloned from
+	// a remote laptop/WSL runner. Route them to the co-located host runner (if online)
+	// or directly to control-plane cloud mode.
+	if !executionContext.ExecutionPinned && hasControlPlaneHostedLocalRepo(repositories) {
+		if hostRunnerID := e.coLocatedHostRunnerID(); hostRunnerID != "" {
+			executionContext.ExecutionRunnerID = hostRunnerID
+		} else if executionContext.ExecutionRunnerID != "" {
+			if runner, ok := e.repo.Runner(executionContext.ExecutionRunnerID); !ok || runner.Status != domain.RunnerStatusOnline || isRemoteNonHostRunner(runner) {
+				executionContext.ExecutionRunnerID = ""
+			}
+		}
 	}
 	if executionContext.ExecutionRunnerID == "" && !executionContext.ExecutionPinned {
 		if runner, ok := e.cloudPoolRunner(executionContext.ProjectID); ok {
@@ -222,6 +239,61 @@ func (e *Engine) selectSOPExecutionTarget(executionContext *domain.TelemetryCont
 	} else {
 		executionContext.ExecutionMode = domain.ExecutionModeCloud
 	}
+}
+
+func hasControlPlaneHostedLocalRepo(repositories []domain.RepositoryContext) bool {
+	for _, rc := range repositories {
+		if strings.TrimSpace(rc.CloneURL) != "" {
+			continue
+		}
+		lp := strings.TrimSpace(rc.LocalPath)
+		if lp == "" {
+			continue
+		}
+		isHostedProvider := rc.Provider == "archive" || rc.Provider == "local" || strings.Contains(filepath.ToSlash(lp), "/uploaded-repos/")
+		if !isHostedProvider {
+			continue
+		}
+		if info, err := os.Stat(lp); err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func isRemoteNonHostRunner(r domain.Runner) bool {
+	if r.OS != "" && r.OS != goruntime.GOOS {
+		return true
+	}
+	upper := strings.ToUpper(r.Name)
+	return strings.Contains(upper, "WSL") || strings.Contains(upper, "WINDOWS") || strings.Contains(upper, "MAC")
+}
+
+func (e *Engine) coLocatedHostRunnerID() string {
+	if envID := strings.TrimSpace(os.Getenv("AGENTFLOW_LOCAL_RUNNER_ID")); envID != "" {
+		if r, ok := e.repo.Runner(envID); ok && r.Status == domain.RunnerStatusOnline {
+			return r.ID
+		}
+	}
+	if raw, err := os.ReadFile("runner-state.json"); err == nil {
+		var st struct {
+			RunnerID string `json:"runnerId"`
+		}
+		if json.Unmarshal(raw, &st) == nil && strings.TrimSpace(st.RunnerID) != "" {
+			if r, ok := e.repo.Runner(strings.TrimSpace(st.RunnerID)); ok && r.Status == domain.RunnerStatusOnline {
+				return r.ID
+			}
+		}
+	}
+	for _, r := range e.repo.Runners() {
+		if r.Status != domain.RunnerStatusOnline || isRemoteNonHostRunner(r) {
+			continue
+		}
+		if r.OS == goruntime.GOOS && strings.Contains(r.Name, "本机") {
+			return r.ID
+		}
+	}
+	return ""
 }
 
 func (e *Engine) executes() bool {

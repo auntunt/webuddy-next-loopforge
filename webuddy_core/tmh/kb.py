@@ -30,9 +30,12 @@ import hashlib
 import os
 import re
 import tempfile
+import threading
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
+
+_LOCK_LOCAL = threading.local()
 
 from . import activity, kb_structure
 from .config import tmh_dir, load as load_cfg
@@ -102,13 +105,27 @@ def page_kind(pid: str) -> str:
 
 
 class _Lock:
-    """Inter-process lock on the knowledge base. Uses kernel locks where available, so a
-    lock file that cannot be deleted (restricted mounts) never blocks later runs."""
+    """Inter-process and re-entrant thread-local lock on the knowledge base.
+    Uses kernel locks where available, so a lock file that cannot be deleted
+    (restricted mounts) never blocks later runs, while nested acquisitions in
+    the same thread never self-deadlock on a second file description."""
 
     def __init__(self, p: Path):
         self.p = p
+        self._key = str(p.resolve())
+        self._reentrant = False
 
     def __enter__(self):
+        depths = getattr(_LOCK_LOCAL, "depths", None)
+        if depths is None:
+            depths = {}
+            _LOCK_LOCAL.depths = depths
+        cur = depths.get(self._key, 0)
+        if cur > 0:
+            depths[self._key] = cur + 1
+            self._reentrant = True
+            return self
+        self._reentrant = False
         self.p.parent.mkdir(parents=True, exist_ok=True)
         try:
             from .platform import filelock
@@ -128,6 +145,7 @@ class _Lock:
                 for _ in range(1200):
                     try:
                         try_lock(self.fd)
+                        depths[self._key] = 1
                         return self
                     except BlockingIOError:
                         time.sleep(0.05)
@@ -141,6 +159,7 @@ class _Lock:
             try:
                 self.fd = os.open(str(self.p), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 self.excl = True
+                depths[self._key] = 1
                 return self
             except FileExistsError:
                 try:
@@ -152,6 +171,15 @@ class _Lock:
         raise TimeoutError("知识库被占用：%s" % self.p)
 
     def __exit__(self, *a):
+        depths = getattr(_LOCK_LOCAL, "depths", None)
+        if depths is not None:
+            cur = depths.get(self._key, 0)
+            if cur > 1:
+                depths[self._key] = cur - 1
+                return
+            depths.pop(self._key, None)
+        if self._reentrant:
+            return
         os.close(self.fd)
         if getattr(self, "excl", False):
             try:

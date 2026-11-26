@@ -180,7 +180,18 @@ func (e *Engine) SOPExecutorRequirements(wf domain.WorkflowDefinition, userID in
 		return nil, err
 	}
 	ec := domain.TelemetryContext{ResponsibleUserID: userID, ProjectID: projectID}
-	e.selectSOPExecutionTarget(&ec)
+	var projRepos []domain.RepositoryContext
+	if proj, ok := e.repo.Project(projectID); ok && strings.TrimSpace(proj.DefaultRepositoryID) != "" {
+		if r, found := e.repo.Repository(strings.TrimSpace(proj.DefaultRepositoryID)); found {
+			projRepos = append(projRepos, domain.RepositoryContext{
+				RepositoryID: r.ID,
+				Provider:     r.Provider,
+				CloneURL:     r.CloneURL,
+				LocalPath:    r.LocalPath,
+			})
+		}
+	}
+	e.selectSOPExecutionTarget(&ec, projRepos...)
 	_, requirements, err := e.planSOPExecutors(wf, ec, true)
 	return requirements, err
 }

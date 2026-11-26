@@ -882,22 +882,38 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			}
 			if err == nil && submitted == nil {
 				// If the executor exited cleanly and all required artifact contracts are already
-				// present and valid, auto-advance instead of blocking on a missing submit_gate_result call.
+				// present and valid, auto-advance ONLY if no deliverable explicitly reports a blocker/failure.
 				if len(effectiveNode.ArtifactOutputs) > 0 {
 					live, _ := e.repo.RunState(runID)
 					if validateArtifactOutputs(outputs, live, effectiveNode) == nil {
-						submitted = &domain.GateResult{
-							Decision: "pass",
-							Reason:   "执行器未调用 submit_gate_result，但全部必需交付物已通过产物契约校验，自动推进下游",
+						if blocker := detectArtifactBlockerReason(outputs, live, effectiveNode, output); blocker != "" {
+							submitted = &domain.GateResult{
+								Decision:       "human",
+								Reason:         fmt.Sprintf("执行器未调用 submit_gate_result，且节点交付物明确报告受阻或未通过（命中：%s），已拦截假绿放行", blocker),
+								ActionRequired: "请检查当前节点交付物中的受阻原因，修复仓库或环境问题后重试或人工确认",
+							}
+							e.observe(runID, node.ID, domain.TelemetryEvent{
+								Category:   "verification",
+								Name:       "gate.submit.auto_pass_blocked",
+								Phase:      "finish",
+								Level:      "warn",
+								Message:    submitted.Reason,
+								Attributes: map[string]any{"blocker": blocker, "iteration": iteration},
+							})
+						} else {
+							submitted = &domain.GateResult{
+								Decision: "pass",
+								Reason:   "执行器未调用 submit_gate_result，但全部必需交付物已通过产物契约校验，自动推进下游",
+							}
+							e.observe(runID, node.ID, domain.TelemetryEvent{
+								Category:   "verification",
+								Name:       "gate.submit.auto_pass",
+								Phase:      "finish",
+								Level:      "info",
+								Message:    submitted.Reason,
+								Attributes: map[string]any{"contracts": len(effectiveNode.ArtifactOutputs), "iteration": iteration},
+							})
 						}
-						e.observe(runID, node.ID, domain.TelemetryEvent{
-							Category:   "verification",
-							Name:       "gate.submit.auto_pass",
-							Phase:      "finish",
-							Level:      "info",
-							Message:    submitted.Reason,
-							Attributes: map[string]any{"contracts": len(effectiveNode.ArtifactOutputs), "iteration": iteration},
-						})
 					}
 				}
 			}

@@ -105,6 +105,16 @@ func dispatchIssue(d *deps, req dispatchRequest) (domain.Task, error) {
 	if len(repositoryIDs) == 0 {
 		if p, ok := d.repo.Project(issue.ProjectID); ok && strings.TrimSpace(p.DefaultRepositoryID) != "" {
 			repositoryIDs = []string{p.DefaultRepositoryID}
+		} else {
+			var projectRepoIDs []string
+			for _, r := range d.repo.Repositories() {
+				if r.ProjectID == issue.ProjectID {
+					projectRepoIDs = append(projectRepoIDs, r.ID)
+				}
+			}
+			if len(projectRepoIDs) == 1 {
+				repositoryIDs = projectRepoIDs
+			}
 		}
 	}
 	var boundRepositories []domain.Repository
@@ -155,7 +165,11 @@ func dispatchIssue(d *deps, req dispatchRequest) (domain.Task, error) {
 			input += "\n\nRepository context (frozen, multi-repository): every repository below is checked out side by side; treat them as equals"
 		}
 		for _, rc := range repositories {
-			input += fmt.Sprintf("\n- repository: %s (%s)\n  - provider: %s\n  - base branch: %s\n  - clone URL: %s\n  - local directory: ./%s (code changes for this repository MUST be written inside this directory)", rc.Name, rc.GongfengProjectID, rc.Provider, rc.BaseBranch, domain.StripURLCredentials(rc.CloneURL), rc.WorkspaceDir)
+			cloneRef := domain.StripURLCredentials(rc.CloneURL)
+			if strings.TrimSpace(cloneRef) == "" {
+				cloneRef = strings.TrimSpace(rc.LocalPath)
+			}
+			input += fmt.Sprintf("\n- repository: %s (%s)\n  - provider: %s\n  - base branch: %s\n  - clone URL: %s\n  - local directory: ./%s (code changes for this repository MUST be written inside this directory)", rc.Name, rc.GongfengProjectID, rc.Provider, rc.BaseBranch, cloneRef, rc.WorkspaceDir)
 			input += fmt.Sprintf("\n  - merge request target branch: %s", rc.BaseBranch)
 			if rc.RequireExistingWorkBranch {
 				input += fmt.Sprintf("\n  - existing work branch: %s (continue directly on this remote branch; do not create or rename a work branch; fail if the branch does not exist; create or update its MR targeting %s)", rc.WorkBranch, rc.BaseBranch)

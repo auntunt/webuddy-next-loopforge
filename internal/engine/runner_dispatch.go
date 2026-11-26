@@ -210,6 +210,19 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 	}
 	if strings.TrimSpace(options.GateResultPath) != "" {
 		invocation.Artifacts = append(invocation.Artifacts, gateResultContract(options.GateResultPath))
+		if ex.Kind == "codex" {
+			const gateApproveOverride = `mcp_servers.agentflow-gate.default_tools_approval_mode="approve"`
+			hasOverride := false
+			for _, arg := range invocation.Executor.Args {
+				if arg == gateApproveOverride {
+					hasOverride = true
+					break
+				}
+			}
+			if !hasOverride {
+				invocation.Executor.Args = append(append([]string(nil), invocation.Executor.Args...), "-c", gateApproveOverride)
+			}
+		}
 	}
 	if authMode == domain.RuntimeAuthPersonal {
 		switch ex.Kind {
@@ -355,31 +368,39 @@ func bindRunnerRepositories(invocation *domain.RunnerInvocation, run domain.Run,
 	invocation.GitUserName = strings.TrimSpace(gitUserName)
 	invocation.GitUserEmail = strings.TrimSpace(gitUserEmail)
 	invocation.GitHTTPUserID = run.ExecutionContext.ResponsibleUserID
-	if strings.TrimSpace(run.Repository.CloneURL) != "" && len(run.Repositories) == 0 {
+	legacyClone := strings.TrimSpace(run.Repository.CloneURL)
+	if legacyClone == "" {
+		legacyClone = strings.TrimSpace(run.Repository.LocalPath)
+	}
+	if legacyClone != "" && len(run.Repositories) == 0 {
 		invocation.Repository = &domain.RunnerRepository{
 			RepositoryID:              run.Repository.RepositoryID,
 			Name:                      run.Repository.Name,
-			CloneURL:                  run.Repository.CloneURL,
+			CloneURL:                  legacyClone,
 			Ref:                       repositoryBaseBranch(run.Repository),
 			WorkBranch:                run.Repository.WorkBranch,
 			RequireExistingWorkBranch: run.Repository.RequireExistingWorkBranch,
 			CreateNewWorkBranch:       run.Repository.CreateNewWorkBranch,
-			UseSSH:                    run.Repository.Provider == domain.RepositoryProviderSSH || gitwork.IsSSHReference(run.Repository.CloneURL),
+			UseSSH:                    run.Repository.Provider == domain.RepositoryProviderSSH || gitwork.IsSSHReference(legacyClone),
 		}
 	}
 	for _, rc := range run.RepositoryContexts() {
-		if strings.TrimSpace(rc.CloneURL) == "" {
+		cloneSource := strings.TrimSpace(rc.CloneURL)
+		if cloneSource == "" {
+			cloneSource = strings.TrimSpace(rc.LocalPath)
+		}
+		if cloneSource == "" {
 			continue
 		}
 		invocation.Repositories = append(invocation.Repositories, domain.RunnerRepository{
 			RepositoryID:              rc.RepositoryID,
 			Name:                      rc.Name,
-			CloneURL:                  rc.CloneURL,
+			CloneURL:                  cloneSource,
 			Ref:                       repositoryBaseBranch(rc),
 			WorkBranch:                rc.WorkBranch,
 			RequireExistingWorkBranch: rc.RequireExistingWorkBranch,
 			CreateNewWorkBranch:       rc.CreateNewWorkBranch,
-			UseSSH:                    rc.Provider == domain.RepositoryProviderSSH || gitwork.IsSSHReference(rc.CloneURL),
+			UseSSH:                    rc.Provider == domain.RepositoryProviderSSH || gitwork.IsSSHReference(cloneSource),
 			Dir:                       rc.WorkspaceDir,
 		})
 	}

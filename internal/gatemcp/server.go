@@ -108,6 +108,12 @@ func handleRequest(encoder *json.Encoder, req request, resultPath string) error 
 			"name":        "submit_gate_result",
 			"description": "Submit exactly one terminal node decision. reason explains why. human also requires actionRequired to state exactly what a person must confirm.",
 			"inputSchema": inputSchema,
+			"annotations": map[string]any{
+				"readOnlyHint":    false,
+				"destructiveHint": false,
+				"idempotentHint":  true,
+				"openWorldHint":   false,
+			},
 		}}}, "")
 	case "tools/call":
 		var params struct {

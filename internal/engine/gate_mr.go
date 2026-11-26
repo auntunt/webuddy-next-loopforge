@@ -58,6 +58,11 @@ func (e *Engine) verifyRunMRs(run domain.Run, gitToken string, pending func(doma
 		if pushed.Ahead == 0 {
 			continue
 		}
+		if strings.TrimSpace(rc.CloneURL) == "" && (rc.Provider == "archive" || rc.Provider == "local") {
+			// Local archive/folder repositories have no remote hosting platform;
+			// pushing the work branch to the local repository satisfies delivery.
+			continue
+		}
 		project := strings.TrimSpace(rc.GongfengProjectID)
 		if e.FindBranchMRsInto == nil || project == "" {
 			problems = append(problems, fmt.Sprintf("%s：托管平台不支持自动核验 MR，请人工确认已创建 %s → %s 的 MR", label, work, base))

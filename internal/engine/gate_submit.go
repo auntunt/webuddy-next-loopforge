@@ -126,3 +126,51 @@ func appendSubmitGateInstruction(prompt, rejectTarget string, retry bool) string
 
 必须根据当前真实情况选择，不要把 fail 当成 rework，也不要用 human 掩盖明确失败。reason 必须解释作出该终态的事实依据；rework 可用 actionRequired 写清返工要求；可附带 findings 和 evidence。不要用报告文本或最终回复代替工具调用。只有该工具调用成功，本节点才算完成。`, reworkInstruction)
 }
+
+var explicitArtifactBlockerMarkers = []string{
+	"本次交付未完成",
+	"修复验收未通过",
+	"验收未通过",
+	"阻断未通过",
+	"未出现在本工作区",
+	"工作区缺少指定仓库",
+	"无法完成本节点交付",
+}
+
+// detectArtifactBlockerReason inspects declared deliverables (and agent text
+// fallback) before auto-passing a node whose executor omitted submit_gate_result.
+// It returns a non-empty blocker summary if a required deliverable is empty or
+// explicitly states that delivery/acceptance failed or was blocked.
+func detectArtifactBlockerReason(outputs nodeOutputs, run domain.Run, node domain.WorkflowNode, output string) string {
+	targets := []domain.RepositoryContext{{}}
+	if normalizeExecutionScope(node.ExecutionScope) == domain.ExecutionScopeRepositories {
+		targets = run.RepositoryContexts()
+	}
+	var corpus strings.Builder
+	for _, rc := range targets {
+		for _, contract := range node.ArtifactOutputs {
+			rel, ok := artifactRelPath(rc.WorkspaceDir, contract.Path)
+			if !ok {
+				continue
+			}
+			raw, err := outputs.readFile(rel)
+			if err != nil {
+				continue
+			}
+			trimmed := strings.TrimSpace(string(raw))
+			if contract.Required && trimmed == "" {
+				return fmt.Sprintf("必需交付物 %s 内容为空", contract.Path)
+			}
+			corpus.WriteString(trimmed)
+			corpus.WriteByte('\n')
+		}
+	}
+	corpus.WriteString(output)
+	text := corpus.String()
+	for _, marker := range explicitArtifactBlockerMarkers {
+		if strings.Contains(text, marker) {
+			return marker
+		}
+	}
+	return ""
+}

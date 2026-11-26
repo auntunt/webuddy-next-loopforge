@@ -133,12 +133,18 @@
     }
     try {
       const q = kbState.repoPath ? ('?repoPath=' + encodeURIComponent(kbState.repoPath)) : '';
-      const [ov, sc] = await Promise.all([
+      const selectedRepo = kbState.repos.find(r => r.localPath === kbState.repoPath);
+      const selectedPid = (selectedRepo && selectedRepo.projectId) || activePid || '';
+      const [ov, sc, activeTasks] = await Promise.all([
         reqJSON('/api/webuddy/kb/overview' + q),
         reqJSON('/api/webuddy/kb/statecharts' + q).catch(() => ({ charts: [] })),
+        reqJSON('/api/webuddy/tasks/active').catch(() => ({ tasks: [] })),
       ]);
       kbState.overview = ov;
       kbState.statecharts = sc;
+      kbState.batchRunning = Boolean((activeTasks.tasks || []).some(t =>
+        t && t.kind === 'kb_update' && t.status === 'running' && (!selectedPid || t.projectId === selectedPid)
+      ));
     } catch (err) {
       notify(err.message);
     }
@@ -1190,11 +1196,16 @@
     }
   }
 
-  window.addEventListener('webuddy:kb-updated', () => {
+  window.addEventListener('webuddy:kb-updated', e => {
     kbState.batchRunning = false;
+    if (e && e.detail && e.detail.status === 'error') {
+      notify('知识补全未完成：' + (e.detail.error || '请稍后重试'));
+    }
     const root = document.getElementById('knowledgebaseRoot');
     if (root && root.offsetParent !== null) {
       loadKnowledgeBaseView();
+    } else {
+      render();
     }
   });
 

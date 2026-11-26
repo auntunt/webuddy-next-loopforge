@@ -195,5 +195,8 @@ func codexMCPServerArgs(m domain.MCPServerDefinition) []string {
 	if m.TimeoutSec > 0 {
 		args = append(args, "-c", fmt.Sprintf("%stool_timeout_sec=%d.0", prefix, m.TimeoutSec))
 	}
+	// Non-interactive `codex exec` runs under approval_policy=never and would
+	// otherwise reject every MCP tool call (including submit_gate_result).
+	args = append(args, "-c", prefix+`default_tools_approval_mode="approve"`)
 	return args
 }
