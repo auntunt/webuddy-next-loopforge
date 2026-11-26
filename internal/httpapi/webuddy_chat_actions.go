@@ -123,7 +123,7 @@ func (d *deps) computeProjectReadiness(userID int64, projectID string) projectRe
 		if r.Status != domain.RunnerStatusOnline {
 			continue
 		}
-		if userID > 0 && r.OwnerUserID != 0 && r.OwnerUserID != userID {
+		if userID > 0 && r.OwnerUserID != 0 && !domain.CanUserUseRunner(r, userID) {
 			continue
 		}
 		if r.ID == defRunnerID {
@@ -194,7 +194,7 @@ func (d *deps) autoConfigureProjectEnv(userID int64, projectID string) (projectR
 			if r.Status != domain.RunnerStatusOnline {
 				continue
 			}
-			if r.OwnerUserID != 0 && r.OwnerUserID != userID {
+			if r.OwnerUserID != 0 && !domain.CanUserUseRunner(r, userID) {
 				continue
 			}
 			if r.DefaultSelectionBlocker() == "" {

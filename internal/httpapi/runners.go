@@ -233,6 +233,9 @@ func (h *runnersHandlers) runners(c *gin.Context) {
 		for _, item := range list {
 			if item.OwnerUserID == user.ID {
 				mine = append(mine, item)
+			} else if domain.IsSharedHostRunner(item) {
+				item.OwnerUserID = 0 // surface as shared host runner for non-owners
+				mine = append(mine, item)
 			}
 		}
 		list = mine
@@ -250,6 +253,16 @@ func (h *runnersHandlers) runnerDefault(c *gin.Context) {
 	}
 	runnerID := h.repo.DefaultRunner(user.ID)
 	runner, found := h.repo.Runner(runnerID)
+	if (!found || runnerID == "") && domain.SharedHostRunnerID() != "" {
+		if shared, ok := h.repo.Runner(domain.SharedHostRunnerID()); ok && shared.Status == domain.RunnerStatusOnline && shared.DefaultSelectionBlocker() == "" {
+			if shared.OwnerUserID != user.ID {
+				shared.OwnerUserID = 0
+			}
+			runnerID = shared.ID
+			runner = domain.PublicRunner(shared)
+			found = true
+		}
+	}
 	var poolConfigured bool
 	var poolOnline int
 	if h.engine != nil {
@@ -358,7 +371,7 @@ func (h *runnersHandlers) runnerDefaultSet(c *gin.Context) {
 			c.JSON(http.StatusNotFound, map[string]string{"error": "执行机器不存在"})
 			return
 		}
-		if runner.OwnerUserID != user.ID {
+		if !domain.CanUserUseRunner(runner, user.ID) {
 			c.JSON(http.StatusForbidden, map[string]string{"error": "只能选择自己绑定的执行机器"})
 			return
 		}

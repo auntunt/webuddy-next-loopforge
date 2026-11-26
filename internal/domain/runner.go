@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -199,6 +201,39 @@ func PublicRunners(items []Runner) []Runner {
 		out[i] = PublicRunner(r)
 	}
 	return out
+}
+
+// SharedHostRunnerID returns the ID of the co-located local runner daemon
+// deployed alongside the control-plane server (configured via
+// AGENTFLOW_LOCAL_RUNNER_ID or ./runner-state.json), if present.
+func SharedHostRunnerID() string {
+	if envID := strings.TrimSpace(os.Getenv("AGENTFLOW_LOCAL_RUNNER_ID")); envID != "" {
+		return envID
+	}
+	raw, err := os.ReadFile("runner-state.json")
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		RunnerID string `json:"runnerId"`
+	}
+	if json.Unmarshal(raw, &st) != nil {
+		return ""
+	}
+	return strings.TrimSpace(st.RunnerID)
+}
+
+// IsSharedHostRunner reports whether r is the platform's shared co-located
+// host runner available zero-config to all authenticated accounts.
+func IsSharedHostRunner(r Runner) bool {
+	sharedID := SharedHostRunnerID()
+	return sharedID != "" && strings.TrimSpace(r.ID) == sharedID
+}
+
+// CanUserUseRunner reports whether userID may execute chat sessions and SOP
+// runs on r (either personal ownership or the shared host runner).
+func CanUserUseRunner(r Runner, userID int64) bool {
+	return userID > 0 && (r.OwnerUserID == userID || IsSharedHostRunner(r))
 }
 
 // SupportsExistingWorkBranch guards strict checkout and synchronization;

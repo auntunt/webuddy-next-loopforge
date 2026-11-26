@@ -67,12 +67,15 @@ func (h *webuddyEnvHandlers) overview(c *gin.Context) {
 	if user, ok := h.requestUser(c.Request, true); ok {
 		currentUserID = user.ID
 		defaultRunnerID = h.repo.DefaultRunner(user.ID)
+		if defaultRunnerID == "" && domain.SharedHostRunnerID() != "" {
+			defaultRunnerID = domain.SharedHostRunnerID()
+		}
 	}
 
 	allRunners := h.repo.Runners()
 	runnersOut := make([]envRunnerItem, 0, len(allRunners))
 	for _, r := range allRunners {
-		if currentUserID > 0 && r.OwnerUserID != 0 && r.OwnerUserID != currentUserID {
+		if currentUserID > 0 && r.OwnerUserID != 0 && !domain.CanUserUseRunner(r, currentUserID) {
 			continue
 		}
 		item := envRunnerItem{
@@ -324,7 +327,7 @@ func (h *webuddyEnvHandlers) setDefaultRunner(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "执行机器不存在"})
 			return
 		}
-		if r.OwnerUserID != 0 && r.OwnerUserID != user.ID {
+		if r.OwnerUserID != 0 && !domain.CanUserUseRunner(r, user.ID) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "不能将其他用户的执行机器设为默认"})
 			return
 		}

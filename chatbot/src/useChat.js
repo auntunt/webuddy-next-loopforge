@@ -649,7 +649,9 @@ export function useChat() {
     return conversation.executionTarget?.pool === "runner" ? conversation.executionTarget.runnerId : "";
   }
   const runnerId = composerRunnerId(session);
-  const runner = executionMachines.machines.find(machine => machine.id === runnerId && machine.ownerUserId === user?.id);
+  const runner = executionMachines.machines.find(
+    machine => machine.id === runnerId && (!machine.ownerUserId || machine.ownerUserId === user?.id),
+  );
   const availableExecutors = EXECUTORS.flatMap(item => {
     const local = ["codex", "claude-code", "agy"].includes(item.id) &&
       runner?.runtimes?.some(runtime => runtime.provider === item.id && runtime.authMode !== "personal");
@@ -674,7 +676,7 @@ export function useChat() {
   ) {
     const personalMachineId = composerRunnerId(conversation);
     const personalMachine = machines.find(
-      (machine) => machine.id === personalMachineId && machine.ownerUserId === user?.id,
+      (machine) => machine.id === personalMachineId && (!machine.ownerUserId || machine.ownerUserId === user?.id),
     );
     const agyRuntime = personalMachine?.runtimes?.find((runtime) => runtime.provider === "agy");
     const agyAccountKey = executor === "agy" && agyRuntime && agyRuntime.authMode !== "personal"

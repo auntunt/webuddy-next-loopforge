@@ -221,10 +221,13 @@ func scheduleLoginRunner(r *repo.Store, userID int64, engine string) domain.Runn
 	}
 	id := r.DefaultRunner(userID)
 	if id == "" {
+		id = domain.SharedHostRunnerID()
+	}
+	if id == "" {
 		return domain.Runner{}
 	}
 	machine, ok := r.Runner(id)
-	if !ok || machine.OwnerUserID != userID || !machine.SupportsCLISettings() ||
+	if !ok || !domain.CanUserUseRunner(machine, userID) || !machine.SupportsCLISettings() ||
 		!machine.SupportsProvider(engine) || !runnerUsesLocalLogin(machine, engine) {
 		return domain.Runner{}
 	}

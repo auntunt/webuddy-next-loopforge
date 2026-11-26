@@ -231,6 +231,10 @@ func (e *Engine) selectSOPExecutionTarget(executionContext *domain.TelemetryCont
 		} else if e.cloudPoolRequired(executionContext.ProjectID) {
 			// The first node binds a pool runner once one is online.
 			executionContext.ExecutionPool = domain.ExecutionModeCloud
+		} else if sharedID := domain.SharedHostRunnerID(); sharedID != "" {
+			if shared, ok := e.repo.Runner(sharedID); ok && shared.Status == domain.RunnerStatusOnline && shared.DefaultSelectionBlocker() == "" {
+				executionContext.ExecutionRunnerID = shared.ID
+			}
 		}
 	}
 	if executionContext.ExecutionRunnerID != "" || executionContext.ExecutionPool == domain.ExecutionModeCloud {

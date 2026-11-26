@@ -27,7 +27,7 @@ func (h *runnersHandlers) probeRunnerModels(c *gin.Context) {
 		c.JSON(http.StatusNotFound, cliModelProbeResult{Error: "执行机器不存在"})
 		return
 	}
-	if runner.OwnerUserID != user.ID {
+	if !domain.CanUserUseRunner(runner, user.ID) {
 		c.JSON(http.StatusForbidden, cliModelProbeResult{Error: "只能从自己绑定的执行机器获取账号模型"})
 		return
 	}

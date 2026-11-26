@@ -39,7 +39,7 @@ func (h *assistantHandlers) newExecutionTarget(userID int64, projectID string, r
 		}
 	case domain.ExecutionModeRunner:
 		runner, ok := h.repo.Runner(target.RunnerID)
-		if !ok || runner.OwnerUserID != userID {
+		if !ok || !domain.CanUserUseRunner(runner, userID) {
 			return nil, fmt.Errorf("无权使用此执行机器")
 		}
 		if !runner.SupportsConversationCLI() {
@@ -51,7 +51,7 @@ func (h *assistantHandlers) newExecutionTarget(userID int64, projectID string, r
 	return &target, nil
 }
 
-// Use a machine's login only for its owner on a personal execution target.
+// Use a machine's login only for its owner or the shared host runner.
 func (h *assistantHandlers) assistantUsesRunnerLogin(userID int64, target *domain.AssistantExecutionTarget, engine string) bool {
 	return h.assistantLoginRunner(userID, target, engine).ID != ""
 }
@@ -61,7 +61,7 @@ func (h *assistantHandlers) assistantLoginRunner(userID int64, target *domain.As
 		return domain.Runner{}
 	}
 	runner, ok := h.repo.Runner(target.RunnerID)
-	if ok && runner.OwnerUserID == userID && runnerUsesLocalLogin(runner, engine) {
+	if ok && domain.CanUserUseRunner(runner, userID) && runnerUsesLocalLogin(runner, engine) {
 		return runner
 	}
 	return domain.Runner{}

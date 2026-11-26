@@ -38,7 +38,7 @@ func (h *runnersHandlers) runnerRuntimeTest(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "执行机器不存在"})
 		return
 	}
-	if runner.OwnerUserID != current.ID {
+	if !domain.CanUserUseRunner(runner, current.ID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "只能测试自己绑定的执行机器"})
 		return
 	}
