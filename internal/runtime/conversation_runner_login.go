@@ -23,6 +23,8 @@ type conversationLoginSpec struct {
 	optional bool
 	// tokenFile marks a login kept as a bare token file (Antigravity).
 	tokenFile bool
+	// xdgData marks a login the CLI keeps under XDG_DATA_HOME when that is set.
+	xdgData bool
 }
 
 func runnerLoginSpec(provider string) (conversationLoginSpec, bool) {
@@ -34,7 +36,7 @@ func runnerLoginSpec(provider string) (conversationLoginSpec, bool) {
 	case AgentCLIAntigravity:
 		return conversationLoginSpec{label: "Antigravity", dir: ".gemini/antigravity-cli", file: "antigravity-oauth-token", binding: BindAgentCLI, tokenFile: true}, true
 	case AgentCLIOpenCode:
-		return conversationLoginSpec{label: "OpenCode", dir: ".local/share/opencode", file: "auth.json", binding: BindAgentCLI, optional: true}, true
+		return conversationLoginSpec{label: "OpenCode", dir: ".local/share/opencode", file: "auth.json", binding: BindAgentCLI, optional: true, xdgData: true}, true
 	default:
 		return conversationLoginSpec{}, false
 	}
@@ -52,6 +54,8 @@ func openCodeLoginEnvironment(systemPromptFile string) map[string]string {
 	for _, key := range agentCLIHostEnv {
 		env[key] = ""
 	}
+	// The run reads the copy in its isolated home, not the machine's data dir.
+	env["XDG_DATA_HOME"] = ""
 	env["OPENCODE_CONFIG_CONTENT"] = string(content)
 	return env
 }
@@ -174,6 +178,11 @@ func prepareRunnerLogin(home AgentCLIHome, login conversationLoginSpec, enabled 
 		base, _ := os.UserHomeDir()
 		if base != "" {
 			configDir = filepath.Join(base, login.dir)
+		}
+	}
+	if login.xdgData {
+		if dataHome := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dataHome != "" {
+			configDir = filepath.Join(dataHome, filepath.Base(login.dir))
 		}
 	}
 	var data []byte

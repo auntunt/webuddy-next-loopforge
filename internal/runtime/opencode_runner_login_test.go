@@ -22,6 +22,7 @@ func TestOpenCodeRunnerLoginCommandUsesMachineModel(t *testing.T) {
 func TestOpenCodeRunnerLoginCopiesOptionalAuth(t *testing.T) {
 	host := t.TempDir()
 	t.Setenv("HOME", host)
+	t.Setenv("XDG_DATA_HOME", "")
 	login, ok := runnerLoginSpec(AgentCLIOpenCode)
 	if !ok {
 		t.Fatal("OpenCode has no runner login")
@@ -55,6 +56,23 @@ func TestOpenCodeRunnerLoginCopiesOptionalAuth(t *testing.T) {
 	}
 	if _, err := os.Stat(copied); !os.IsNotExist(err) {
 		t.Fatalf("login copy survived cleanup: %v", err)
+	}
+	// A relocated data dir is where OpenCode keeps the login.
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	if err := os.MkdirAll(filepath.Join(dataHome, "opencode"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataHome, "opencode", login.file), []byte(`{"xdg":{"type":"api","key":"k"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cleanup, _, err = prepareRunnerLogin(home, login, true)
+	if err != nil || cleanup == nil {
+		t.Fatalf("XDG prepare: cleanup set = %v, err = %v", cleanup != nil, err)
+	}
+	defer cleanup()
+	if data, err := os.ReadFile(copied); err != nil || !strings.Contains(string(data), `"xdg"`) {
+		t.Fatalf("XDG login = %q, %v", data, err)
 	}
 }
 
