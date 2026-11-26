@@ -320,7 +320,7 @@ func (r *RunnersRepo) RunnerHeartbeat(id string, runtimes []domain.RunnerRuntime
 			runtimes[i].AuthMode = domain.RuntimeAuthPersonal
 		} else if mode := authModes[runtimes[i].Provider]; mode != "" {
 			runtimes[i].AuthMode = mode
-		} else if strings.EqualFold(runtimes[i].Provider, "codebuddy") {
+		} else if !domain.RunnerLoginByDefault(runtimes[i].Provider) {
 			runtimes[i].AuthMode = domain.RuntimeAuthPersonal
 		} else {
 			runtimes[i].AuthMode = domain.RuntimeAuthLocal

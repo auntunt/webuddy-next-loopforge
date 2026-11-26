@@ -18,19 +18,42 @@ import (
 type conversationLoginSpec struct {
 	label, dir, file, configEnv string
 	binding                     CredentialBinding
+	// optional marks a CLI that also runs without a login file, such as
+	// OpenCode with its account-free models.
+	optional bool
+	// tokenFile marks a login kept as a bare token file (Antigravity).
+	tokenFile bool
 }
 
 func runnerLoginSpec(provider string) (conversationLoginSpec, bool) {
 	switch provider {
 	case "codex":
-		return conversationLoginSpec{"Codex", ".codex", "auth.json", "CODEX_HOME", BindCodex}, true
+		return conversationLoginSpec{label: "Codex", dir: ".codex", file: "auth.json", configEnv: "CODEX_HOME", binding: BindCodex}, true
 	case "claude-code":
-		return conversationLoginSpec{"Claude Code", ".claude", ".credentials.json", "CLAUDE_CONFIG_DIR", BindClaudeCode}, true
+		return conversationLoginSpec{label: "Claude Code", dir: ".claude", file: ".credentials.json", configEnv: "CLAUDE_CONFIG_DIR", binding: BindClaudeCode}, true
 	case AgentCLIAntigravity:
-		return conversationLoginSpec{"Antigravity", ".gemini/antigravity-cli", "antigravity-oauth-token", "", BindAgentCLI}, true
+		return conversationLoginSpec{label: "Antigravity", dir: ".gemini/antigravity-cli", file: "antigravity-oauth-token", binding: BindAgentCLI, tokenFile: true}, true
+	case AgentCLIOpenCode:
+		return conversationLoginSpec{label: "OpenCode", dir: ".local/share/opencode", file: "auth.json", binding: BindAgentCLI, optional: true}, true
 	default:
 		return conversationLoginSpec{}, false
 	}
+}
+
+// openCodeLoginEnvironment configures OpenCode to use the machine's own
+// providers. The key-based path sets the same options next to its provider.
+func openCodeLoginEnvironment(systemPromptFile string) map[string]string {
+	config := map[string]any{"autoupdate": false, "share": "disabled"}
+	if prompt := strings.TrimSpace(systemPromptFile); prompt != "" {
+		config["instructions"] = []string{prompt}
+	}
+	content, _ := json.Marshal(config)
+	env := map[string]string{}
+	for _, key := range agentCLIHostEnv {
+		env[key] = ""
+	}
+	env["OPENCODE_CONFIG_CONTENT"] = string(content)
+	return env
 }
 
 // Copy only the native CLI's login file into its isolated conversation home.
@@ -85,6 +108,14 @@ func PrepareRunnerAgentCLILogin(sandbox Sandbox, command CommandSpec) (map[strin
 			err = errors.Join(err, cleanup())
 		}
 		return nil, nil, err
+	}
+	if env == nil {
+		env = map[string]string{}
+	}
+	if command.Provider == AgentCLIOpenCode {
+		for key, value := range openCodeLoginEnvironment(command.AgentCLI.SystemPromptFile) {
+			env[key] = value
+		}
 	}
 	_, homeEnv := privateHomePaths(sandbox, sandbox.Workspace(), command)
 	env["HOME"] = homeEnv
@@ -147,10 +178,13 @@ func prepareRunnerLogin(home AgentCLIHome, login conversationLoginSpec, enabled 
 	}
 	var data []byte
 	var keepAntigravity func([]byte) error
-	if login.binding == BindAgentCLI {
+	if login.tokenFile {
 		data, keepAntigravity, err = readAntigravityRunnerLogin()
 	} else {
 		data, err = readRunnerLoginFile(configDir, login.file)
+	}
+	if err != nil && login.optional && errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
 	}
 	if err != nil {
 		if login.binding == BindCodex {
@@ -262,7 +296,7 @@ func prepareRunnerLogin(home AgentCLIHome, login conversationLoginSpec, enabled 
 	if err := target.WriteFile(login.file, data, 0600); err != nil {
 		return cleanup, nil, fmt.Errorf("无法准备 %s 的本机登录态", login.label)
 	}
-	if login.binding == BindAgentCLI {
+	if login.tokenFile {
 		// The official CLI selects file storage in remote sessions. This also
 		// prevents a sandbox from trying to open the host's OS credential store.
 		env := map[string]string{"SSH_CONNECTION": "127.0.0.1 0 127.0.0.1 0"}

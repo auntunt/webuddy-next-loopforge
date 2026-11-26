@@ -134,7 +134,10 @@ func AgentCLICommand(kind string, o AgentCLICommandOptions) CommandSpec {
 	switch kind {
 	case AgentCLIOpenCode:
 		argv = []string{binary, "run", "--format", "json", "--thinking"}
-		if model != "" {
+		if model != "" && o.RunnerLogin {
+			// The machine's own providers: the model is already provider/model.
+			argv = append(argv, "-m", model)
+		} else if model != "" {
 			argv = append(argv, "-m", "agentflow/"+model)
 		}
 		if resume != "" {

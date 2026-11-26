@@ -71,6 +71,24 @@ func DiscoverRunnerLoginModels(ctx context.Context, provider, binary string) ([]
 		}
 		return models, nil
 	}
+	if provider == AgentCLIOpenCode {
+		cmd := exec.CommandContext(ctx, binary, "models")
+		cmd.Dir, cmd.Env, cmd.WaitDelay = root, environment, time.Second
+		output, err := cmd.Output()
+		if err != nil || len(output) > 2<<20 {
+			return nil, fmt.Errorf("OpenCode 无法返回模型列表，请检查执行机器上的 CLI 版本和登录状态")
+		}
+		var models []domain.CLIModel
+		for _, line := range strings.Split(string(output), "\n") {
+			if id := strings.TrimSpace(line); strings.Contains(id, "/") && !strings.ContainsAny(id, " \t") {
+				models = append(models, domain.CLIModel{ID: id, Name: id})
+			}
+		}
+		if len(models) == 0 {
+			return nil, fmt.Errorf("OpenCode 未返回可用的模型")
+		}
+		return models, nil
+	}
 	if login.binding == BindClaudeCode {
 		status := exec.CommandContext(ctx, binary, "auth", "status")
 		status.Dir, status.Env, status.WaitDelay = root, environment, time.Second
