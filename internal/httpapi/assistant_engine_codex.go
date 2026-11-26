@@ -52,8 +52,12 @@ func prepareAssistantCodexInvocation(o assistantEngineInvocationOpts) (assistant
 	}
 	server := &codexAppServer{input: input, opts: o, resume: thread, pending: map[string]string{}, started: map[string]bool{}}
 	server.request("initialize", map[string]any{"clientInfo": map[string]string{"name": "agentflow", "title": "AgentFlow", "version": "1"}})
+	var bindings []runtime.CredentialBinding
+	if !o.RunnerLogin {
+		bindings = []runtime.CredentialBinding{runtime.BindCodex}
+	}
 	return assistantCLIInvocation{
-		command:     runtime.CommandSpec{Argv: argv, Provider: "codex", CredentialBindings: []runtime.CredentialBinding{runtime.BindCodex}, Stdin: stdin},
+		command:     runtime.CommandSpec{Argv: argv, Provider: "codex", CredentialBindings: bindings, Stdin: stdin},
 		credentials: runtime.RunCredentials{Codex: o.User},
 		sessionRef:  thread,
 		translate:   server.translate,

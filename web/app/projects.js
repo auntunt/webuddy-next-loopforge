@@ -134,7 +134,11 @@ function parseProjectAdminRoute(hash){
 }
 function projectAdminHash(id,tab){return id?`#/projects/${encodeURIComponent(id)}${id!=='new'&&tab&&tab!=='basic'?'/'+tab:''}`:'#/projects'}
 function projectPeopleIds(p){return [...new Set([p?.ownerId,...(p?.members||[]).map(m=>m.userId)].map(Number).filter(Boolean))]}
-function blankProjectDraft(){return {id:'',key:'',name:'',description:'',color:PROJECT_SWATCHES[0],ownerId:Number(state.currentUser?.id)||'',workflowId:'generic-backend-delivery',defaultRepositoryId:'',businessDomainId:'',members:[],runEval:defaultRunEval(),tapdWorkspaceId:'',tapdIterationId:'',tapdClear:false}}
+function defaultNewProjectWorkflowId(){
+  const choices=(state.data?.workflows||[]).filter(w=>w.generic||!w.projectId||w.shared);
+  return choices.find(w=>w.id==='generic-backend-delivery')?.id||choices[0]?.id||'';
+}
+function blankProjectDraft(){return {id:'',key:'',name:'',description:'',color:PROJECT_SWATCHES[0],ownerId:Number(state.currentUser?.id)||'',workflowId:defaultNewProjectWorkflowId(),defaultRepositoryId:'',businessDomainId:'',members:[],runEval:defaultRunEval(),tapdWorkspaceId:'',tapdIterationId:'',tapdClear:false}}
 function projectDraftFrom(project){const d=clone(project)||{};d.members=(d.members||[]).filter(m=>Number(m.userId)!==Number(d.ownerId)).map(m=>({userId:Number(m.userId)||0,role:'member'}));d.tapdClear=false;return d}
 function projectDraftSignature(d){
   d=d||{};
@@ -518,7 +522,7 @@ function projectAdminAfterSave(projectId,creating){
 function projectDefaultSOPField(project){
   const choices=(state.data.workflows||[]).filter(w=>w.generic||!w.projectId||w.projectId===project.id||w.shared);
   let current=String(project.workflowId||'').trim();
-  if(!current&&!project.id){
+  if(!project.id&&(!current||!choices.some(w=>w.id===current))){
     current=choices.find(w=>w.id==='generic-backend-delivery')?.id||choices[0]?.id||'';
     if(current&&project)project.workflowId=current;
   }

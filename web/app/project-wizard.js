@@ -3,7 +3,7 @@
 // and can be skipped. Progress lives only in memory.
 const PROJECT_WIZARD_STEPS=[
   {id:'basic',title:'基本信息',desc:'名称与默认 SOP'},
-  {id:'repos',title:'代码仓库',desc:'绑定 GitHub 仓库'},
+  {id:'repos',title:'代码仓库',desc:'绑定仓库或上传压缩包'},
   {id:'members',title:'项目成员',desc:'Owner 与协作成员'},
   {id:'tapd',title:'TAPD 集成',desc:'可选，导入 TAPD 需求'},
   {id:'done',title:'完成',desc:'开始使用新项目'},

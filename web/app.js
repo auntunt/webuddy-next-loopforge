@@ -2010,6 +2010,17 @@ function switchView(name){
   showDirectRunButton(name==='flow');
   closeIssueDrawer();
   if(name!=='sops'&&typeof hideSOPCardMenu==='function')hideSOPCardMenu();
+  if(name==='flow'){
+    const routeWfId=routePart(1);
+    if(routeWfId&&state.workflow?.id!==routeWfId){
+      const targetWf=(state.data?.workflows||[]).find(w=>w.id===routeWfId);
+      if(targetWf){
+        state.workflow=clone(targetWf);
+        state.selectedNode=null;
+        const wfSel=$('#workflowSelect');if(wfSel)wfSel.value=targetWf.id;
+      }
+    }
+  }
   // 仅真实用户切换时压栈：boot 首次进入（prevView 为空）与同视图重复调用
   //（staying）不压；hashchange 后退触发的调用 prevView 非空且 hash 已是目标值，
   // persistView 内部会短路，不会重复压栈。
