@@ -889,6 +889,7 @@
     const confirmedPages = ps.confirmed || 0;
     const totalPages = ov.pageCount || (ov.pages || []).length;
     const openQs = ov.openQuestionCount || 0;
+    const unanalyzedCount = (ov.pages || []).filter(p => p.status === '未分析' || p.status === 'pending' || p.stale).length;
 
     const repoSelectHTML =
       '<select id="wbKbProjectSelect" aria-label="选择已导入项目仓库" style="min-width:240px">' +
@@ -917,7 +918,12 @@
           '<div><h1>知识库</h1><p class="wb-subtitle">看架构、查改动影响、问业务逻辑，3 秒定位到代码。</p></div>' +
           '<div class="wb-toolbar">' +
             repoSelectHTML +
-            '<button type="button" class="button primary" id="wbKbScanBtn" ' + (kbState.scanning ? 'disabled' : '') + '>' + (kbState.scanning ? '扫描中…' : (ov.built ? '更新图谱' : '⚡ 扫描图谱')) + '</button>' +
+            '<button type="button" class="button ' + (ov.built ? 'ghost' : 'primary') + '" id="wbKbScanBtn" ' + (kbState.scanning ? 'disabled' : '') + '>' + (kbState.scanning ? '扫描中…' : (ov.built ? '更新图谱' : '⚡ 扫描图谱')) + '</button>' +
+            (ov.built
+              ? '<button type="button" class="button ' + (unanalyzedCount > 0 ? 'primary' : 'ghost') + '" id="wbKbBatchAiBtn" ' + (kbState.batchRunning ? 'disabled' : '') + '>' +
+                  (kbState.batchRunning ? '✨ 后台补全中…' : (unanalyzedCount > 0 ? ('✨ AI 补全知识 (' + unanalyzedCount + ')') : '✨ AI 增量刷新')) +
+                '</button>'
+              : '') +
             '<input type="search" id="wbKbSearchInput" value="' + esc(kbState.searchQuery) + '" placeholder="搜业务 / 流程 / 表名…">' +
             '<button type="button" class="button ghost" id="wbKbSearchBtn">搜索</button>' +
           '</div>' +
@@ -971,6 +977,27 @@
     }
     root.querySelector('#wbKbPickFolderBtn')?.addEventListener('click', pickAndImportLocalRepo);
     root.querySelector('#wbKbScanBtn')?.addEventListener('click', scanRepo);
+    root.querySelector('#wbKbBatchAiBtn')?.addEventListener('click', async () => {
+      const pickedRepo = kbState.repos.find(r => r.localPath === kbState.repoPath);
+      const pid = (pickedRepo && pickedRepo.projectId) || (window.state && window.state.projectFilter) || '';
+      if (!pid) { notify('请先选择项目仓库'); return; }
+      kbState.batchRunning = true;
+      render();
+      try {
+        const res = await reqJSON('/api/webuddy/kb/batch-update', {
+          method: 'POST',
+          body: JSON.stringify({ projectId: pid, limit: 3, async: true, all: true }),
+        });
+        if (res && res.ok) {
+          notify('✨ 已启动后台知识补全与溯源校验，右下角胶囊实时显示进度，完成后本页自动刷新');
+          window.dispatchEvent(new CustomEvent('webuddy:tasks-changed'));
+        }
+      } catch (err) {
+        kbState.batchRunning = false;
+        notify(err.message || '启动后台知识补全失败');
+        render();
+      }
+    });
     root.querySelector('#wbCopyMcpBtn')?.addEventListener('click', () => {
       const url = location.origin + '/api/webuddy/kb/mcp';
       navigator.clipboard?.writeText(url).then(() => notify('已复制 MCP 地址：' + url)).catch(() => notify(url));
@@ -1162,6 +1189,14 @@
       });
     }
   }
+
+  window.addEventListener('webuddy:kb-updated', () => {
+    kbState.batchRunning = false;
+    const root = document.getElementById('knowledgebaseRoot');
+    if (root && root.offsetParent !== null) {
+      loadKnowledgeBaseView();
+    }
+  });
 
   window.loadKnowledgeBaseView = loadKnowledgeBaseView;
 })();

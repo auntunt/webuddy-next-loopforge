@@ -171,7 +171,11 @@
         taskRes.tasks.forEach(t => {
           if (t.status === 'running') nextRunning.add(t.id);
           if (t.status === 'done' && fState.lastRunningIds.has(t.id) && t.kind === 'kb_update') {
-            window.dispatchEvent(new CustomEvent('webuddy:kb-updated', { detail: { projectId: t.projectId } }));
+            window.dispatchEvent(new CustomEvent('webuddy:kb-updated', { detail: { projectId: t.projectId, status: 'done' } }));
+            const frame = document.getElementById('collaborationFrame') || document.querySelector('iframe[src*="native-chat"]');
+            try {
+              frame?.contentWindow?.postMessage({ type: 'webuddy-kb-updated', projectId: t.projectId }, location.origin);
+            } catch (_) {}
           }
         });
         fState.lastRunningIds = nextRunning;

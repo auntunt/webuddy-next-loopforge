@@ -1964,8 +1964,8 @@ function switchView(name){
   const assetViews=['rules','skills','dockerfiles','environments','sandboxes'];
   const targetView=assetViews.includes(name)?'assets':name;
   if(!titles[name]||!$(`#${targetView}View`)){name='collaboration'}
-  // 允许所有已登录用户进入 #/platform 查看「租户与团队」；账号/治理等管理员子页在 renderPlatform 内受 isPlatformAdmin() 保护。
-  if(name==='platform'&&!state.data?.currentUser)name='collaboration';
+  // 允许所有已登录非访客用户进入 #/platform 查看「租户与团队」；账号/治理等管理员子页在 renderPlatform 内受 isPlatformAdmin() 保护。
+  if(name==='platform'&&(!state.currentUser||state.currentUser.isGuest))name='collaboration';
   const previous=activeViewName();
   if(name!=='settings')cancelCredentialFocus();
   if(previous==='settings'&&name!=='settings'){

@@ -368,6 +368,27 @@ def _overview(repo_path: str | None) -> dict:
     }
 
 
+def _read_build_head(root: Path) -> str:
+    p = root / ".tmh" / "cache" / "build_head.txt"
+    try:
+        if p.exists():
+            return p.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _write_build_head(root: Path, head: str) -> None:
+    if not head:
+        return
+    try:
+        p = root / ".tmh" / "cache" / "build_head.txt"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(head.strip() + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _scan(repo_path: str) -> dict:
     root = Path(repo_path).expanduser().resolve()
     if not root.is_dir():
@@ -384,6 +405,12 @@ def _scan(repo_path: str) -> dict:
                 stats["polyglot"] = poly
         except Exception:
             pass
+    try:
+        kb_stats = kb.build(root)
+        stats["kbBuild"] = kb_stats
+    except Exception:
+        pass
+    _write_build_head(root, _kb_git_head(root))
     ov = _overview(str(root))
     ov["scanStats"] = stats
     return ov
@@ -1069,23 +1096,11 @@ from contextlib import contextmanager
 
 @contextmanager
 def _repo_write_lock(root: Path):
-    lock_dir = root / ".tmh"
+    from tmh import kb
+    lock_dir = root / ".tmh" / "cache"
     lock_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = lock_dir / ".webuddy.lock"
-    with open(lock_path, "a+") as lf:
-        try:
-            import fcntl
-            fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        except Exception:
-            pass
-        try:
-            yield
-        finally:
-            try:
-                import fcntl
-                fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
+    with kb._Lock(lock_dir / "kb.lock"):
+        yield
 
 
 def _ask_question(repo_path: str, question: str, pages: list[str], who: str) -> dict:
@@ -1264,10 +1279,14 @@ def _kb_status(repo_path: str) -> dict:
             "relPath": rel_p,
         })
     recent.sort(key=lambda x: x["updated"], reverse=True)
+    git_head = _kb_git_head(root)
+    build_head = _read_build_head(root)
     return {
         "ok": True,
         "repoPath": str(root),
-        "gitHead": _kb_git_head(root),
+        "gitHead": git_head,
+        "buildHead": build_head,
+        "headDrifted": bool(git_head and build_head != git_head),
         "coverage": cov,
         "recentUpdated": recent[:8],
     }
@@ -1279,6 +1298,20 @@ def _kb_next(repo_path: str, limit: int, query: str, who: str) -> dict:
         raise ValueError(f"仓库目录不存在: {repo_path}")
     limit = max(1, min(int(limit or 3), 5))
     from tmh import kb
+    from tmh.graph import build as graph_build, graph_path
+    from tmh.polyglot_structure import build_polyglot_structure
+
+    git_head = _kb_git_head(root)
+    build_head = _read_build_head(root)
+    if not graph_path(root).exists() or (git_head and build_head != git_head):
+        try:
+            graph_build(root, use_cache=True)
+            if kb.needs_structure(root):
+                build_polyglot_structure(root)
+            kb.build(root)
+            _write_build_head(root, git_head)
+        except Exception:
+            pass
     reg = _bootstrap_generic_kb_pages(root, kb.load_registry(root))
     cov = _kb_coverage_summary(root, reg)
     queue = [pid for pid in kb.pending(root, reg) if pid != "structure"]
@@ -1350,6 +1383,17 @@ def _kb_next(repo_path: str, limit: int, query: str, who: str) -> dict:
     }
 
 
+def _extract_human_answer_section(md_body: str) -> str:
+    if not md_body or "## 业务方答复" not in md_body:
+        return ""
+    idx = md_body.find("## 业务方答复")
+    rest = md_body[idx:]
+    m = re.search(r"\n##\s+(?!业务方答复)", rest)
+    if m:
+        return rest[:m.start()].strip()
+    return rest.strip()
+
+
 def _kb_commit(repo_path: str, page_id: str, title: str, summary: str, body: str, who: str) -> dict:
     root = Path(repo_path).expanduser().resolve()
     if not root.is_dir():
@@ -1362,30 +1406,45 @@ def _kb_commit(repo_path: str, page_id: str, title: str, summary: str, body: str
     if not p.exists():
         raise ValueError(f"知识页文件不存在: {p}")
 
-    existing = p.read_text(encoding="utf-8")
-    pg = kb.parse_page(existing)
-    meta = dict(pg.get("meta") or {})
-    facts = pg.get("facts") or ""
-    clean_title = (title or "").strip()
-    clean_summary = (summary or "").strip()
-    if clean_title:
-        meta["title"] = clean_title
-    if clean_summary:
-        meta["summary"] = clean_summary[:115]
-    candidate = kb.render_page(pid, meta, facts, (body or "").strip())
-    errs, info = kb.validate_content(root, pid, candidate)
-    if errs:
-        return {
-            "ok": False,
-            "pageId": pid,
-            "errors": errs,
-        }
-
     with _repo_write_lock(root):
+        reg_before = kb.load_registry(root)
+        entry_before = reg_before.get(pid) if isinstance(reg_before.get(pid), dict) else {}
+        if entry_before.get("status") == "已确认" and not entry_before.get("stale") and not entry_before.get("revise"):
+            return {
+                "ok": False,
+                "pageId": pid,
+                "errors": ["该知识页已由人工确认且代码未过期，跳过覆盖"],
+            }
+
+        existing = p.read_text(encoding="utf-8")
+        pg = kb.parse_page(existing)
+        meta = dict(pg.get("meta") or {})
+        facts = pg.get("facts") or ""
+        old_body = pg.get("body") or ""
+        preserved_qa = _extract_human_answer_section(old_body)
+
+        clean_body = (body or "").strip()
+        if preserved_qa and "## 业务方答复" not in clean_body:
+            clean_body = clean_body + "\n\n" + preserved_qa
+
+        clean_title = (title or "").strip()
+        clean_summary = (summary or "").strip()
+        if clean_title:
+            meta["title"] = clean_title
+        if clean_summary:
+            meta["summary"] = clean_summary[:115]
+        candidate = kb.render_page(pid, meta, facts, clean_body)
+        errs, info = kb.validate_content(root, pid, candidate)
+        if errs:
+            return {
+                "ok": False,
+                "pageId": pid,
+                "errors": errs,
+            }
+
         kb._atomic_text(p, candidate)
         ok, done_errs = kb.done(root, pid, who=who or "webuddy-ai")
         if not ok:
-            # Roll back to previous content if kb.done rejected it
             kb._atomic_text(p, existing)
             return {
                 "ok": False,
@@ -1398,7 +1457,7 @@ def _kb_commit(repo_path: str, page_id: str, title: str, summary: str, body: str
 
     refs = []
     seen_refs = set()
-    for m in kb_structure.REFERENCE.finditer(body or ""):
+    for m in kb_structure.REFERENCE.finditer(clean_body):
         ref_str = m.group()
         if ref_str not in seen_refs:
             seen_refs.add(ref_str)

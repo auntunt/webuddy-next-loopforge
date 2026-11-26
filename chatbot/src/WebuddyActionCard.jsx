@@ -1497,19 +1497,34 @@ function KBUpdateCard({ spec = null, projectId = "", autoDetected = false }) {
   useEffect(() => {
     const onKBUpdated = (e) => {
       const detail = e?.detail;
-      if (!detail || !detail.status) return;
+      if (!detail) return;
       const myPid = status?.projectId || targetProjectId;
       if (!myPid || !detail.projectId || myPid === detail.projectId) {
-        setStatus(detail.status);
+        if (detail.status && typeof detail.status === "object") {
+          setStatus(detail.status);
+        } else {
+          fetchStatus();
+        }
         if (Array.isArray(detail.updatedPages) && detail.updatedPages.length) {
           setBatchPages(detail.updatedPages);
         }
         if (detail.model) setBatchModel(detail.model);
       }
     };
+    const onPostMessage = (ev) => {
+      if (ev.origin !== location.origin || ev.data?.type !== "webuddy-kb-updated") return;
+      const myPid = status?.projectId || targetProjectId;
+      if (!myPid || !ev.data.projectId || myPid === ev.data.projectId) {
+        fetchStatus();
+      }
+    };
     window.addEventListener("webuddy:kb-updated", onKBUpdated);
-    return () => window.removeEventListener("webuddy:kb-updated", onKBUpdated);
-  }, [status?.projectId, targetProjectId]);
+    window.addEventListener("message", onPostMessage);
+    return () => {
+      window.removeEventListener("webuddy:kb-updated", onKBUpdated);
+      window.removeEventListener("message", onPostMessage);
+    };
+  }, [status?.projectId, targetProjectId, fetchStatus]);
 
   const [bgNotice, setBgNotice] = useState("");
 

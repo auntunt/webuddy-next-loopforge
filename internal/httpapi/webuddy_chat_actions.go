@@ -360,12 +360,20 @@ func (h *webuddyEnvHandlers) sopQuickCreate(c *gin.Context) {
 			Type:        "agent",
 			AgentID:     agentID,
 			MaxAttempts: 2,
-			ArtifactOutputs: []domain.ArtifactContract{{
-				Name:      nodeID + "-report",
-				Path:      artifact,
-				MediaType: "text/markdown",
-				Required:  true,
-			}},
+			ArtifactOutputs: []domain.ArtifactContract{
+				{
+					Name:      nodeID + "-report",
+					Path:      artifact,
+					MediaType: "text/markdown",
+					Required:  true,
+				},
+				{
+					Name:      nodeID + "-knowledge",
+					Path:      "knowledge.md",
+					MediaType: "text/markdown",
+					Required:  false,
+				},
+			},
 			Position: domain.Position{X: float64(100 + i*240), Y: 200},
 		})
 		if i > 0 {
@@ -481,11 +489,54 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 	}
 
 	pid := strArg("projectId")
-	if pid == "" {
+	if pid == "" && session != nil {
 		pid = strings.TrimSpace(session.ProjectID)
+	}
+	isAdmin := session != nil && strings.TrimSpace(session.User.LoginName) != "" && h.repo.IsPlatformAdmin(session.User.LoginName)
+	checkProjectPerm := func(targetPID string, write bool) (string, bool) {
+		if targetPID == "" {
+			return "请先选择当前会话所属的项目后再执行此操作。", false
+		}
+		if !authRequired() || isAdmin {
+			return "", true
+		}
+		var uid int64
+		if session != nil {
+			uid = session.User.ID
+		}
+		p, ok := h.repo.Project(targetPID)
+		if !ok {
+			return "未找到目标项目或无权访问。", false
+		}
+		activeTID := defaultTenantStore.activeTenantForUser(uid, false)
+		if defaultTenantStore.projectTenant(targetPID) != activeTID {
+			return "无权跨团队空间访问该项目。", false
+		}
+		if p.OwnerID == uid {
+			return "", true
+		}
+		for _, m := range p.Members {
+			if m.UserID == uid {
+				if write && strings.EqualFold(strings.TrimSpace(m.Role), "viewer") {
+					return "当前账号为只读成员，无权执行写操作。", false
+				}
+				return "", true
+			}
+		}
+		// Allow tenant members to read tenant projects, and non-viewer tenant members to write
+		if role, in := defaultTenantStore.userTenantRole(activeTID, uid); in {
+			if write && role == "viewer" {
+				return "当前团队角色为只读访客，无权执行写操作。", false
+			}
+			return "", true
+		}
+		return "无权访问该项目。", false
 	}
 
 	if name == "webuddy_ensure_project_env" {
+		if msg, ok := checkProjectPerm(pid, true); !ok {
+			return mcpToolTextResult(msg, true), nil
+		}
 		after, actions, err := h.autoConfigureProjectEnv(session.User.ID, pid)
 		if err != nil {
 			return mcpToolTextResult(err.Error(), true), nil
@@ -500,6 +551,9 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 	}
 
 	if name == "webuddy_kb_update" {
+		if msg, ok := checkProjectPerm(pid, true); !ok {
+			return mcpToolTextResult(msg, true), nil
+		}
 		actor := strings.TrimSpace(session.User.LoginName)
 		if actor == "" && session.User.ID > 0 {
 			actor = fmt.Sprintf("user-%d", session.User.ID)
@@ -571,6 +625,9 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 	}
 
 	if name == "webuddy_preview_start" {
+		if msg, ok := checkProjectPerm(pid, true); !ok {
+			return mcpToolTextResult(msg, true), nil
+		}
 		eh := &webuddyEnvHandlers{deps: h.deps}
 		resolvedPID, projName, repoPath := eh.resolveProjectAndRepoPath(pid)
 		if repoPath == "" {
@@ -593,10 +650,13 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 		return mcpToolTextResult(string(out), false), nil
 	}
 
-	// Resolve repoPath for the session's project
+	// Resolve repoPath strictly for the authorized session project
+	if msg, ok := checkProjectPerm(pid, false); !ok {
+		return mcpToolTextResult(msg, true), nil
+	}
 	repoPath := ""
 	for _, r := range h.repo.Repositories() {
-		if (pid == "" || r.ProjectID == pid) && strings.TrimSpace(r.LocalPath) != "" {
+		if r.ProjectID == pid && strings.TrimSpace(r.LocalPath) != "" {
 			repoPath = strings.TrimSpace(r.LocalPath)
 			break
 		}

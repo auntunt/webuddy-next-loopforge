@@ -532,6 +532,19 @@ func (h *webuddyEnvHandlers) uploadProjectArchive(c *gin.Context) {
 
 	// Unwrap single top-level directory (common when zipping a folder)
 	contentRoot := unwrapSingleRootDir(stageDir)
+	// Preserve existing .tmh knowledge base (confirmed pages & Q&A) across archive re-uploads!
+	tmhBackup := filepath.Join(baseDir, ".tmh-bak-"+safeSlug+"-"+strconv.FormatInt(time.Now().UnixNano(), 10))
+	hadTMH := false
+	if st, statErr := os.Stat(filepath.Join(destDir, ".tmh")); statErr == nil && st.IsDir() {
+		if os.Rename(filepath.Join(destDir, ".tmh"), tmhBackup) == nil {
+			hadTMH = true
+		}
+	}
+	defer func() {
+		if hadTMH {
+			_ = os.RemoveAll(tmhBackup)
+		}
+	}()
 	if err := os.RemoveAll(destDir); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -543,6 +556,10 @@ func (h *webuddyEnvHandlers) uploadProjectArchive(c *gin.Context) {
 	if err := os.Rename(contentRoot, destDir); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "落盘代码目录失败: " + err.Error()})
 		return
+	}
+	if hadTMH {
+		_ = os.RemoveAll(filepath.Join(destDir, ".tmh"))
+		_ = os.Rename(tmhBackup, filepath.Join(destDir, ".tmh"))
 	}
 
 	// Initialize local git repo if not already one so tmh/codereview/HEAD provenance works seamlessly
@@ -597,6 +614,12 @@ func (h *webuddyEnvHandlers) uploadProjectArchive(c *gin.Context) {
 				tableCount = len(ov.Tables)
 			}
 		}
+		// Automatically kick off background AI synthesis of unanalyzed/stale KB pages!
+		actor := "archive-auto-kb"
+		if u, ok := h.requestUser(c.Request, true); ok && strings.TrimSpace(u.LoginName) != "" {
+			actor = strings.TrimSpace(u.LoginName)
+		}
+		_ = h.deps.startAsyncKBBatchUpdate(actor, pid, 3, "", true)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

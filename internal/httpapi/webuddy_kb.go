@@ -35,6 +35,15 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 	if h.repo == nil {
 		return rp, true
 	}
+	checkPerm := func(projectID string) bool {
+		if !authRequired() || projectID == "" {
+			return true
+		}
+		if requireWrite {
+			return h.requireProjectWriter(c, projectID)
+		}
+		return h.requireProjectReader(c, projectID)
+	}
 	repos := h.repo.Repositories()
 	if len(repos) == 0 {
 		if authRequired() && rp != "" {
@@ -48,7 +57,7 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 			for _, r := range repos {
 				if r.ProjectID == pid {
 					if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
-						if requireWrite && authRequired() && !h.requireProjectWriter(c, r.ProjectID) {
+						if !checkPerm(r.ProjectID) {
 							return "", false
 						}
 						return lp, true
@@ -57,9 +66,13 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 			}
 			return "", true
 		}
+		visible := h.visibleProjectIDSetForRequest(c.Request)
 		for _, r := range repos {
+			if authRequired() && r.ProjectID != "" && !visible[r.ProjectID] {
+				continue
+			}
 			if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
-				if requireWrite && authRequired() && r.ProjectID != "" && !h.requireProjectWriter(c, r.ProjectID) {
+				if !checkPerm(r.ProjectID) {
 					return "", false
 				}
 				return lp, true
@@ -70,7 +83,7 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 	for _, r := range repos {
 		lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/")
 		if (lp != "" && lp == rp) || r.ID == rp {
-			if requireWrite && authRequired() && r.ProjectID != "" && !h.requireProjectWriter(c, r.ProjectID) {
+			if !checkPerm(r.ProjectID) {
 				return "", false
 			}
 			return lp, true
@@ -81,6 +94,19 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 		return "", false
 	}
 	return rp, true
+}
+
+func (h *webuddyKBHandlers) projectIDForRepoPath(repoPath string) string {
+	rp := strings.TrimRight(strings.TrimSpace(repoPath), "/")
+	if rp == "" || h.repo == nil {
+		return ""
+	}
+	for _, r := range h.repo.Repositories() {
+		if strings.TrimRight(strings.TrimSpace(r.LocalPath), "/") == rp {
+			return r.ProjectID
+		}
+	}
+	return ""
 }
 
 // GET /api/webuddy/kb/overview?repoPath=...
@@ -307,6 +333,29 @@ func (h *webuddyKBHandlers) answerQuestion(c *gin.Context) {
 		by = u.LoginName
 	}
 	raw, err := h.svc.AnswerQuestion(c.Request.Context(), rp, input.Num, input.Text, by)
+	if err == nil {
+		if pid := h.projectIDForRepoPath(rp); pid != "" {
+			projName := pid
+			if p, ok := h.repo.Project(pid); ok && p.Name != "" {
+				projName = p.Name
+			}
+			tid := defaultTenantStore.projectTenant(pid)
+			_, _ = defaultSharedKBStore.upsert(SharedKnowledgeItem{
+				TenantID:          tid,
+				Title:             fmt.Sprintf("业务口径澄清 #%d（%s）", input.Num, projName),
+				Summary:           strings.TrimSpace(input.Text),
+				Content:           fmt.Sprintf("问题 #%d 人工澄清结论（回答人：%s）：\n\n%s", input.Num, by, strings.TrimSpace(input.Text)),
+				SourceType:        "experience",
+				SourceProjectID:   pid,
+				SourceProjectName: projName,
+				SourceRelPath:     fmt.Sprintf(".tmh/knowledge/qa/question-%d", input.Num),
+				Tags:              []string{projName, "业务澄清", "Q&A"},
+				Author:            by,
+			})
+			// Automatically revise linked KB pages in background so the answer takes effect immediately!
+			_ = h.deps.startAsyncKBBatchUpdate(by, pid, 2, "", false)
+		}
+	}
 	renderRawJSON(c, raw, err)
 }
 
@@ -328,5 +377,11 @@ func (h *webuddyKBHandlers) confirmPage(c *gin.Context) {
 		by = u.LoginName
 	}
 	raw, err := h.svc.ConfirmPage(c.Request.Context(), rp, input.PageID, by)
+	if err == nil {
+		// Automatically sync confirmed project knowledge to the Tenant Shared KB!
+		if pid := h.projectIDForRepoPath(rp); pid != "" {
+			_ = h.deps.syncProjectKBFilesToShared(pid, by)
+		}
+	}
 	renderRawJSON(c, raw, err)
 }

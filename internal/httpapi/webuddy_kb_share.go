@@ -206,9 +206,15 @@ func (h *webuddyEnvHandlers) publishSharedKB(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "共享知识标题不能为空"})
 		return
 	}
+	srcPid := strings.TrimSpace(req.SourceProjectID)
+	if srcPid != "" && authRequired() {
+		if defaultTenantStore.projectTenant(srcPid) != tid || !h.requireProjectWriter(c, srcPid) {
+			return
+		}
+	}
 	projName := strings.TrimSpace(req.SourceProjectName)
-	if projName == "" && strings.TrimSpace(req.SourceProjectID) != "" {
-		if p, ok := h.repo.Project(strings.TrimSpace(req.SourceProjectID)); ok {
+	if projName == "" && srcPid != "" {
+		if p, ok := h.repo.Project(srcPid); ok {
 			projName = p.Name
 		}
 	}
@@ -233,14 +239,77 @@ func (h *webuddyEnvHandlers) publishSharedKB(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "item": item})
 }
 
+func (d *deps) syncProjectKBFilesToShared(projectID, actor string) int {
+	pid, projName, repoPath := d.resolveProjectAndRepoPath(projectID)
+	if pid == "" || repoPath == "" {
+		return 0
+	}
+	tid := defaultTenantStore.projectTenant(pid)
+	if strings.TrimSpace(actor) == "" {
+		actor = "自动同步"
+	}
+	synced := 0
+	for _, folder := range []string{"modules", "flows", "entities", "domains"} {
+		dir := filepath.Join(repoPath, ".tmh", "knowledge", folder)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, ent := range entries {
+			if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".md") {
+				continue
+			}
+			rawBytes, err := os.ReadFile(filepath.Join(dir, ent.Name()))
+			if err != nil {
+				continue
+			}
+			text := string(rawBytes)
+			// Skip unanalyzed stubs cleanly (proper parenthesized boolean logic!)
+			if strings.Contains(text, "status: pending") || strings.Contains(text, "status: 未分析") || (strings.Contains(text, "未分析") && len(text) < 400) {
+				continue
+			}
+			title, summary, commit, body := parseKBMdFrontmatter(text, strings.TrimSuffix(ent.Name(), ".md"))
+			if strings.TrimSpace(body) == "" {
+				continue
+			}
+			if title == "" {
+				title = fmt.Sprintf("%s · %s", projName, strings.TrimSuffix(ent.Name(), ".md"))
+			}
+			relPath := filepath.ToSlash(filepath.Join(".tmh/knowledge", folder, ent.Name()))
+			_, err = defaultSharedKBStore.upsert(SharedKnowledgeItem{
+				TenantID:          tid,
+				Title:             title,
+				Summary:           summary,
+				Content:           body,
+				SourceType:        "kb_page",
+				SourceProjectID:   pid,
+				SourceProjectName: projName,
+				SourceRelPath:     relPath,
+				Commit:            commit,
+				Tags:              []string{projName, "项目知识库", folder},
+				Author:            actor,
+			})
+			if err == nil {
+				synced++
+			}
+		}
+	}
+	return synced
+}
+
 // POST /api/webuddy/kb/shared/sync-project
-// Publishes all analyzed .tmh/knowledge/modules/*.md pages from a project into the active tenant's Shared Knowledge Hub.
+// Publishes all analyzed .tmh/knowledge/{modules,flows,entities,domains}/*.md pages from a project into the active tenant's Shared Knowledge Hub.
 func (h *webuddyEnvHandlers) syncProjectKBToShared(c *gin.Context) {
 	var req struct {
 		ProjectID string `json:"projectId"`
 	}
 	_ = c.ShouldBindJSON(&req)
-	pid, projName, repoPath := h.resolveProjectAndRepoPath(req.ProjectID)
+	rawPid := strings.TrimSpace(req.ProjectID)
+	if authRequired() && rawPid == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请指定 projectId"})
+		return
+	}
+	pid, _, repoPath := h.resolveProjectAndRepoPath(rawPid)
 	if pid == "" || repoPath == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "当前项目尚未挂载本地知识库目录"})
 		return
@@ -253,49 +322,7 @@ func (h *webuddyEnvHandlers) syncProjectKBToShared(c *gin.Context) {
 	if user, ok := h.requestUser(c.Request, true); ok && user != nil && strings.TrimSpace(user.LoginName) != "" {
 		actor = strings.TrimSpace(user.LoginName)
 	}
-
-	modulesDir := filepath.Join(repoPath, ".tmh", "knowledge", "modules")
-	entries, err := os.ReadDir(modulesDir)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到项目知识库模块目录（请先执行图谱/知识库分析）"})
-		return
-	}
-	synced := 0
-	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".md") {
-			continue
-		}
-		rawBytes, err := os.ReadFile(filepath.Join(modulesDir, ent.Name()))
-		if err != nil {
-			continue
-		}
-		text := string(rawBytes)
-		// Only publish analyzed pages (skip empty unanalyzed stubs)
-		if strings.Contains(text, "status: pending") || strings.Contains(text, "未分析") && len(text) < 260 {
-			continue
-		}
-		title, summary, commit, body := parseKBMdFrontmatter(text, strings.TrimSuffix(ent.Name(), ".md"))
-		if title == "" {
-			title = fmt.Sprintf("%s · %s", projName, strings.TrimSuffix(ent.Name(), ".md"))
-		}
-		relPath := filepath.ToSlash(filepath.Join(".tmh/knowledge/modules", ent.Name()))
-		_, err = defaultSharedKBStore.upsert(SharedKnowledgeItem{
-			TenantID:          tid,
-			Title:             title,
-			Summary:           summary,
-			Content:           body,
-			SourceType:        "kb_page",
-			SourceProjectID:   pid,
-			SourceProjectName: projName,
-			SourceRelPath:     relPath,
-			Commit:            commit,
-			Tags:              []string{projName, "项目知识库"},
-			Author:            actor,
-		})
-		if err == nil {
-			synced++
-		}
-	}
+	synced := h.deps.syncProjectKBFilesToShared(pid, actor)
 	c.JSON(http.StatusOK, gin.H{
 		"ok":        true,
 		"projectId": pid,

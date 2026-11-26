@@ -166,6 +166,61 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	e.WorkspaceCheckpointTransport = func(ctx context.Context, run domain.Run, request domain.RunnerWorkspaceRequest) (domain.RunnerWorkspaceResponse, error) {
 		return runnerControls.requestWorkspace(ctx, e.RunExecutionRunner(run), request)
 	}
+	e.OnRunSettled = func(settled domain.Run) {
+		pid := strings.TrimSpace(settled.WorkflowSnapshot.ProjectID)
+		if pid == "" {
+			pid = strings.TrimSpace(settled.ExecutionContext.ProjectID)
+		}
+		if pid == "" && settled.ExecutionContext.IssueID != "" {
+			if iss, ok := s.Issue(settled.ExecutionContext.IssueID); ok {
+				pid = strings.TrimSpace(iss.ProjectID)
+			}
+		}
+		if pid == "" {
+			return
+		}
+		projName := pid
+		if p, ok := s.Project(pid); ok && p.Name != "" {
+			projName = p.Name
+		}
+		tid := defaultTenantStore.projectTenant(pid)
+		// 1. Auto-harvest any knowledge.md artifact from this SOP run into the Tenant Shared KB!
+		for _, art := range settled.Artifacts {
+			ap := strings.TrimSpace(art.Path)
+			if ap != domain.KnowledgeArtifactBasename && !strings.HasSuffix(ap, "/"+domain.KnowledgeArtifactBasename) && strings.TrimSpace(art.Name) != domain.KnowledgeArtifactBasename {
+				continue
+			}
+			if strings.TrimSpace(art.Content) == "" {
+				continue
+			}
+			title, summary, _, body := parseKBMdFrontmatter(art.Content, "")
+			if title == "" {
+				title = "SOP 交付沉淀：" + strings.TrimSpace(settled.WorkflowSnapshot.Name)
+			}
+			if summary == "" {
+				runes := []rune(strings.TrimSpace(body))
+				if len(runes) > 90 {
+					summary = string(runes[:90]) + "…"
+				} else {
+					summary = string(runes)
+				}
+			}
+			_, _ = defaultSharedKBStore.upsert(SharedKnowledgeItem{
+				TenantID:          tid,
+				Title:             title,
+				Summary:           summary,
+				Content:           body,
+				SourceType:        "sop_lesson",
+				SourceProjectID:   pid,
+				SourceProjectName: projName,
+				SourceRelPath:     "runs/" + settled.ID + "/" + art.NodeID + "/knowledge.md",
+				Tags:              []string{projName, "SOP沉淀", settled.WorkflowSnapshot.Name},
+				Author:            "SOP自动沉淀",
+			})
+		}
+		// 2. Auto-trigger incremental KB scan & stale page update for the project!
+		_ = d.startAsyncKBBatchUpdate("sop-auto-sync", pid, 3, "", false)
+	}
 	api := &Server{
 		deps:            d,
 		notifications:   &notificationHandlers{deps: d, service: notifications},

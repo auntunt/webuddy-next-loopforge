@@ -200,12 +200,29 @@ func (h *webuddyEnvHandlers) activeTasks(c *gin.Context) {
 	})
 }
 
+func (r *webuddyTaskRegistry) findRunning(kind, projectID string) (WebuddyLiveTask, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, t := range r.tasks {
+		if t.Status == "running" && t.Kind == kind && t.ProjectID == projectID {
+			cp := *t
+			cp.ElapsedSec = int64(time.Since(t.startedTime).Seconds())
+			return cp, true
+		}
+	}
+	return WebuddyLiveTask{}, false
+}
+
 // startAsyncKBBatchUpdate launches a non-blocking background KB update and registers it
 // in defaultTaskRegistry so the floating pill tracks live progress across all views.
-// When runAll is true, it loops continuously in 3-page batches until all remaining pages
-// are analyzed (capped at 20 batches / 60 pages per click for safety).
+// Deduplicates concurrent runs per project so multiple triggers reuse the active task.
 func (d *deps) startAsyncKBBatchUpdate(actor, projectID string, limit int, query string, runAll bool) WebuddyLiveTask {
 	pid, projName, _ := d.resolveProjectAndRepoPath(projectID)
+	if pid != "" && strings.TrimSpace(query) == "" {
+		if existing, ok := defaultTaskRegistry.findRunning("kb_update", pid); ok {
+			return existing
+		}
+	}
 	if limit <= 0 {
 		limit = 3
 	}
@@ -246,7 +263,7 @@ func (d *deps) startAsyncKBBatchUpdate(actor, projectID string, limit int, query
 		zeroStreak := 0
 
 		for batch := 1; batch <= maxBatches; batch++ {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			bgCtx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 			receipt, err := d.runWebuddyKBBatchUpdate(bgCtx, actor, pid, limit, query)
 			cancel()
 			if err != nil {

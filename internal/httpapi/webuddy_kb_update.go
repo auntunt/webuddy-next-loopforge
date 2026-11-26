@@ -49,6 +49,9 @@ type kbStatusPayload struct {
 	ProjectName   string                 `json:"projectName"`
 	RepoPath      string                 `json:"repoPath"`
 	GitHead       string                 `json:"gitHead"`
+	BuildHead     string                 `json:"buildHead,omitempty"`
+	HeadDrifted   bool                   `json:"headDrifted,omitempty"`
+	AutoSyncTask  string                 `json:"autoSyncTask,omitempty"`
 	Coverage      kbCoverageSnapshot     `json:"coverage"`
 	RecentUpdated []kbUpdatedPageReceipt `json:"recentUpdated"`
 	VerifiedAt    string                 `json:"verifiedAt"`
@@ -99,7 +102,15 @@ func (d *deps) resolveProjectAndRepoPath(projectID string) (string, string, stri
 }
 
 func (h *webuddyEnvHandlers) kbStatus(c *gin.Context) {
-	pid, projName, repoPath := h.resolveProjectAndRepoPath(c.Query("projectId"))
+	rawPid := strings.TrimSpace(c.Query("projectId"))
+	if authRequired() && rawPid == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请指定 projectId"})
+		return
+	}
+	pid, projName, repoPath := h.resolveProjectAndRepoPath(rawPid)
+	if authRequired() && pid != "" && !h.requireProjectReader(c, pid) {
+		return
+	}
 	if repoPath == "" {
 		c.JSON(http.StatusOK, kbStatusPayload{
 			OK:          false,
@@ -123,6 +134,11 @@ func (h *webuddyEnvHandlers) kbStatus(c *gin.Context) {
 	res.ProjectID = pid
 	res.ProjectName = projName
 	res.VerifiedAt = time.Now().Format(time.RFC3339)
+	// Automatic timely KB sync when git HEAD drifts ahead of last KB build!
+	if res.HeadDrifted && pid != "" {
+		tk := h.deps.startAsyncKBBatchUpdate("auto-git-sync", pid, 3, "", false)
+		res.AutoSyncTask = tk.ID
+	}
 	c.JSON(http.StatusOK, res)
 }
 
@@ -143,9 +159,20 @@ func (h *webuddyEnvHandlers) kbBatchUpdate(c *gin.Context) {
 			actor = fmt.Sprintf("user-%d", u.ID)
 		}
 	}
-	pid := strings.TrimSpace(req.ProjectID)
-	if authRequired() && pid != "" && !h.requireProjectWriter(c, pid) {
+	rawPid := strings.TrimSpace(req.ProjectID)
+	if authRequired() && rawPid == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请指定 projectId"})
 		return
+	}
+	pid, _, _ := h.resolveProjectAndRepoPath(rawPid)
+	if authRequired() {
+		if pid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "未找到目标项目"})
+			return
+		}
+		if !h.requireProjectWriter(c, pid) {
+			return
+		}
 	}
 	if req.Async || req.All {
 		task := h.deps.startAsyncKBBatchUpdate(actor, pid, req.Limit, req.Query, req.All)
@@ -329,6 +356,9 @@ func (d *deps) runWebuddyKBBatchUpdate(ctx context.Context, actor, projectID str
 			receipt.Remaining = st.Coverage.Pending + st.Coverage.Stale
 		}
 	}
+	if len(receipt.UpdatedPages) > 0 && pid != "" {
+		_ = d.syncProjectKBFilesToShared(pid, actor)
+	}
 	receipt.VerifiedAt = time.Now().Format(time.RFC3339)
 	receipt.OK = len(receipt.UpdatedPages) > 0 || len(receipt.FailedPages) == 0
 	return receipt, nil
@@ -347,11 +377,15 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 		"3. 不要写 YAML frontmatter 或 tmh:facts 块；不确定处标【推断】。"
 
 	pack := job.PackText
-	if len(pack) > 6500 {
-		pack = pack[:6500] + "\n...(后续上下文已截断)"
+	if runes := []rune(pack); len(runes) > 9500 {
+		pack = string(runes[:9500]) + "\n...(后续上下文已截断)"
 	}
-	baseUserPrompt := fmt.Sprintf("页面 ID：%s\n文件：%s\n必须包含的二级标题：%s\n\n===== 源码与图谱上下文 =====\n%s",
-		job.PageID, job.RelPath, secList, pack)
+	instNote := ""
+	if strings.TrimSpace(job.Instructions) != "" {
+		instNote = "\n修订要求：\n" + strings.TrimSpace(job.Instructions) + "\n"
+	}
+	baseUserPrompt := fmt.Sprintf("页面 ID：%s\n文件：%s\n必须包含的二级标题：%s%s\n===== 源码与图谱上下文 =====\n%s",
+		job.PageID, job.RelPath, secList, instNote, pack)
 
 	var lastErrs []string
 	var usedModel string
@@ -361,9 +395,9 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 		res := builtinagent.Default().Complete(ctx, builtinagent.CompletionRequest{
 			SystemPrompt: sysPrompt,
 			UserPrompt:   userPrompt,
-			MaxTokens:    1600,
+			MaxTokens:    2400,
 			Temperature:  0.15,
-			Timeout:      65 * time.Second,
+			Timeout:      75 * time.Second,
 		})
 		if res.Model != "" {
 			usedModel = res.Model
@@ -375,10 +409,12 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 		gen, err := parseKBGeneratedPage(res.Text)
 		if err != nil {
 			lastErrs = []string{err.Error()}
-			userPrompt = baseUserPrompt + "\n\n上次输出格式校验失败：" + err.Error() + "\n请严格按 TITLE: / SUMMARY: / --- / ## 标题 格式输出。"
+			userPrompt = baseUserPrompt + "\n\n上次输出格式校验失败：" + err.Error() + "\n请严格按 TITLE: / SUMMARY: / --- / ## 标题 纯文本格式重新输出（严禁使用代码块包裹全文，严禁输出 JSON）。"
 			continue
 		}
-		commitRaw, err := svc.KBCommit(ctx, repoPath, job.PageID, gen.Title, gen.Summary, gen.Body, actor)
+		commitCtx, commitCancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+		commitRaw, err := svc.KBCommit(commitCtx, repoPath, job.PageID, gen.Title, gen.Summary, gen.Body, actor)
+		commitCancel()
 		if err != nil {
 			lastErrs = []string{err.Error()}
 			continue
@@ -414,8 +450,8 @@ func synthesizeAndCommitKBPage(ctx context.Context, svc *webuddykb.Service, repo
 			}, usedModel, nil
 		}
 		lastErrs = commitRes.Errors
-		userPrompt = baseUserPrompt + "\n\n上次提交未通过源码溯源校验，错误如下：\n- " + strings.Join(commitRes.Errors, "\n- ") +
-			"\n请逐条修正（尤其是只引用上下文里真实存在的文件路径和行号），并严格只输出一个合法 JSON 对象。"
+		userPrompt = baseUserPrompt + "\n\n上次提交未通过源码溯源或章节校验，错误如下：\n- " + strings.Join(commitRes.Errors, "\n- ") +
+			"\n请逐条修正（只引用上方源码上下文里真实存在的文件路径和行号，包含全部必需二级标题），并严格按 TITLE: / SUMMARY: / --- / ## 标题 格式输出（不要输出 JSON）。"
 	}
 	return kbUpdatedPageReceipt{}, usedModel, lastErrs
 }

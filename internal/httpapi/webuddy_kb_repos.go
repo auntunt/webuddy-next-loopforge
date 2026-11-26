@@ -138,6 +138,10 @@ func (h *webuddyKBHandlers) pickFolder(c *gin.Context) {
 // POST /api/webuddy/kb/import-local
 // Imports a selected local directory as a Project + Local Repository in one click.
 func (h *webuddyKBHandlers) importLocal(c *gin.Context) {
+	if authRequired() && !h.isPlatformAdmin(c.Request) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "仅平台管理员可直接挂载服务端本地目录；普通成员请使用代码压缩包上传或绑定 Git 仓库"})
+		return
+	}
 	var input struct {
 		LocalPath string `json:"localPath"`
 		Name      string `json:"name"`
@@ -186,18 +190,28 @@ func (h *webuddyKBHandlers) importLocal(c *gin.Context) {
 	if len(key) > 4 {
 		key = key[:4]
 	}
+	var ownerID int64
+	actor := "local-import"
+	if u, ok := h.requestUser(c.Request, true); ok && u != nil {
+		ownerID = u.ID
+		if strings.TrimSpace(u.LoginName) != "" {
+			actor = strings.TrimSpace(u.LoginName)
+		}
+	}
 	proj := domain.Project{
 		ID:                  slug,
 		Key:                 key,
 		Name:                name,
 		Description:         "本地导入项目：" + lp,
 		Color:               "#2563eb",
+		OwnerID:             ownerID,
 		DefaultRepositoryID: rid,
 	}
 	if err := h.repo.PutProject(proj); err != nil {
 		respond(c, err)
 		return
 	}
+	defaultTenantStore.bindProjectTenant(slug, h.currentActiveTenant(c.Request))
 	defaultBranch := "main"
 	if ig {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
@@ -218,6 +232,8 @@ func (h *webuddyKBHandlers) importLocal(c *gin.Context) {
 		respond(c, err)
 		return
 	}
+	// Automatically kick off background Code Graph scan + KB page synthesis!
+	_ = h.deps.startAsyncKBBatchUpdate(actor, slug, 3, "", true)
 	c.JSON(http.StatusOK, gin.H{
 		"reused": false,
 		"repo": localRepoItem{
