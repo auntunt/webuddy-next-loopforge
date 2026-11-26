@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -506,8 +507,25 @@ func (h *runsHandlers) executeRunEval(ctx context.Context, rec domain.RunEvalRec
 	system, prompt := runeval.BuildPrompt(rec.Policy, facts)
 	evalEngine, _ := assistantModelEngine(rec.Model)
 	evalKey, _ := assistantEngineCredential(user, evalEngine)
-	useRunnerLogin := evalKey == "" && scheduleLoginRunner(h.repo, user.ID, evalEngine).ID != ""
-	raw, _, err := runAssistantCLI(ctx, assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID, ReviewOnly: true, RunnerLogin: useRunnerLogin}, user, func(ev assistantStreamEvent) {
+	loginRunner := scheduleLoginRunner(h.repo, user.ID, evalEngine)
+	useRunnerLogin := evalKey == "" && loginRunner.ID != ""
+	cliReq := assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID, ReviewOnly: true, RunnerLogin: useRunnerLogin}
+	if useRunnerLogin && h.assistant != nil {
+		if evalRoot, mkErr := os.MkdirTemp("", "agentflow-eval-*"); mkErr == nil {
+			defer os.RemoveAll(evalRoot)
+			cliReq.SessionRoot = evalRoot
+			cliReq.RemoteBinary = true
+			sess := &AgentToolSession{
+				ChatOwnerID:       user.ID,
+				ChatSessionID:     "eval-" + rec.ID,
+				ExecutionRunnerID: loginRunner.ID,
+				RuntimeMode:       domain.AssistantModePlatform,
+				runnerLogin:       true,
+			}
+			cliReq.Execute = h.assistant.conversationExecutor(sess, evalRoot)
+		}
+	}
+	raw, _, err := runAssistantCLI(ctx, cliReq, user, func(ev assistantStreamEvent) {
 		if emit == nil {
 			return
 		}
