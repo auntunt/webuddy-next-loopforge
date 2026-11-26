@@ -751,6 +751,97 @@ def _statecharts(repo_path: str | None) -> dict:
     return {"repoPath": str(root), "charts": charts}
 
 
+_ZH_STOP_PHRASES = (
+    "请问", "帮我", "看一下", "查看", "怎么", "如何", "为什么", "什么", "哪里", "在哪",
+    "一下", "这个", "那个", "哪些", "有没有", "是否", "可以", "应该", "需要", "逻辑",
+)
+
+_ZH_EN_SYNONYMS: dict[str, list[str]] = {
+    "发票": ["invoice", "invoices", "receipt", "ocr", "ofd", "pdf"],
+    "报销": ["claim", "claims", "reimburse", "expense", "me"],
+    "提交": ["submit", "post", "create", "claim", "claims", "upload"],
+    "薪酬": ["payroll", "salary", "pay"],
+    "工资": ["payroll", "salary", "pay"],
+    "发薪": ["payroll", "salary"],
+    "核算": ["payroll", "calc", "calculate", "month"],
+    "审批": ["approve", "approval", "review", "audit"],
+    "审核": ["approve", "review", "audit", "verify"],
+    "核验": ["verify", "validate", "check", "invoice"],
+    "校验": ["verify", "validate", "check"],
+    "员工": ["employee", "employees", "staff", "user"],
+    "登录": ["login", "auth", "oauth", "session"],
+    "飞书": ["feishu", "lark"],
+    "导出": ["export", "xlsx", "excel"],
+    "上传": ["upload", "multipart", "file", "files"],
+    "替票": ["substitute", "ticket", "invoice"],
+    "外派": ["dispatch", "site", "allowance"],
+    "项目": ["project", "projects"],
+    "成本": ["cost", "token", "effort"],
+    "精力": ["effort", "allocation"],
+    "考勤": ["attendance", "leave", "late"],
+    "请假": ["leave", "attendance"],
+    "考试": ["exam", "score"],
+    "提成": ["commission", "bonus"],
+    "奖金": ["bonus", "commission"],
+    "通知": ["notify", "notification", "message"],
+    "管理员": ["admin", "manager"],
+    "后台": ["admin", "dashboard"],
+    "权限": ["role", "auth", "rbac", "admin"],
+    "租户": ["tenant", "workspace"],
+    "订单": ["order", "orders"],
+    "支付": ["pay", "payment"],
+    "删除": ["delete", "remove"],
+    "修改": ["update", "edit", "put", "patch"],
+    "查询": ["get", "list", "query", "search"],
+    "配置": ["config", "setting", "env"],
+}
+
+
+def _extract_query_terms(query: str) -> list[str]:
+    raw = (query or "").strip()
+    if not raw:
+        return []
+    terms: list[str] = []
+    seen: set[str] = set()
+
+    def add(tok: str) -> None:
+        t = tok.strip().lower()
+        if len(t) >= 2 and t not in seen:
+            seen.add(t)
+            terms.append(t)
+
+    # 1. ASCII tokens / paths / identifiers
+    for m in re.findall(r"[A-Za-z0-9_./-]{2,}", raw):
+        add(m)
+        for part in re.split(r"[_./-]+", m):
+            if len(part) >= 2:
+                add(part)
+
+    # 2. Chinese segments after stripping common question fillers
+    cleaned = raw
+    for sp in _ZH_STOP_PHRASES:
+        cleaned = cleaned.replace(sp, " ")
+    for seg in re.findall(r"[\u4e00-\u9fff]+", cleaned):
+        seg = seg.strip("的了呢吗吧呀啊")
+        if len(seg) >= 2:
+            add(seg)
+            # Extract 2-char keywords for compound Chinese queries (e.g. "提交发票" -> "提交", "发票")
+            if len(seg) > 2:
+                for i in range(len(seg) - 1):
+                    bg = seg[i : i + 2]
+                    if bg not in _ZH_STOP_PHRASES:
+                        add(bg)
+
+    # 3. Expand matched Chinese domain terms to English code equivalents
+    for zh, en_list in _ZH_EN_SYNONYMS.items():
+        if zh in raw:
+            add(zh)
+            for en in en_list:
+                add(en)
+
+    return terms[:32]
+
+
 def _impact(repo_path: str, target: str, depth: int = 3) -> dict:
     root = Path(repo_path).expanduser().resolve()
     if not root.is_dir():
@@ -761,30 +852,42 @@ def _impact(repo_path: str, target: str, depth: int = 3) -> dict:
     from tmh import query as tmh_query
     from tmh.graph import Graph, graph_path
 
+    terms = _extract_query_terms(t)
     raw_impact = {}
     try:
         raw_impact = tmh_query.impact(root, t, depth=max(1, min(depth or 3, 5)), limit=80) or {}
     except Exception:
         raw_impact = {}
 
+    # Collect caller file paths from raw_impact so we can link them back to graph flows/domains/tables
+    caller_files: set[str] = set()
+    for c_item in (raw_impact.get("callers") or []):
+        cf = str(c_item.get("file") or "").strip().lower()
+        if cf:
+            caller_files.add(cf)
+
     affected_flows = []
     affected_domains: dict[str, int] = {}
-    affected_tables = []
+    affected_tables_map: dict[str, dict] = {}
     gp = graph_path(root)
     if gp.exists():
         g = Graph(root)
         tl = t.lower()
+        tbl_index = {str(tb.get("name") or "").lower(): tb for tb in g.nodes("tbl")}
         for f in g.nodes("flow"):
             dd = f.get("data") or {}
             crud = dd.get("crud") or {}
+            ffile = str(f.get("file") or "").lower()
             hay = " ".join([
                 str(f.get("name") or ""),
-                str(f.get("file") or ""),
+                ffile,
+                str(f.get("domain") or ""),
                 str(dd.get("trigger") or ""),
                 str(dd.get("handler") or ""),
                 " ".join(crud.keys()),
             ]).lower()
-            if tl in hay:
+            matched = (tl in hay) or (ffile in caller_files) or any(tok in hay for tok in terms)
+            if matched:
                 dom = f.get("domain") or "（未划分）"
                 affected_domains[dom] = affected_domains.get(dom, 0) + 1
                 affected_flows.append({
@@ -796,15 +899,29 @@ def _impact(repo_path: str, target: str, depth: int = 3) -> dict:
                     "line": f.get("line") or 0,
                     "tables": list(crud.keys()),
                 })
+                for tk in crud.keys():
+                    tkl = tk.lower()
+                    if tkl not in affected_tables_map:
+                        tb_node = tbl_index.get(tkl)
+                        affected_tables_map[tkl] = {
+                            "name": tk,
+                            "file": (tb_node.get("file") or "") if tb_node else "",
+                            "line": (tb_node.get("line") or 0) if tb_node else 0,
+                            "users": len(g.inn(tb_node["id"], "uses")) if tb_node else 1,
+                        }
         for tbl in g.nodes("tbl"):
             tname = str(tbl.get("name") or "")
-            if tl in tname.lower() or tl in str(tbl.get("file") or "").lower():
-                affected_tables.append({
-                    "name": tname,
-                    "file": tbl.get("file") or "",
-                    "line": tbl.get("line") or 0,
-                    "users": len(g.inn(tbl["id"], "uses")),
-                })
+            tfile = str(tbl.get("file") or "").lower()
+            thay = (tname + " " + tfile).lower()
+            if tl in thay or tfile in caller_files or any(tok in thay for tok in terms):
+                tkl = tname.lower()
+                if tkl not in affected_tables_map:
+                    affected_tables_map[tkl] = {
+                        "name": tname,
+                        "file": tbl.get("file") or "",
+                        "line": tbl.get("line") or 0,
+                        "users": len(g.inn(tbl["id"], "uses")),
+                    }
 
     return {
         "repoPath": str(root),
@@ -816,7 +933,7 @@ def _impact(repo_path: str, target: str, depth: int = 3) -> dict:
             for k, v in sorted(affected_domains.items(), key=lambda kv: -kv[1])
         ],
         "affectedFlows": affected_flows[:60],
-        "affectedTables": affected_tables[:30],
+        "affectedTables": list(affected_tables_map.values())[:30],
     }
 
 
@@ -828,8 +945,108 @@ def _chain(repo_path: str, query: str, flows: int = 6) -> dict:
     if not q:
         raise ValueError("请输入业务问题或需求描述")
     from tmh import kbqa
-    c = kbqa.chain(root, q, budget=24000, flows=max(1, min(flows or 6, 12)))
+    from tmh.graph import Graph, graph_path
+
+    max_flows = max(1, min(flows or 6, 12))
+    c = kbqa.chain(root, q, budget=24000, flows=max_flows)
     text = kbqa.chain_text(root, c)
+
+    # Bilingual semantic fallback when tmh exact-string chain finds no pages/flows
+    has_hits = bool(
+        (isinstance(c, dict) and (c.get("pages") or c.get("flows") or c.get("hits")))
+        and "没有找到相关页面" not in (text or "")
+    )
+    if not has_hits:
+        terms = _extract_query_terms(q)
+        scored_pages: list[tuple[int, str, str]] = []
+        modules_dir = root / ".tmh" / "knowledge" / "modules"
+        if modules_dir.is_dir():
+            for md_file in sorted(modules_dir.glob("*.md")):
+                try:
+                    content = md_file.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                low = (md_file.name + "\n" + content).lower()
+                score = sum(3 if tok in md_file.name.lower() else 1 for tok in terms if tok in low)
+                if score > 0:
+                    rel = md_file.relative_to(root).as_posix()
+                    scored_pages.append((score, rel, content[:1800].strip()))
+        scored_pages.sort(key=lambda x: -x[0])
+
+        scored_flows: list[tuple[int, dict]] = []
+        matched_files: list[str] = []
+        gp = graph_path(root)
+        if gp.exists():
+            g = Graph(root)
+            for f in g.nodes("flow"):
+                dd = f.get("data") or {}
+                crud = dd.get("crud") or {}
+                hay = " ".join([
+                    str(f.get("name") or ""),
+                    str(f.get("file") or ""),
+                    str(f.get("domain") or ""),
+                    str(dd.get("trigger") or ""),
+                    str(dd.get("handler") or ""),
+                    " ".join(crud.keys()),
+                ]).lower()
+                score = sum(2 if tok in str(f.get("name") or "").lower() or tok in str(dd.get("trigger") or "").lower() else 1 for tok in terms if tok in hay)
+                if score > 0:
+                    scored_flows.append((score, {
+                        "name": f.get("name") or f["id"],
+                        "domain": f.get("domain") or "未划分",
+                        "trigger": dd.get("trigger") or "",
+                        "file": f.get("file") or "",
+                        "line": f.get("line") or 0,
+                        "tables": list(crud.keys()),
+                    }))
+            scored_flows.sort(key=lambda x: -x[0])
+
+        sections: list[str] = [f"## 与「{q}」相关的业务链路与源码证据", f"（已自动扩展关键词：{', '.join(terms[:10])}）"]
+        if scored_flows:
+            sections.append("### 命中的业务流程与接口")
+            for _, fl in scored_flows[:max_flows]:
+                loc = f"{fl['file']}:{fl['line']}" if fl["file"] else ""
+                tbls = f" | 数据表: {', '.join(fl['tables'])}" if fl["tables"] else ""
+                sections.append(f"- **{fl['name']}**（域：{fl['domain']}） `{loc}`{tbls}")
+                if fl["file"] and fl["file"] not in matched_files:
+                    matched_files.append(fl["file"])
+
+        if scored_pages:
+            sections.append("### 命中的知识库模块文档")
+            for _, rel, snippet in scored_pages[:3]:
+                sections.append(f"#### {rel}\n{snippet}")
+
+        # Extract concise source evidence lines from top matched files
+        code_hits: list[str] = []
+        for mf in matched_files[:4]:
+            fp = root / mf
+            if not fp.is_file():
+                continue
+            try:
+                lines = fp.read_text(encoding="utf-8", errors="ignore").splitlines()
+            except Exception:
+                continue
+            for idx, ln in enumerate(lines, 1):
+                ll = ln.lower()
+                if any(tok in ll for tok in terms[:12]):
+                    code_hits.append(f"- `{mf}:{idx}` `{ln.strip()[:140]}`")
+                    if len(code_hits) >= 12:
+                        break
+            if len(code_hits) >= 12:
+                break
+        if code_hits:
+            sections.append("### 命中源码行号证据")
+            sections.extend(code_hits)
+
+        if scored_flows or scored_pages or code_hits:
+            text = "\n\n".join(sections)
+            c = {
+                "query": q,
+                "terms": terms[:12],
+                "flows": [fl for _, fl in scored_flows[:max_flows]],
+                "pages": [rel for _, rel, _ in scored_pages[:4]],
+            }
+
     return {
         "repoPath": str(root),
         "query": q,
