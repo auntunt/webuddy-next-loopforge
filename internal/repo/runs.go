@@ -1662,17 +1662,17 @@ func (r *RunsRepo) QueryRunTelemetry(runID, nodeID, adapter string, after, befor
 		nodeWhere, nodeArgs := r.nodeIDFilter("$.nodeId", nodeID)
 		adapterFilter := adapterSQLFilter(adapter)
 		raws, hasMore, err := r.queryJSONSeqPage("run_telemetry", runID, nodeWhere, nodeArgs, adapterFilter, after, before, afterSet, beforeSet, limit)
-		if err != nil {
-			return TelemetryPage{}, err
-		}
-		out := make([]domain.TelemetryEvent, 0, len(raws))
-		for _, raw := range raws {
-			var rec domain.TelemetryEvent
-			if json.Unmarshal(raw, &rec) == nil {
-				out = append(out, rec)
+		if err == nil {
+			out := make([]domain.TelemetryEvent, 0, len(raws))
+			for _, raw := range raws {
+				var rec domain.TelemetryEvent
+				if json.Unmarshal(raw, &rec) == nil {
+					out = append(out, rec)
+				}
 			}
+			return finishTelemetryPage(out, row.TelemetrySequence, hasMore), nil
 		}
-		return finishTelemetryPage(out, row.TelemetrySequence, hasMore), nil
+		// Fallback to in-memory filtering when legacy MySQL run_telemetry table lacks generated `adapter` column.
 	}
 	events, err := r.loadRunTelemetryAll(runID)
 	if err != nil {
