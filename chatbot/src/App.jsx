@@ -2307,45 +2307,6 @@ export default function App() {
             )}
           </div>
         </div>
-        {!chat.activeId && !chat.readOnly ? (
-          <section className="home-starters" aria-label="可以这样开始">
-            <div className="home-starter-grid">
-              {homeStarters.map((starter, index) => (
-                <button
-                  type="button"
-                  className={`home-starter home-starter-${starter.tone}`}
-                  key={starter.id || starter.title}
-                  style={{ "--card-index": index }}
-                  onClick={() => handleStarter(starter)}
-                >
-                  <span className="home-starter-top">
-                    <span className="home-starter-icon">
-                      <HarnessIcon name={starter.icon} size={21} />
-                    </span>
-                    <HarnessIcon
-                      name="chevron-right"
-                      className="home-starter-arrow"
-                      size={16}
-                      aria-hidden="true"
-                    />
-                  </span>
-                  <strong>{starter.title}</strong>
-                  <span className="home-starter-description">
-                    {starter.description}
-                  </span>
-                  <span className="home-starter-flow" aria-hidden="true">
-                    {starter.steps.map((step) => (
-                      <span key={step}>
-                        <i />
-                        {step}
-                      </span>
-                    ))}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-        ) : null}
       </main>
       {artifactPresence.mounted ? (
         <ArtifactPanel
