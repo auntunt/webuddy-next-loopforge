@@ -329,18 +329,20 @@ func collectArtifactsMode(outputs nodeOutputs, run domain.Run, node domain.Workf
 			out = append(out, artifact)
 		}
 	}
-	// Always capture optional workspace-root knowledge.md if the Agent produced it
-	// so SOP lessons (including failure retrospectives) can be harvested into Shared KB.
-	hasKnowledgeArtifact := false
-	for _, a := range out {
-		if strings.TrimSpace(a.Path) == domain.KnowledgeArtifactBasename || strings.TrimSpace(a.Name) == domain.KnowledgeArtifactBasename {
-			hasKnowledgeArtifact = true
-			break
+	// Always capture optional workspace-root knowledge.md / lessons-encoded.md if the Agent produced them
+	// so SOP lessons (including pstack encode & failure retrospectives) are harvested into Shared KB.
+	for _, optDoc := range []string{domain.KnowledgeArtifactBasename, "lessons-encoded.md"} {
+		hasDoc := false
+		for _, a := range out {
+			if strings.TrimSpace(a.Path) == optDoc || strings.TrimSpace(a.Name) == optDoc {
+				hasDoc = true
+				break
+			}
 		}
-	}
-	if !hasKnowledgeArtifact {
-		if kRaw, kErr := outputs.readFile(domain.KnowledgeArtifactBasename); kErr == nil && len(bytes.TrimSpace(kRaw)) > 0 && len(kRaw) <= maxArtifactBytes {
-			out = append(out, newArtifact(run.ID, node.ID, attempt, domain.KnowledgeArtifactBasename, domain.KnowledgeArtifactBasename, "text/markdown", kRaw))
+		if !hasDoc {
+			if kRaw, kErr := outputs.readFile(optDoc); kErr == nil && len(bytes.TrimSpace(kRaw)) > 0 && len(kRaw) <= maxArtifactBytes {
+				out = append(out, newArtifact(run.ID, node.ID, attempt, optDoc, optDoc, "text/markdown", kRaw))
+			}
 		}
 	}
 	patchTargets := run.RepositoryContexts()

@@ -516,8 +516,12 @@ function projectAdminAfterSave(projectId,creating){
   if(activeViewName()==='projects')history.replaceState(history.state,'',projectAdminHash(projectId,'repos'));
 }
 function projectDefaultSOPField(project){
-  const current=String(project.workflowId||(!project.id?'generic-backend-delivery':'')).trim();
   const choices=(state.data.workflows||[]).filter(w=>w.generic||!w.projectId||w.projectId===project.id||w.shared);
+  let current=String(project.workflowId||'').trim();
+  if(!current&&!project.id){
+    current=choices.find(w=>w.id==='generic-backend-delivery')?.id||choices[0]?.id||'';
+    if(current&&project)project.workflowId=current;
+  }
   const missing=current&&!choices.some(w=>w.id===current);
   const options=choices.map(w=>`<option value="${escapeHTML(w.id)}" ${w.id===current?'selected':''}>${w.generic?'通用 · ':''}${escapeHTML(w.name)}</option>`).join('');
   return `<select name="workflowId" class="select" required><option value="">请选择默认 SOP</option>${missing?`<option value="${escapeHTML(current)}" selected disabled>已失效：${escapeHTML(current)}（请重新选择）</option>`:''}${options}</select>`;

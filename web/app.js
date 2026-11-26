@@ -2003,7 +2003,7 @@ function switchView(name){
   setSettingsSidebarExpanded(!narrowSettings?isPureManagement:staying?settingsSidebarExpanded():!!prevView&&!isSettingsManagementView(previous));
   $('#managementEntry')?.classList.toggle('active', isPureManagement);
   $('#railSettingsEntry')?.classList.toggle('active', isPureManagement);
-  const noSidebarViews = ['issues', 'approvals', 'observability', 'codereview', 'knowledgebase', 'onboarding'];
+  const noSidebarViews = ['issues', 'approvals', 'observability', 'codereview', 'knowledgebase', 'onboarding', 'sops', 'flow', 'platform'];
   document.body.classList.toggle('no-sidebar', noSidebarViews.includes(name));
   document.body.classList.toggle('chat-next-active', name==='collaboration');
   if(name==='collaboration'||isPureManagement)mountNativeChat();
@@ -2073,6 +2073,18 @@ function switchView(name){
   if(name==='mcp')loadMCPMarket();
   if(name==='runners')refreshRunners();
   if(name==='guide')renderGuide();
-  if(name==='flow'){if(!state.workflow?.nodes?.some(n=>n.id===state.selectedNode))state.selectedNode=null;renderWorkflowMeta();renderCanvas();renderProperties();setFlowView('canvas');refreshGenericWorkflowRoles()}
+  if(name==='flow'){
+    const routeWfId=routePart(1);
+    if(routeWfId&&state.workflow?.id!==routeWfId){
+      const targetWf=(state.data?.workflows||[]).find(w=>w.id===routeWfId);
+      if(targetWf){
+        state.workflow=clone(targetWf);
+        state.selectedNode=null;
+        const wfSel=$('#workflowSelect');if(wfSel)wfSel.value=targetWf.id;
+      }
+    }
+    if(!state.workflow?.nodes?.some(n=>n.id===state.selectedNode))state.selectedNode=null;
+    renderWorkflowMeta();renderCanvas();renderProperties();setFlowView('canvas');refreshGenericWorkflowRoles();
+  }
 }
 function renderAll(){renderUserBadge();renderPlatformNav();renderObsTabs();renderProjectSwitcher();renderIssues();renderSOPCatalog();renderWorkflowMeta();renderCanvas();renderProperties();renderAgents();renderAssets();renderMCPManagement();renderRuns();renderSync();renderProjectAdmin();renderDashboard();renderGuide();updateApprovalBadge();showDirectRunButton($('#flowView').classList.contains('active'))}

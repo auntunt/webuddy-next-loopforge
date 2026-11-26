@@ -284,6 +284,7 @@ func (h *assistantHandlers) models(c *gin.Context) {
 				if scheduleLoginRunner(h.repo, user.ID, engine).ID != "" {
 					runnerLogin[engine] = true
 					catalog.Engines[i].Configured = true
+					catalog.Engines[i].Personal = true
 				}
 			}
 		}

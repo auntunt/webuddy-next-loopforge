@@ -49,8 +49,9 @@
     st.textContent = `
       #wbFloatingDock.wb-live-dock {
         position: fixed;
-        right: 20px;
-        bottom: 20px;
+        left: 88px;
+        bottom: 18px;
+        right: auto;
         z-index: 9999;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }

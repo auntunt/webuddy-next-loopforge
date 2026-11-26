@@ -772,8 +772,10 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 			warnMCPSkipped := func(message string) {
 				sink(domain.TelemetryEvent{Category: "mcp", Name: "mcp.skipped", Phase: "start", Level: "warn", Message: message})
 			}
-			if warning := knowledgeSkippedWarning(agent, assets); warning != "" {
-				warnMCPSkipped(warning)
+			if e.repo.KnowledgeSettings().Enabled {
+				if warning := knowledgeSkippedWarning(agent, assets); warning != "" {
+					warnMCPSkipped(warning)
+				}
 			}
 			options := runtime.InvocationOptions{RunID: runID, NodeID: node.ID, ResumeSessionID: resumeSessionID, Repositories: current.RepositoryContexts()}
 			if requiresSubmit {

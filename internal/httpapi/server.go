@@ -184,13 +184,21 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 			projName = p.Name
 		}
 		tid := defaultTenantStore.projectTenant(pid)
-		// 1. Auto-harvest the latest non-empty knowledge.md artifact from this SOP run
+		// 1. Auto-harvest the latest non-empty knowledge.md / lessons-encoded.md artifact from this SOP run
 		// into the Tenant Shared KB (deduplicated to 1 entry per run).
 		var latestKnowledge *domain.Artifact
 		for i := range settled.Artifacts {
 			art := settled.Artifacts[i]
-			ap := strings.TrimSpace(art.Path)
-			if ap != domain.KnowledgeArtifactBasename && !strings.HasSuffix(ap, "/"+domain.KnowledgeArtifactBasename) && strings.TrimSpace(art.Name) != domain.KnowledgeArtifactBasename {
+			ap := strings.ToLower(strings.TrimSpace(art.Path))
+			an := strings.ToLower(strings.TrimSpace(art.Name))
+			isLessonDoc := ap == domain.KnowledgeArtifactBasename ||
+				strings.HasSuffix(ap, "/"+domain.KnowledgeArtifactBasename) ||
+				an == domain.KnowledgeArtifactBasename ||
+				ap == "lessons-encoded.md" ||
+				strings.HasSuffix(ap, "/lessons-encoded.md") ||
+				an == "lessons-encoded" ||
+				an == "lessons-encoded.md"
+			if !isLessonDoc {
 				continue
 			}
 			if strings.TrimSpace(art.Content) == "" {

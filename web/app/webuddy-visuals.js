@@ -264,19 +264,21 @@
       // instead of an empty dot grid.
       const modPages = (ov.pages || []).filter(p => p && p.path);
       if (domains.length === 0 && flows.length === 0 && (modPages.length > 0 || (ov.sourceFiles || []).length > 0)) {
-        const analyzedCount = modPages.filter(p => p.status && p.status !== '未分析').length;
+        const isPageAnalyzed = p => Boolean(p && p.status && p.status !== '未分析' && p.status !== 'pending' && p.summary && !/尚未分析/.test(String(p.summary)));
+        const analyzedCount = modPages.filter(isPageAnalyzed).length;
         const pid = (window.state && window.state.projectFilter) || '';
         const cardsHTML = modPages.map(p => {
-          const isDone = p.status && p.status !== '未分析';
+          const isDone = isPageAnalyzed(p);
+          const displayStatus = p.status === '已确认' ? '已确认' : (isDone ? p.status : '未分析');
           const badgeCls = p.status === '已确认' ? 'pass' : isDone ? 'info' : '';
           const badgeStyle = !isDone ? 'background:#f1f5f9;color:#64748b' : '';
           return (
-            '<div class="wb-finding-card" data-mod-open="' + esc(p.path) + '" style="cursor:pointer;display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-color:' + (isDone ? 'rgba(34,197,94,0.45)' : 'var(--line,#e2e8f0)') + ';background:' + (isDone ? 'linear-gradient(180deg,#f0fdf4 0%,#fff 100%)' : '#fff') + '">' +
+            '<div class="wb-finding-card" data-mod-open="' + esc(p.path) + '" data-mod-page-id="' + esc(p.pageId || '') + '" data-mod-status="' + esc(p.status || '') + '" style="cursor:pointer;display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-color:' + (isDone ? 'rgba(34,197,94,0.45)' : 'var(--line,#e2e8f0)') + ';background:' + (isDone ? 'linear-gradient(180deg,#f0fdf4 0%,#fff 100%)' : '#fff') + '">' +
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
                 '<strong style="font-size:13.5px;color:#0f172a">' + (isDone ? '✅ ' : '📄 ') + esc(p.title || p.name || p.path) + '</strong>' +
-                '<span class="wb-badge ' + badgeCls + '" style="' + badgeStyle + '">' + esc(p.status || '未分析') + '</span>' +
+                '<span class="wb-badge ' + badgeCls + '" style="' + badgeStyle + '">' + esc(displayStatus) + '</span>' +
               '</div>' +
-              (p.summary ? '<div style="font-size:12.5px;color:#334155;line-height:1.5">' + esc(p.summary) + '</div>' : '<div style="font-size:12px;color:#94a3b8">尚未分析，点击上方「后台继续分析」自动生成带源码证据的业务说明</div>') +
+              (isDone ? '<div style="font-size:12.5px;color:#334155;line-height:1.5">' + esc(p.summary) + '</div>' : '<div style="font-size:12px;color:#94a3b8">尚未分析，点击上方「后台继续分析」自动生成带源码证据的业务说明</div>') +
               '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#64748b;margin-top:auto">' +
                 '<code>' + esc(p.path) + '</code>' +
                 (p.updated ? '<span>' + esc(p.updated) + '</span>' : '') +
@@ -325,6 +327,8 @@
         container.querySelectorAll('[data-mod-open]').forEach(el => {
           el.onclick = async () => {
             const docPath = el.getAttribute('data-mod-open');
+            const pageId = el.getAttribute('data-mod-page-id') || '';
+            const pageStatus = el.getAttribute('data-mod-status') || '';
             const viewer = container.querySelector('#wbModDocViewer');
             if (!viewer || !docPath) return;
             viewer.innerHTML = '<div class="wb-panel"><p class="wb-subtitle">正在读取 ' + esc(docPath) + ' ...</p></div>';
@@ -332,12 +336,33 @@
               const url = '/api/webuddy/kb/file?repoPath=' + encodeURIComponent(ov.repoPath || '') + '&path=' + encodeURIComponent(docPath);
               const r = await fetch(url, { credentials: 'same-origin' });
               const d = await r.json();
+              const confirmBtn = pageId && pageStatus !== '已确认'
+                ? '<button type="button" class="button primary small" id="wbModDocConfirm" data-page-id="' + esc(pageId) + '">✓ 人工确认此页知识</button>'
+                : (pageStatus === '已确认' ? '<span class="wb-badge pass">已人工确认</span>' : '');
               viewer.innerHTML =
                 '<div class="wb-panel">' +
-                  '<div class="wb-item-top" style="margin-bottom:8px"><strong>📄 ' + esc(docPath) + '</strong><button type="button" class="button ghost small" id="wbModDocClose">关闭</button></div>' +
+                  '<div class="wb-item-top" style="margin-bottom:8px;gap:8px;flex-wrap:wrap"><strong>📄 ' + esc(docPath) + '</strong><div style="display:flex;align-items:center;gap:8px">' + confirmBtn + '<button type="button" class="button ghost small" id="wbModDocClose">关闭</button></div></div>' +
                   '<pre style="white-space:pre-wrap;word-break:break-word;font-size:12.5px;line-height:1.6;background:#f8fafc;padding:12px;border-radius:10px;border:1px solid #e2e8f0;max-height:480px;overflow:auto">' + esc(d.content || d.error || '无内容') + '</pre>' +
                 '</div>';
               viewer.querySelector('#wbModDocClose')?.addEventListener('click', () => { viewer.innerHTML = ''; });
+              viewer.querySelector('#wbModDocConfirm')?.addEventListener('click', async e => {
+                const btn = e.currentTarget;
+                btn.disabled = true;
+                try {
+                  const cr = await fetch('/api/webuddy/kb/confirm-page', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ repoPath: ov.repoPath || '', pageId: btn.dataset.pageId }),
+                  });
+                  if (!cr.ok) throw new Error('HTTP ' + cr.status);
+                  if (typeof window.toast === 'function') window.toast('已人工确认知识页：' + btn.dataset.pageId, 'ok');
+                  if (typeof window.loadKnowledgeBaseView === 'function') window.loadKnowledgeBaseView();
+                } catch (err) {
+                  btn.disabled = false;
+                  if (typeof window.toast === 'function') window.toast('确认失败：' + err.message, 'err');
+                }
+              });
               viewer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             } catch (err) {
               viewer.innerHTML = '<div class="wb-panel"><p style="color:#dc2626">读取失败：' + esc(err.message) + '</p></div>';

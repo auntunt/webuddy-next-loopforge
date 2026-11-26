@@ -1807,6 +1807,12 @@ function setPlatformTabCount(host,tab,n){
 function renderPlatformAdminPanel(){
   const host=$('#platformAdminPanel');if(!host)return;
   const admin=isPlatformAdmin();
+  const heading=document.querySelector('#platformView .page-heading > div');
+  if(heading){
+    heading.innerHTML=admin
+      ?'<p class="eyebrow">平台</p><h1>平台管理</h1><p>跨项目生效的平台级设置，只有平台管理员可见。</p>'
+      :'<p class="eyebrow">团队空间</p><h1>我的团队空间</h1><p>查看与切换你所属的隔离租户空间、创建新团队或通过邀请码加入团队。</p>';
+  }
   const tabs=visiblePlatformTabs();
   const tab=tabs.some(t=>t.id===state.platformTab)?state.platformTab:tabs[0].id;
   state.platformTab=tab;
@@ -1875,7 +1881,9 @@ async function loadPlatformTenants(host){
         const isActive=t.id===activeId;
         const canManage=t.myRole==='owner'||t.myRole==='admin'||t.myRole==='platform_admin';
         const enabledSet=new Set(t.enabledPresetSopIds||[]);
-        const membersHTML=(t.members||[]).map(m=>`
+        const myUid=Number(state.currentUser?.id||0);
+        const visibleMembers=canManage?(t.members||[]):(t.members||[]).filter(m=>Number(m.userId)===myUid);
+        const membersHTML=(visibleMembers.map(m=>`
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:8px;background:var(--bg,#f8fafc);font-size:12.5px">
             <span><b>${escapeHTML(m.loginName||String(m.userId))}</b>${m.chineseName?` (${escapeHTML(m.chineseName)})`:''}</span>
             <div style="display:flex;align-items:center;gap:6px">
@@ -1883,7 +1891,8 @@ async function loadPlatformTenants(host){
               ${canManage&&m.role!=='owner'?`<button type="button" class="button" data-remove-member="${t.id}:${m.userId}" style="padding:2px 8px;font-size:11px">移除</button>`:''}
             </div>
           </div>
-        `).join('')||'<div style="font-size:12px;color:var(--muted,#64748b)">暂无显式成员</div>';
+        `).join('')||'<div style="font-size:12px;color:var(--muted,#64748b)">暂无显式成员</div>')
+        +(!canManage&&(t.memberCount||0)>1?`<div style="font-size:11.5px;color:var(--muted,#64748b);padding:2px 4px">当前空间共 ${t.memberCount} 名成员，完整成员列表仅对空间管理员可见。</div>`:'');
 
         const presetsHTML=presets.map(p=>`
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:8px;border:1px solid var(--line,#e2e8f0);background:#fff;font-size:12px">

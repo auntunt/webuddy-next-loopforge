@@ -1357,10 +1357,23 @@ function bindRunEvalPane(run,host){
 }
 let runEvalModelChoice;
 function bindRunEvalModelPicker(host,runId){
+  const loader=window.AgentFlowAssistantModels?.fetchCatalog
+    ? ()=>window.AgentFlowAssistantModels.fetchCatalog('/api/assistant/models?runnerLogin=1')
+    : undefined;
   window.AgentFlowAssistantModels?.bindFeaturePicker(host,{
     model:runEvalModelChoice?.runId===runId?runEvalModelChoice.model:'',
     legacyModel:localStorage.getItem('agentflow.runEvalModel'),
-    onChange:model=>{runEvalModelChoice={runId,model}}
+    loadCatalog:loader,
+    onChange:model=>{
+      runEvalModelChoice={runId,model};
+      const pane=host?.closest('[data-run-pane="eval"]');
+      pane?.querySelectorAll('[data-start-run-eval]').forEach(btn=>{if(!state.runEvalBusy)btn.disabled=!model});
+    }
+  });
+  host?.modelPickerReady?.then?.(()=>{
+    const model=host?.querySelector('[data-feature-model]')?.value;
+    const pane=host?.closest('[data-run-pane="eval"]');
+    pane?.querySelectorAll('[data-start-run-eval]').forEach(btn=>{if(!state.runEvalBusy)btn.disabled=!model});
   });
 }
 async function loadRunEval(runId,background){

@@ -213,11 +213,15 @@ func (d *deps) autoConfigureProjectEnv(userID int64, projectID string) (projectR
 // GET /api/webuddy/env/project-readiness?projectId=...
 func (h *webuddyEnvHandlers) projectReadiness(c *gin.Context) {
 	pid := strings.TrimSpace(c.Query("projectId"))
+	if pid == "" {
+		c.JSON(http.StatusOK, projectReadinessResult{
+			OverallReady: false,
+			Sandbox:      readinessCheckItem{Ready: false, Detail: "尚未选择项目"},
+			Runner:       readinessCheckItem{Ready: false, Detail: "尚未选择项目"},
+		})
+		return
+	}
 	if authRequired() {
-		if pid == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "请指定 projectId"})
-			return
-		}
 		if !h.requireProjectReader(c, pid) {
 			return
 		}

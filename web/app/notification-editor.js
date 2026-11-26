@@ -5,6 +5,12 @@ function notificationPayload(bindings){return(bindings||[]).map(b=>({botId:b.bot
 function notificationUsesAI(binding){return binding.contentMode==='ai'||!!binding.aiInstruction||/\{\{\s*ai\./.test(binding.template||'')}
 function notificationVariables(sourceType){return sourceType==='run'?['issue.title','project','workflow','node','status','url','input','result','error','ai.summary','ai.title','ai.body']:['task.name','project','status','url','result','error','ai.summary','ai.title','ai.body']}
 function loadNotificationBots(projectId){
+ if(!projectId)return Promise.resolve();
+ const projects=window.state?.data?.projects;
+ if(Array.isArray(projects)&&projects.length&&!projects.some(p=>p.id===projectId)){
+  nodeBotCache.set(projectId,{bots:[],error:''});
+  return Promise.resolve();
+ }
  if(notificationBotRequests.has(projectId))return notificationBotRequests.get(projectId);
  const request=api(`/api/notification-bots?projectId=${encodeURIComponent(projectId)}`,{silent:true}).then(bots=>{nodeBotCache.set(projectId,{bots,error:''})}).catch(e=>{nodeBotCache.set(projectId,{bots:[],error:e.message})}).finally(()=>notificationBotRequests.delete(projectId));
  notificationBotRequests.set(projectId,request);return request;

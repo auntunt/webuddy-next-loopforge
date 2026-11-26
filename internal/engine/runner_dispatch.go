@@ -269,15 +269,17 @@ func (e *Engine) dispatchRunnerTask(ctx context.Context, runnerID string, run do
 		invocation.ReportOutputs = true
 		invocation.Inputs = reported.inputs
 		invocation.OutputFiles = artifactOutputFiles(run, node)
-		hasKnowledgeOut := false
-		for _, f := range invocation.OutputFiles {
-			if f == domain.KnowledgeArtifactBasename {
-				hasKnowledgeOut = true
-				break
+		for _, optDoc := range []string{domain.KnowledgeArtifactBasename, "lessons-encoded.md"} {
+			foundOpt := false
+			for _, f := range invocation.OutputFiles {
+				if f == optDoc {
+					foundOpt = true
+					break
+				}
 			}
-		}
-		if !hasKnowledgeOut {
-			invocation.OutputFiles = append(invocation.OutputFiles, domain.KnowledgeArtifactBasename)
+			if !foundOpt {
+				invocation.OutputFiles = append(invocation.OutputFiles, optDoc)
+			}
 		}
 		if path := strings.TrimSpace(options.GateResultPath); path != "" {
 			invocation.OutputFiles = append(invocation.OutputFiles, path)

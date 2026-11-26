@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"agentflow/internal/codereview"
 	"agentflow/internal/domain"
 	"agentflow/internal/runeval"
 
@@ -105,6 +106,25 @@ func (h *runsHandlers) startRunEval(c *gin.Context) {
 		return
 	}
 	model, err := resolveFeatureModel(user, req.Model)
+	if err != nil {
+		// Allow users without personal API keys to run Eval via the shared host runner's local CLI login.
+		reqEngine, reqID := assistantModelEngine(strings.TrimSpace(req.Model))
+		if strings.TrimSpace(req.Model) == "" {
+			reqEngine = assistantEngineCodex
+		}
+		if runner := scheduleLoginRunner(h.repo, user.ID, reqEngine); runner.ID != "" {
+			if reqID == "" || reqID == assistantDefaultModel {
+				reqID = "gpt-6-luna"
+				if reqEngine == assistantEngineCodex {
+					if gw := codereview.DiscoverCodexGatewayModels(c.Request.Context()); len(gw) > 0 {
+						reqID = gw[0]
+					}
+				}
+			}
+			model = reqEngine + ":" + reqID
+			err = nil
+		}
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -484,7 +504,10 @@ func (h *runsHandlers) executeRunEval(ctx context.Context, rec domain.RunEvalRec
 	_ = h.repo.PutRunEval(rec)
 	emit("thought", map[string]string{"kind": "thinking", "text": "正在用 " + rec.Model + " 评测…"})
 	system, prompt := runeval.BuildPrompt(rec.Policy, facts)
-	raw, _, err := runAssistantCLI(ctx, assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID, ReviewOnly: true}, user, func(ev assistantStreamEvent) {
+	evalEngine, _ := assistantModelEngine(rec.Model)
+	evalKey, _ := assistantEngineCredential(user, evalEngine)
+	useRunnerLogin := evalKey == "" && scheduleLoginRunner(h.repo, user.ID, evalEngine).ID != ""
+	raw, _, err := runAssistantCLI(ctx, assistantCLIRequest{Prompt: prompt, Model: rec.Model, SystemPrompt: system, UserID: user.ID, ReviewOnly: true, RunnerLogin: useRunnerLogin}, user, func(ev assistantStreamEvent) {
 		if emit == nil {
 			return
 		}

@@ -122,6 +122,31 @@ async function projectWizardAddRepo(){
   toast(defaultError||(makeDefault?'仓库已保存，并设为默认仓库':'仓库已保存'),defaultError?'err':'ok');
   return true;
 }
+async function projectWizardUploadArchive(){
+  const w=projectWizard,project=projectWizardProject();if(!w||w.saving||!project)return false;
+  const input=$('#projectWizard')?.querySelector('#pwArchiveFile');
+  const file=input?.files?.[0];
+  if(!file)return projectWizardFail('请先选择一个 .zip 或 .tar.gz 代码压缩包');
+  const saved=await projectWizardRequest(async()=>{
+    const fd=new FormData();
+    fd.append('file',file);
+    const res=await fetch(`/api/webuddy/projects/${encodeURIComponent(project.id)}/upload-archive`,{method:'POST',credentials:'same-origin',body:fd});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(data.error||`上传失败（HTTP ${res.status}）`);
+    if(data.repository){
+      const list=state.data.repositories||(state.data.repositories=[]);
+      const idx=list.findIndex(r=>r.id===data.repository.id);
+      if(idx>=0)list[idx]=data.repository;else list.push(data.repository);
+      if(!project.defaultRepositoryId)project.defaultRepositoryId=data.repository.id;
+    }
+    return data;
+  },'压缩包上传失败：');
+  if(!saved||projectWizard!==w)return false;
+  projectWizardMark('repos',true);
+  renderAll();renderProjectWizard();
+  toast(`已导入压缩包「${file.name}」，后台知识库分析已启动`,'ok');
+  return true;
+}
 async function projectWizardRemoveRepo(repoId){
   const w=projectWizard,project=projectWizardProject(),repo=projectWizardRepos().find(r=>r.id===repoId);
   if(!w||w.saving||!project||!repo)return false;
@@ -256,8 +281,8 @@ function projectWizardReposHTML(w){
     +pwField('GitHub 链接或 Git SSH 地址',`<input class="pw-input pw-mono" id="pwRepoUrl" name="repoUrl" value="${escapeHTML(w.repo.url)}" placeholder="https://github.com/owner/repo" spellcheck="false" autocomplete="off">`,{for:'pwRepoUrl',hint:projectWizardRepoHint(w.repo.url),hintAttrs:' data-pw-repo-hint'})
     +`<div class="pw-row2">${pwField('主分支',`<input class="pw-input pw-mono" id="pwRepoBranch" name="repoBranch" value="${escapeHTML(w.repo.branch)}" placeholder="main" spellcheck="false">`,{for:'pwRepoBranch'})}${pwField('集成分支',`<input class="pw-input pw-mono" id="pwRepoIntegrate" name="repoIntegrate" value="${escapeHTML(w.repo.integrate)}" placeholder="可选" spellcheck="false">`,{for:'pwRepoIntegrate'})}</div>`
     +`<div><button type="button" class="pw-btn pw-btn-outline pw-btn-sm" data-pw-action="add-repo"${w.saving?' disabled':''}>＋ 添加仓库</button></div>`;
-  return projectWizardHeadHTML(w,'代码仓库','Agent 执行 SOP 时会克隆这些仓库并在工作分支上提交。第一个仓库会自动设为默认。')
-    +`<div class="pw-pane"><p class="pw-note is-ok">✓ 项目「${escapeHTML(project.name||'')}」已创建。仓库添加后立即生效，也可以先跳过。</p>${pwCard('绑定代码仓库','粘贴仓库地址，自动识别名称',pwPill(repos.length?`已绑定 ${repos.length} 个`:'未绑定',repos.length?'ok':''),body)}</div>`;
+  return projectWizardHeadHTML(w,'代码仓库','Agent 执行 SOP 时会克隆这些仓库并在工作分支上提交。也可以直接上传本地代码压缩包（.zip / .tar.gz）自动建库。')
+    +`<div class="pw-pane"><p class="pw-note is-ok">✓ 项目「${escapeHTML(project.name||'')}」已创建。仓库或压缩包添加后立即生效，也可以先跳过。</p>${pwCard('绑定 Git 代码仓库','粘贴仓库地址，自动识别名称',pwPill(repos.length?`已绑定 ${repos.length} 个`:'未绑定',repos.length?'ok':''),body)}${pwCard('上传本地代码压缩包（零 Git 配置）','适合离线演示或内网项目，上传后自动解压并触发知识库扫描',pwPill('.zip / .tar.gz',''),`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input type="file" id="pwArchiveFile" accept=".zip,.tar.gz,.tgz" style="flex:1;min-width:180px;font-size:12.5px"><button type="button" class="pw-btn pw-btn-outline pw-btn-sm" data-pw-action="upload-archive"${w.saving?' disabled':''}>📦 上传压缩包并建库</button></div><div class="pw-hint">支持 .zip / .tar.gz / .tgz，上传后会自动绑定为项目默认代码仓库并启动后台知识库分析。</div>`)}</div>`;
 }
 function projectWizardPeoplePill(d){const count=projectPeopleIds(d).length;return pwPill(`${count} 位`,count>1?'ok':'',' data-pw-people-pill')}
 function projectWizardMembersHTML(w){
@@ -392,6 +417,7 @@ function bindProjectWizardHost(host){
     else if(action==='back')projectWizardBack();
     else if(action==='cancel'||action==='close')closeProjectWizard({force:w.step==='done'});
     else if(action==='add-repo')projectWizardAddRepo();
+    else if(action==='upload-archive')projectWizardUploadArchive();
     else if(action==='add-member')projectWizardAddMember();
     else if(action==='start')projectWizardStartIssues();
     else if(action==='settings')projectWizardOpenSettings();
