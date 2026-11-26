@@ -6,12 +6,17 @@ function renderTenantSwitcher(){
     sw.innerHTML='<option value="default">🏢 默认团队空间</option>';
     return;
   }
-  sw.innerHTML=tenants.map(t=>`<option value="${escapeHTML(t.id)}" ${t.id===activeId?'selected':''}>🏢 ${escapeHTML(t.name)}</option>`).join('');
+  sw.innerHTML=tenants.map(t=>`<option value="${escapeHTML(t.id)}" ${t.id===activeId?'selected':''}>🏢 ${escapeHTML(t.name)}</option>`).join('')+'<option value="__manage__">⚙ 管理 / 创建团队…</option>';
   window.enhanceSelect?.(sw);
   if(!sw._tenantBound){
     sw._tenantBound=true;
     sw.addEventListener('change',async ()=>{
       const tid=sw.value;
+      if(tid==='__manage__'){
+        sw.value=state.data?.activeTenantId||'default';
+        window.location.hash='#/platform';
+        return;
+      }
       if(!tid||tid===(state.data?.activeTenantId||''))return;
       try{
         await api('/api/tenants/switch',{method:'POST',body:JSON.stringify({tenantId:tid})});

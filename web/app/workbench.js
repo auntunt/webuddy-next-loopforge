@@ -1770,8 +1770,12 @@ const PLATFORM_TABS=[
   {id:'accounts',zh:'用户与权限',en:'Users & RBAC'},
   {id:'governance',zh:'项目治理策略',en:'Governance'},
 ];
+function visiblePlatformTabs(){
+  return isPlatformAdmin()?PLATFORM_TABS:[PLATFORM_TABS[0]];
+}
 function platformTabsHTML(active){
-  return `<div class="pa-tabs-wrap platform-tabs-wrap"><div class="pa-tabs platform-tabs" id="platformTabs" role="tablist" aria-label="平台管理分区">${PLATFORM_TABS.map(t=>{
+  const tabs=visiblePlatformTabs();
+  return `<div class="pa-tabs-wrap platform-tabs-wrap"><div class="pa-tabs platform-tabs" id="platformTabs" role="tablist" aria-label="团队与平台管理分区">${tabs.map(t=>{
     const on=t.id===active;
     const extra=t.id==='sharedKey'?'<span class="platform-tab-state" data-platform-tab-state hidden></span>':'<span class="pa-tab-n" data-platform-tab-count hidden></span>';
     return `<button type="button" role="tab" class="pa-tab${on?' on':''}" id="platformTab-${t.id}" data-platform-tab="${t.id}" aria-controls="platformPanel-${t.id}" aria-selected="${on}" tabindex="${on?0:-1}">${lfT(t.zh,t.en)}${extra}</button>`;
@@ -1781,7 +1785,8 @@ function platformTabPanel(id,active,body){
   return `<section class="platform-tab-panel" id="platformPanel-${id}" role="tabpanel" aria-labelledby="platformTab-${id}" data-platform-panel="${id}"${id===active?'':' hidden'}>${body}</section>`;
 }
 function setPlatformTab(host,tab){
-  if(!PLATFORM_TABS.some(t=>t.id===tab))tab=PLATFORM_TABS[0].id;
+  const tabs=visiblePlatformTabs();
+  if(!tabs.some(t=>t.id===tab))tab=tabs[0].id;
   state.platformTab=tab;
   host.querySelectorAll('[data-platform-tab]').forEach(b=>{const on=b.dataset.platformTab===tab;b.classList.toggle('on',on);b.setAttribute('aria-selected',String(on));b.tabIndex=on?0:-1});
   host.querySelectorAll('[data-platform-panel]').forEach(p=>{p.hidden=p.dataset.platformPanel!==tab});
@@ -1791,7 +1796,7 @@ function bindPlatformTabs(host){
   bar.querySelectorAll('[data-platform-tab]').forEach(b=>b.onclick=()=>setPlatformTab(host,b.dataset.platformTab));
   bar.onkeydown=e=>{
     if(!['ArrowLeft','ArrowRight'].includes(e.key))return;
-    const ids=PLATFORM_TABS.map(t=>t.id),i=ids.indexOf(state.platformTab),next=ids[(i+(e.key==='ArrowRight'?1:ids.length-1))%ids.length];
+    const ids=visiblePlatformTabs().map(t=>t.id),i=ids.indexOf(state.platformTab),next=ids[(i+(e.key==='ArrowRight'?1:ids.length-1))%ids.length];
     setPlatformTab(host,next);bar.querySelector(`[data-platform-tab="${next}"]`)?.focus();
   };
 }
@@ -1801,21 +1806,24 @@ function setPlatformTabCount(host,tab,n){
 }
 function renderPlatformAdminPanel(){
   const host=$('#platformAdminPanel');if(!host)return;
-  if(!isPlatformAdmin()){host.innerHTML='';return}
-  const tab=PLATFORM_TABS.some(t=>t.id===state.platformTab)?state.platformTab:PLATFORM_TABS[0].id;
+  const admin=isPlatformAdmin();
+  const tabs=visiblePlatformTabs();
+  const tab=tabs.some(t=>t.id===state.platformTab)?state.platformTab:tabs[0].id;
   state.platformTab=tab;
   host.innerHTML=`
     ${platformTabsHTML(tab)}
     ${platformTabPanel('tenants',tab,platformTenantsHTML())}
-    ${platformTabPanel('accounts',tab,platformAccountsHTML())}
-    ${platformTabPanel('governance',tab,platformGovernanceHTML())}
+    ${admin?platformTabPanel('accounts',tab,platformAccountsHTML()):''}
+    ${admin?platformTabPanel('governance',tab,platformGovernanceHTML()):''}
   `;
   bindPlatformTabs(host);
   loadPlatformTenants(host);
-  loadPlatformAccounts(host);
-  loadPlatformGovernance(host);
-  loadPlatformSharedKey(host);
-  loadPlatformSSHHosts(host);
+  if(admin){
+    loadPlatformAccounts(host);
+    loadPlatformGovernance(host);
+    loadPlatformSharedKey(host);
+    loadPlatformSSHHosts(host);
+  }
 }
 
 function platformTenantsHTML(){
