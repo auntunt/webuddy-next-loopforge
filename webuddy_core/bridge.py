@@ -249,7 +249,7 @@ def _overview(repo_path: str | None) -> dict:
     try:
         from tmh import kbqa
         qs = kbqa.questions(root)
-        open_q_count = sum(1 for q in qs if str(q.get("status") or "").strip() in ("", "open", "待确认", "待澄清"))
+        open_q_count = sum(1 for q in qs if bool(q.get("open", False)))
     except Exception:
         open_q_count = 0
 
@@ -1125,10 +1125,7 @@ def _confirm_page(repo_path: str, page_id: str, by: str) -> dict:
     from tmh import kb
     with _repo_write_lock(root):
         if hasattr(kb, "confirm"):
-            try:
-                kb.confirm(root, pid, by=by or "user")
-            except TypeError:
-                kb.confirm(root, pid)
+            kb.confirm(root, pid, who=by or "user")
             reg = kb.load_registry(root)
             entry = reg.get(pid) or {"status": "已确认"}
             return {"ok": True, "pageId": pid, "status": entry.get("status", "已确认"), "entry": entry}

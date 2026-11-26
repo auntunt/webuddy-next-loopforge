@@ -268,13 +268,21 @@
     }
   }
 
+  let selectSeq = 0;
+
   async function selectReview(id) {
+    const seq = ++selectSeq;
+    const reqPid = currentProjectId();
     crState.selectedId = id;
     crState.showCreate = false;
     try {
-      crState.detail = await reqJSON('/api/codereview/reviews/' + encodeURIComponent(id));
-      crState.linkedRun = await resolveLinkedRun(crState.detail && crState.detail.review);
+      const detail = await reqJSON('/api/codereview/reviews/' + encodeURIComponent(id));
+      const linkedRun = await resolveLinkedRun(detail && detail.review);
+      if (seq !== selectSeq || crState.selectedId !== id || currentProjectId() !== reqPid) return;
+      crState.detail = detail;
+      crState.linkedRun = linkedRun;
     } catch (err) {
+      if (seq !== selectSeq) return;
       notify(err.message);
     }
     render();

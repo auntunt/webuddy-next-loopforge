@@ -58,11 +58,13 @@
 
   async function reqJSON(url, opts) {
     const reqOpts = Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts);
+    const method = String(reqOpts.method || 'GET').toUpperCase();
     let res;
     try {
       res = await fetch(url, reqOpts);
     } catch (err) {
-      // Retry once on transient proxy/HTTP3 socket resets ("Failed to fetch")
+      // Only auto-retry idempotent GET reads on transient proxy/HTTP3 socket resets
+      if (method !== 'GET') throw err;
       await new Promise(r => setTimeout(r, 400));
       res = await fetch(url, reqOpts);
     }

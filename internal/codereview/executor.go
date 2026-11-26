@@ -523,13 +523,16 @@ func (s *Service) RunAutomatedReviewWithProgress(ctx context.Context, input RunA
 		if headCommit == "" {
 			headCommit = "HEAD"
 		}
+		if strings.HasPrefix(baseCommit, "-") || strings.HasPrefix(headCommit, "-") {
+			return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "非法 Git 引用：不能以 '-' 开头")
+		}
 		var err error
-		headCommit, err = gitOutput(ctx, repoPath, "rev-parse", headCommit)
+		headCommit, err = gitOutput(ctx, repoPath, "-c", "core.fsmonitor=", "rev-parse", "--verify", "--end-of-options", headCommit+"^{commit}")
 		if err != nil {
 			return domain.CodeReviewRecord{}, apperr.New(apperr.Invalid, "无法解析目标提交: "+err.Error())
 		}
 		origBase := baseCommit
-		baseCommit, err = gitOutput(ctx, repoPath, "rev-parse", origBase)
+		baseCommit, err = gitOutput(ctx, repoPath, "-c", "core.fsmonitor=", "rev-parse", "--verify", "--end-of-options", origBase+"^{commit}")
 		if err != nil {
 			// Single-commit repos (e.g. imported code archives) have no HEAD~1;
 			// fall back to Git's empty tree hash so the initial commit can be reviewed cleanly.
@@ -558,11 +561,12 @@ func (s *Service) RunAutomatedReviewWithProgress(ctx context.Context, input RunA
 			":!*.woff2", ":!**/*.woff2",
 			":!*.ttf", ":!**/*.ttf",
 		}
+		diffBaseArgs := []string{"-c", "core.fsmonitor=", "-c", "diff.external=", "diff", "--no-ext-diff", "--no-textconv"}
 		if baseCommit == gitEmptyTreeHash {
-			args := append([]string{"diff", gitEmptyTreeHash, headCommit}, excludeNoisyFiles...)
+			args := append(append(diffBaseArgs, gitEmptyTreeHash, headCommit), excludeNoisyFiles...)
 			diff, err = gitOutputRaw(ctx, repoPath, args...)
 		} else {
-			args := append([]string{"diff", baseCommit + ".." + headCommit}, excludeNoisyFiles...)
+			args := append(append(diffBaseArgs, baseCommit+".."+headCommit), excludeNoisyFiles...)
 			diff, err = gitOutputRaw(ctx, repoPath, args...)
 		}
 		if err != nil {

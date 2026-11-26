@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -271,7 +272,8 @@ func (m *webuddyPreviewManager) start(ctx context.Context, pid, projName, repoPa
 			if idx := strings.IndexByte(kv, '='); idx > 0 {
 				k = strings.ToUpper(kv[:idx])
 			}
-			if strings.Contains(k, "API_KEY") || strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET") || strings.Contains(k, "PASSWORD") {
+			if strings.Contains(k, "API_KEY") || strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET") || strings.Contains(k, "PASSWORD") ||
+				strings.Contains(k, "DSN") || strings.Contains(k, "DATABASE_URL") || strings.Contains(k, "ENCRYPT_KEY") || strings.Contains(k, "MYSQL_PWD") {
 				continue
 			}
 			cleanEnv = append(cleanEnv, kv)
@@ -457,7 +459,7 @@ func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
 	defaultPreviewMgr.mu.Unlock()
 	if inst == nil || !inst.alive() {
 		c.Header("Content-Type", "text/html; charset=utf-8")
-		c.String(http.StatusServiceUnavailable, fmt.Sprintf(`<!doctype html><html><body style="font-family:sans-serif;padding:32px;color:#334155"><h3>项目预览服务尚未启动 (%s)</h3><p>请返回 Webuddy 对话框或知识库点击「一键启动实时预览」后再刷新本页面。</p></body></html>`, pid))
+		c.String(http.StatusServiceUnavailable, fmt.Sprintf(`<!doctype html><html><body style="font-family:sans-serif;padding:32px;color:#334155"><h3>项目预览服务尚未启动 (%s)</h3><p>请返回 Webuddy 对话框或知识库点击「一键启动实时预览」后再刷新本页面。</p></body></html>`, html.EscapeString(pid)))
 		return
 	}
 
@@ -477,6 +479,22 @@ func (h *webuddyEnvHandlers) previewProxy(c *gin.Context) {
 		r.Header.Del("Accept-Encoding")
 		r.Header.Del("If-None-Match")
 		r.Header.Del("If-Modified-Since")
+		// Never forward Webuddy platform auth headers/cookies into the previewed app
+		r.Header.Del("Authorization")
+		for k := range r.Header {
+			if strings.HasPrefix(strings.ToLower(k), "x-webuddy-") {
+				r.Header.Del(k)
+			}
+		}
+		if cookies := r.Cookies(); len(cookies) > 0 {
+			r.Header.Del("Cookie")
+			for _, ck := range cookies {
+				if strings.HasPrefix(strings.ToLower(ck.Name), "agentflow") || strings.HasPrefix(strings.ToLower(ck.Name), "webuddy") {
+					continue
+				}
+				r.AddCookie(ck)
+			}
+		}
 	}
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		// Rewrite root-relative redirect Location headers

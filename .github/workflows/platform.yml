@@ -89,12 +89,12 @@ jobs:
         working-directory: e2e
       - name: Start clean local installation
         run: |
-          bash scripts/dev.sh > /tmp/loopforge.log 2>&1 &
+          bash scripts/dev.sh > /tmp/webuddy.log 2>&1 &
           for attempt in $(seq 1 300); do
             if curl -fsS http://127.0.0.1:8090/api/health; then exit 0; fi
             sleep 2
           done
-          cat /tmp/loopforge.log
+          cat /tmp/webuddy.log
           exit 1
       - name: Provision account without model credentials
         run: |
@@ -161,7 +161,7 @@ jobs:
       - name: Export registered HTTP routes
         run: AGENTFLOW_ROUTES_OUT="${{ runner.temp }}/routes.json" go test ./internal/httpapi -run '^TestRouteInventoryExport$' -count=1
       - name: Require registered routes to be hit at least 85%
-        run: node e2e/coverage/route-coverage.mjs --routes "${{ runner.temp }}/routes.json" --log /tmp/loopforge.log --min 85
+        run: node e2e/coverage/route-coverage.mjs --routes "${{ runner.temp }}/routes.json" --log /tmp/webuddy.log --min 85
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -188,8 +188,10 @@ jobs:
       - run: bash ../scripts/install-playwright-deps.sh npx playwright
         working-directory: e2e
       - name: Install the pinned release, or build it while that release is not published yet
+        env:
+          WEBUDDY_YES: '1'
         run: |
-          pinned=$(sed -n 's/^ *image: \${LOOPFORGE_IMAGE:-\(.*\)}$/\1/p' compose.yaml)
+          pinned=$(sed -n 's/^ *image: \${WEBUDDY_IMAGE:-\(.*\)}$/\1/p' compose.yaml)
           if docker manifest inspect "$pinned" > /dev/null 2>&1; then
             ./start.sh -d
           else

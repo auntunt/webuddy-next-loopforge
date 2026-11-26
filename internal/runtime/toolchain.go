@@ -21,11 +21,15 @@ import (
 // it to PATH, so a tool shipped by the image still wins.
 const toolchainEnv = "AGENTFLOW_TOOLCHAIN"
 
+const (
+	legacyToolchainCommitFile = "/app/loopforge-commit"
+)
+
 // Paths inside the platform image; tests point them at a fixture.
 var (
 	toolchainNodePrefix = "/usr/local"
 	toolchainPythonDir  = "/app/python"
-	toolchainCommitFile = "/app/loopforge-commit"
+	toolchainCommitFile = "/app/webuddy-commit"
 )
 
 // toolchainPathSetup appends the mounted toolchain to PATH when exec passed it
@@ -143,9 +147,15 @@ func readyToolchainDir() string {
 }
 
 func toolchainKey() string {
-	if data, err := os.ReadFile(toolchainCommitFile); err == nil {
-		if key := strings.TrimSpace(string(data)); key != "" && !strings.ContainsAny(key, "/\\ \t\r\n") {
-			return key
+	candidates := []string{toolchainCommitFile}
+	if toolchainCommitFile == "/app/webuddy-commit" {
+		candidates = append(candidates, legacyToolchainCommitFile)
+	}
+	for _, path := range candidates {
+		if data, err := os.ReadFile(path); err == nil {
+			if key := strings.TrimSpace(string(data)); key != "" && !strings.ContainsAny(key, "/\\ \t\r\n") {
+				return key
+			}
 		}
 	}
 	if info, err := os.Stat(filepath.Join(toolchainNodePrefix, "lib", "node_modules")); err == nil {

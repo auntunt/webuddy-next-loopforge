@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Start LoopForge from the published GHCR image pinned in compose.yaml
+# Start Webuddy from the published GHCR image pinned in compose.yaml
 # (default), or build this checkout for development.
 #
 # Usage:
 #   ./start.sh            install/start in the background (same as -d)
 #   ./start.sh -d         install/start in the background
+#   ./start.sh status     show container status
 #   ./start.sh logs       follow platform logs
 #   ./start.sh stop       stop containers, keep them and their data
 #   ./start.sh down       remove containers, keep data volumes
@@ -31,8 +32,8 @@ compose() {
 cmd="${1:--d}"
 shift || true
 case "$cmd" in
-  up|-d|detach) LOOPFORGE_BUILD_FROM_SOURCE="${LOOPFORGE_BUILD_FROM_SOURCE:-1}" bash scripts/install.sh ;;
-  dev) LOOPFORGE_BUILD_FROM_SOURCE=1 bash scripts/install.sh ;;
+  up|-d|detach) bash scripts/install.sh ;;
+  dev) WEBUDDY_BUILD_FROM_SOURCE=1 bash scripts/install.sh ;;
   release)
     [[ -f .env ]] && python3 - <<'PY'
 import pathlib,re
@@ -55,6 +56,7 @@ PY
     # A newer image may read generated columns the old volume never got.
     bash scripts/install-schema-extensions.sh
     ;;
+  status) compose ps ;;
   logs) compose logs -f "${@:-platform}" ;;
   stop) compose stop ;;
   down) compose down --remove-orphans ;;
@@ -66,7 +68,7 @@ PY
     ;;
   *)
     echo "unknown: $cmd" >&2
-    echo 'usage: ./start.sh [-d|logs|stop|down|restart|pull|dev|release]' >&2
+    echo 'usage: ./start.sh [-d|status|logs|stop|down|restart|pull|dev|release]' >&2
     exit 1
     ;;
 esac

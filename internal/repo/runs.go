@@ -1012,9 +1012,9 @@ func (r *RunsRepo) writeRunOnce(run domain.Run, lockKey string, expectedRevision
 			}
 		}
 		var cur struct {
-			logs      int64
-			telemetry int64
-			events    int64
+			Logs      int64 `gorm:"column:logs"`
+			Telemetry int64 `gorm:"column:telemetry"`
+			Events    int64 `gorm:"column:events"`
 		}
 		if err := tx.Raw(`SELECT
 			COALESCE((SELECT MAX(seq) FROM run_logs WHERE run_id=?), 0) AS logs,
@@ -1049,8 +1049,8 @@ func (r *RunsRepo) writeRunOnce(run domain.Run, lockKey string, expectedRevision
 			}
 		}
 		// Events: append-only by index.
-		if int64(len(run.Events)) > cur.events {
-			for i := cur.events; i < int64(len(run.Events)); i++ {
+		if int64(len(run.Events)) > cur.Events {
+			for i := cur.Events; i < int64(len(run.Events)); i++ {
 				ev := run.Events[i]
 				if err := r.notifications.enqueueRunNotifications(tx, run, ev, i); err != nil {
 					return err
@@ -1064,7 +1064,7 @@ func (r *RunsRepo) writeRunOnce(run domain.Run, lockKey string, expectedRevision
 			}
 		}
 		for _, ev := range run.Telemetry {
-			if ev.Sequence == 0 || ev.Sequence <= cur.telemetry {
+			if ev.Sequence == 0 || ev.Sequence <= cur.Telemetry {
 				continue
 			}
 			if err := upsert(tx, "run_telemetry", map[string]any{
@@ -1074,7 +1074,7 @@ func (r *RunsRepo) writeRunOnce(run domain.Run, lockKey string, expectedRevision
 			}
 		}
 		for _, rec := range run.Logs {
-			if rec.Sequence == 0 || rec.Sequence <= cur.logs {
+			if rec.Sequence == 0 || rec.Sequence <= cur.Logs {
 				continue
 			}
 			if err := upsert(tx, "run_logs", map[string]any{

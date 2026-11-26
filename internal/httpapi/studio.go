@@ -43,9 +43,12 @@ func stampStudioIndex(static fs.FS, raw []byte) []byte {
 	return []byte(html)
 }
 
-// defaultBuildCommitFile is written by docker build from the LOOPFORGE_COMMIT
-// build-arg, or from git HEAD when none was passed.
-const defaultBuildCommitFile = "/app/loopforge-commit"
+// defaultBuildCommitFile is written by docker build from WEBUDDY_COMMIT (or
+// legacy LOOPFORGE_COMMIT) build-arg, or from git HEAD when none was passed.
+const (
+	defaultBuildCommitFile = "/app/webuddy-commit"
+	legacyBuildCommitFile  = "/app/loopforge-commit"
+)
 
 // buildCommit is the git SHA baked into a published image. A short label in
 // the corner is enough to tell two images apart.
@@ -64,18 +67,28 @@ func buildCommit() (short, full string) {
 }
 
 func commitSource() string {
-	if raw := strings.TrimSpace(os.Getenv("LOOPFORGE_COMMIT")); raw != "" {
-		return raw
+	for _, key := range []string{"WEBUDDY_COMMIT", "LOOPFORGE_COMMIT"} {
+		if raw := strings.TrimSpace(os.Getenv(key)); raw != "" {
+			return raw
+		}
 	}
-	path := strings.TrimSpace(os.Getenv("LOOPFORGE_COMMIT_FILE"))
-	if path == "" {
-		path = defaultBuildCommitFile
+	var candidates []string
+	for _, key := range []string{"WEBUDDY_COMMIT_FILE", "LOOPFORGE_COMMIT_FILE"} {
+		if path := strings.TrimSpace(os.Getenv(key)); path != "" {
+			candidates = append(candidates, path)
+		}
 	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return ""
+	if len(candidates) == 0 {
+		candidates = []string{defaultBuildCommitFile, legacyBuildCommitFile}
 	}
-	return strings.TrimSpace(string(body))
+	for _, path := range candidates {
+		if body, err := os.ReadFile(path); err == nil {
+			if trimmed := strings.TrimSpace(string(body)); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
 }
 
 func injectBuildCommit(html string) string {
@@ -86,7 +99,7 @@ func injectBuildCommit(html string) string {
 	// Inline style: login and vscode pages do not share the workbench stylesheet.
 	// The CSP allows style-src 'unsafe-inline' and forbids inline scripts.
 	label := fmt.Sprintf(
-		`<style>.loopforge-build{position:fixed;right:12px;bottom:8px;z-index:35;margin:0;font:11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em;color:#7c7c82;user-select:text}</style><span class="loopforge-build" title="%s">%s</span></body>`,
+		`<style>.webuddy-build{position:fixed;right:12px;bottom:8px;z-index:35;margin:0;font:11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em;color:#7c7c82;user-select:text}</style><span class="webuddy-build" title="%s">%s</span></body>`,
 		htmlpkg.EscapeString("镜像版本 "+full),
 		htmlpkg.EscapeString(short),
 	)

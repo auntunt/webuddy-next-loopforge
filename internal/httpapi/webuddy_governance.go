@@ -409,6 +409,20 @@ const (
 	maxArchiveExtractFiles    = 12000
 )
 
+// resolveUploadedReposDir returns the persistent host-backed root directory for
+// uploaded code archives. It honors WEBUDDY_UPLOADED_REPOS_DIR first, then
+// $HOME/.webuddy-uploaded-repos, and intentionally avoids os.Getwd() so
+// containerized runs with WORKDIR=/app never write into the ephemeral image layer.
+func resolveUploadedReposDir() string {
+	if envDir := strings.TrimSpace(os.Getenv("WEBUDDY_UPLOADED_REPOS_DIR")); envDir != "" {
+		return envDir
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, ".webuddy-uploaded-repos")
+	}
+	return filepath.Join(os.TempDir(), "webuddy-uploaded-repos")
+}
+
 func (h *webuddyEnvHandlers) uploadProjectArchive(c *gin.Context) {
 	pol := defaultGovStore.getPolicy()
 	if !pol.AllowArchiveUpload {
@@ -481,18 +495,10 @@ func (h *webuddyEnvHandlers) uploadProjectArchive(c *gin.Context) {
 	src.Close()
 	tmpFile.Close()
 
-	// Destination directory OUTSIDE workspaces/ so LoopForge's workspace retention cleaner never sweeps it
+	// Destination directory OUTSIDE workspaces/ so Webuddy's workspace retention cleaner never sweeps it
+	// and never falls back to os.Getwd() (which would write into /app inside a container).
 	safeSlug := sanitizeProjectSlug(pid)
-	baseDir := filepath.Join(os.TempDir(), "webuddy-uploaded-repos")
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		baseDir = filepath.Join(home, ".webuddy-uploaded-repos")
-	}
-	if wd, err := os.Getwd(); err == nil && wd != "" {
-		cand := filepath.Join(wd, "uploaded-repos")
-		if mkErr := os.MkdirAll(cand, 0o755); mkErr == nil {
-			baseDir = cand
-		}
-	}
+	baseDir := resolveUploadedReposDir()
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

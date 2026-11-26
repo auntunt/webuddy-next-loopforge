@@ -21,7 +21,7 @@ fi
 
 # One compile job per CPU, but at most one per GiB of memory so small hosts do
 # not run out of memory (a cold build peaks near 1.3 GiB total with 4 jobs).
-# LOOPFORGE_BUILD_JOBS overrides the estimate.
+# WEBUDDY_BUILD_JOBS (or legacy LOOPFORGE_BUILD_JOBS) overrides the estimate.
 build_jobs() {
   local cpus memory_kib limit
   cpus=$(nproc 2>/dev/null || echo 2)
@@ -34,8 +34,9 @@ build_jobs() {
   local jobs=$(( cpus < by_memory ? cpus : by_memory ))
   echo $(( jobs < 1 ? 1 : jobs ))
 }
-jobs="${LOOPFORGE_BUILD_JOBS:-$(build_jobs)}"
-[[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo "LOOPFORGE_BUILD_JOBS must be a positive integer" >&2; exit 1; }
+requested_jobs="${WEBUDDY_BUILD_JOBS:-${LOOPFORGE_BUILD_JOBS:-}}"
+jobs="${requested_jobs:-$(build_jobs)}"
+[[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo "WEBUDDY_BUILD_JOBS must be a positive integer" >&2; exit 1; }
 export CGO_ENABLED=0
 flags=(-p="$jobs" -trimpath -ldflags=-s\ -w)
 

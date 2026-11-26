@@ -2,14 +2,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
-image="${LOOPFORGE_INSTALL_TEST_IMAGE:?Set LOOPFORGE_INSTALL_TEST_IMAGE to the locally built platform image}"
-task_dir=$(mktemp -d /tmp/loopforge-install-live.XXXXXX)
+image="${WEBUDDY_INSTALL_TEST_IMAGE:?Set WEBUDDY_INSTALL_TEST_IMAGE to the locally built platform image}"
+task_dir=$(mktemp -d /tmp/webuddy-install-live.XXXXXX)
 chmod 755 "$task_dir"
-docker_socket="${LOOPFORGE_DOCKER_SOCKET:-/var/run/docker.sock}"
+docker_socket="${WEBUDDY_DOCKER_SOCKET:-/var/run/docker.sock}"
 cleanup() {
   for fixture in "$task_dir"/*; do
     [[ -f "$fixture/.env" ]] || continue
-    docker ps -aq --filter "network=lf-install-${fixture##*/}-$$_default" | xargs -r docker rm -f >/dev/null 2>&1 || true
+    docker ps -aq --filter "network=wb-install-${fixture##*/}-$$_default" | xargs -r docker rm -f >/dev/null 2>&1 || true
     docker compose -f "$root/compose.yaml" --env-file "$fixture/.env" --profile platform down --volumes --remove-orphans >/dev/null 2>&1 || true
   done
   rm -rf "$task_dir"
@@ -17,12 +17,12 @@ cleanup() {
 trap cleanup EXIT
 
 actors=(root nonroot without-compose)
-[[ -z "${LOOPFORGE_INSTALL_SUDO_TEST_IMAGE:-}" ]] || actors+=(sudo)
+[[ -z "${WEBUDDY_INSTALL_SUDO_TEST_IMAGE:-}" ]] || actors+=(sudo)
 for actor in "${actors[@]}"; do
   fixture="$task_dir/$actor"
   mkdir -p "$fixture/scripts" "$fixture/migrations/seed" "$fixture/user-home"
   cp scripts/{install.sh,configure.sh,docker-access.sh,ghcr-mirror.sh,install-address.py,install-compose.py,install-observability-schema.sh,install-schema-extensions.sh} "$fixture/scripts/"
-  cp migrations/001_run_obs_generated_columns.sql migrations/031_generic_backend_openssh.sql migrations/033_generic_sop_mr_node.sql migrations/038_generic_sop_host_credentials.sql "$fixture/migrations/"
+  cp migrations/001_run_obs_generated_columns.sql migrations/001_webuddy_codereview.sql migrations/031_generic_backend_openssh.sql migrations/033_generic_sop_mr_node.sql migrations/038_generic_sop_host_credentials.sql "$fixture/migrations/"
   cp migrations/seed/*.sql "$fixture/migrations/seed/"
   cp compose.yaml "$fixture/"
   read -r http_port mysql_port < <(python3 - <<'PY'
@@ -44,12 +44,12 @@ PY
     prefix=(docker run --rm --network host -v "$fixture:$fixture" -v "$docker_socket:$docker_socket" -v "$fixture/cli-plugins:/usr/local/lib/docker/cli-plugins" -w "$fixture" --entrypoint /usr/bin/env "$image")
   elif [[ "$actor" == sudo ]]; then
     chown -R 1000:1000 "$fixture"
-    prefix=(docker run --rm --network host --user 1000:1000 -v "$fixture:$fixture" -v "$docker_socket:$docker_socket" -v "${LOOPFORGE_TEST_COMPOSE_PLUGIN:-/usr/libexec/docker/cli-plugins/docker-compose}:/usr/local/lib/docker/cli-plugins/docker-compose:ro" -w "$fixture" --entrypoint /usr/bin/env "$LOOPFORGE_INSTALL_SUDO_TEST_IMAGE")
+    prefix=(docker run --rm --network host --user 1000:1000 -v "$fixture:$fixture" -v "$docker_socket:$docker_socket" -v "${WEBUDDY_TEST_COMPOSE_PLUGIN:-/usr/libexec/docker/cli-plugins/docker-compose}:/usr/local/lib/docker/cli-plugins/docker-compose:ro" -w "$fixture" --entrypoint /usr/bin/env "$WEBUDDY_INSTALL_SUDO_TEST_IMAGE")
     "${prefix[@]}" bash -c 'if docker info >/dev/null 2>&1; then exit 1; fi; sudo -n docker info >/dev/null'
   fi
   started=$SECONDS
   for attempt in first repeat; do
-    "${prefix[@]}" env HOME="$fixture/user-home" PATH=/usr/local/bin:/usr/bin:/bin LOOPFORGE_YES=1 COMPOSE_PROJECT_NAME="lf-install-${actor}-$$" LOOPFORGE_IMAGE="$image" LOOPFORGE_DATA_DIR="$fixture/data" LOOPFORGE_BIND=0.0.0.0 LOOPFORGE_PUBLIC_URL="http://192.0.2.10:$http_port" LOOPFORGE_DOCKER_SOCKET="$docker_socket" AGENTFLOW_HTTP_PORT="$http_port" LOOPFORGE_MYSQL_PORT="$mysql_port" bash "$fixture/scripts/install.sh" > "$fixture/$attempt.log" 2>&1 || { cat "$fixture/$attempt.log"; exit 1; }
+    "${prefix[@]}" env HOME="$fixture/user-home" PATH=/usr/local/bin:/usr/bin:/bin WEBUDDY_YES=1 COMPOSE_PROJECT_NAME="wb-install-${actor}-$$" WEBUDDY_IMAGE="$image" WEBUDDY_DATA_DIR="$fixture/data" WEBUDDY_BIND=0.0.0.0 WEBUDDY_PUBLIC_URL="http://192.0.2.10:$http_port" WEBUDDY_DOCKER_SOCKET="$docker_socket" AGENTFLOW_HTTP_PORT="$http_port" WEBUDDY_MYSQL_PORT="$mysql_port" bash "$fixture/scripts/install.sh" > "$fixture/$attempt.log" 2>&1 || { cat "$fixture/$attempt.log"; exit 1; }
     grep -q "Access: http://192.0.2.10:$http_port" "$fixture/$attempt.log"
     curl -fsS "http://127.0.0.1:$http_port/api/health" >/dev/null
     if [[ "$attempt" == first ]]; then
@@ -89,7 +89,21 @@ def require_ids(collection, expected):
 require_ids('sandboxes', {'local','generic-docker'})
 require_ids('executors', {'codebuddy','codex','claude'})
 require_ids('projects', {'welcome'})
-require_ids('workflows', {'welcome-workflow','generic-backend-delivery','generic-frontend-delivery','generic-product-delivery','issue-fix-production'})
+require_ids('workflows', {
+    'welcome-workflow',
+    'generic-backend-delivery',
+    'generic-frontend-delivery',
+    'generic-product-delivery',
+    'issue-fix-production',
+    'pstack-recall-intake',
+    'pstack-verifiable-delivery',
+    'pstack-prove-audit',
+    'pstack-subtract-refactor',
+})
+kb=api('GET','/api/webuddy/kb/overview')
+assert 'builtinDocs' in kb or 'files' in kb or kb is not None, kb
+tenants=api('GET','/api/webuddy/tenants')
+assert tenants is not None, tenants
 run=api('POST','/api/runs',{'projectId':'welcome','workflowId':'welcome-workflow','input':'Installer acceptance'})
 run_id=run['id']
 def wait_for(status):
@@ -106,7 +120,7 @@ assert waiting['nodes']['prepare']['status']=='succeeded',waiting
 assert any(item['name']=='welcome' for item in waiting['artifacts']),waiting
 api('POST','/api/runs/'+run_id+'/approve',{'nodeId':'approve'})
 wait_for('succeeded')
-print('Verified access, administrator creation, seeded sandboxes/templates/executors, and a real no-key welcome SOP through approval and completion')
+print('Verified access, administrator creation, seeded sandboxes/templates/pstack SOPs/executors, KB/tenants endpoints, and a real no-key welcome SOP through approval and completion')
 PY
   printf '%s install + repeat: %ss (UID %s)\n' "$actor" "$((SECONDS-started))" "$("${prefix[@]}" id -u)"
 done

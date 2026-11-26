@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 image="${1:?Usage: bash scripts/test-runtime-image.sh IMAGE}"
-docker run --rm -i --network none -e LOOPFORGE_EXPECT_CODEBUDDY --read-only --tmpfs /tmp:rw,exec,nosuid,size=128m --entrypoint sh "$image" -eu <<'CHECK'
+expect_codebuddy="${WEBUDDY_EXPECT_CODEBUDDY:-${LOOPFORGE_EXPECT_CODEBUDDY:-optional}}"
+docker run --rm -i --network none -e EXPECT_CODEBUDDY="$expect_codebuddy" --read-only --tmpfs /tmp:rw,exec,nosuid,size=128m --entrypoint sh "$image" -eu <<'CHECK'
 export HOME=/tmp/home
 mkdir -p "$HOME"
 cd /tmp
@@ -18,12 +19,14 @@ printf 'check:\n\t./check-c\n\t./check-cpp\n' > Makefile
 make check
 node -e 'if (2 + 2 !== 4) process.exit(1)'
 python3 -c 'assert 2 + 2 == 4'
+test -f /app/webuddy_core/bridge.py
+python3 /app/webuddy_core/bridge.py overview >/dev/null
 git --version
 ssh -V
 unzip -v >/dev/null
 codex --version
 if command -v claude >/dev/null; then printf 'Claude Code must not be bundled; it installs on first use.\n' >&2; exit 1; fi
-case "${LOOPFORGE_EXPECT_CODEBUDDY:-optional}" in
+case "${EXPECT_CODEBUDDY:-optional}" in
   1) codebuddy --version ;;
   0) if command -v codebuddy >/dev/null; then printf 'CodeBuddy should be absent.\n' >&2; exit 1; fi ;;
   *) if command -v codebuddy >/dev/null; then codebuddy --version; fi ;;

@@ -1,19 +1,14 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-zh-dark.svg">
-    <img src="docs/assets/readme/hero-zh.svg" alt="LoopForge —— 从想法，到合入的代码。在沙箱对话工作区里与编码 Agent 协作，用 SOP 固化交付流程，关键节点由人把关。" width="100%">
+    <img src="docs/assets/readme/hero-zh.svg" alt="Webuddy —— 从想法，到合入的代码。在沙箱对话工作区里与编码 Agent 协作，用 SOP 固化交付流程，关键节点由人把关。" width="100%">
   </picture>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Tencent/LoopForge/actions/workflows/platform.yml"><img src="https://img.shields.io/github/actions/workflow/status/Tencent/LoopForge/platform.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7b61ff?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/自主部署-Docker-526ce8?style=flat-square&logo=docker&logoColor=white" alt="Docker 自主部署">
-  <a href="https://github.com/Tencent/LoopForge/stargazers"><img src="https://img.shields.io/github/stars/Tencent/LoopForge?style=flat-square&color=f59e0b" alt="GitHub stars"></a>
-</p>
-
-<p align="center">
-  <a href="https://trendshift.io/repositories/300138?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-300138" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/300138" alt="Tencent%2FLoopForge | Trendshift" width="250" height="55"/></a>
+  <img src="https://img.shields.io/badge/Webuddy-2.0-0ea5e9?style=flat-square" alt="Webuddy 2.0">
 </p>
 
 <p align="center">
@@ -22,82 +17,86 @@
 
 <p align="center">
   <a href="#两种工作方式">两种工作方式</a> ·
+  <a href="#webuddy-20-核心增强">Webuddy 2.0 增强</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="#sop-如何运行">SOP</a> ·
   <a href="#功能一览">功能</a> ·
-  <a href="#loopforge-local">本地版（旧版）</a> ·
   <a href="#常见问题">FAQ</a> ·
   <a href="#文档">文档</a>
 </p>
 
-https://github.com/user-attachments/assets/10b8ae2e-d7e7-4b78-8876-c45818d4a08f
+**Webuddy（`webuddy-next-loopforge`）** 是基于 LoopForge 演进的可自主部署软件交付工作台，让你和编程 Agent 一起交付软件。在对话里把需求告诉 **Main Bot**：它会按需打开 Docker 沙箱、检出或导入项目代码、结合项目源码知识库规划和派发任务、执行 AI Code Review 与人工验收，最后提交 PR/MR 或直推预览。某种做法被验证有效后，把它存成 **SOP**（由 Agent、脚本和人工关口组成的标准交付流程），下一个需求就按同样的方式交付。
 
-<p align="center"><sub>80 秒产品演示（1080p，有声）。</sub></p>
-
-**LoopForge** 是一个可自主部署的团队工作台，让你和编程 Agent 一起交付软件。在对话里把需求告诉 **Main Bot**：它会按需打开 Docker 沙箱、检出项目仓库、把任务分派给项目角色，最后提交 PR。某种做法被验证有效后，把它存成 **SOP**（由 Agent、脚本和人工关口组成的标准交付流程），下一个需求就按同样的方式交付，评审和验收都在流程里。
-
-干活的是编程 Agent CLI：CodeBuddy、Codex、Claude Code、OpenCode、Cursor CLI、Antigravity、Kimi Code、Pi、DeepSeek Harness 和 ZCode；LoopForge 负责它们外面的角色、沙箱、检查点和留痕，全部运行在你自己的环境里，MIT 开源。
+干活的是 22 种主流编程 Agent CLI（Codex、Claude Code、CodeBuddy、OpenCode、Cursor CLI、Antigravity、Kimi Code、Pi、DeepSeek Harness、ZCode、Gemini CLI、Aider、Cline CLI、Qwen Code、Trae CLI、GitHub Copilot CLI、Sourcegraph Amp、Block Goose、Windsurf CLI、Auggie、Command Code、Devin CLI）；Webuddy 负责它们外面的源码知识图谱、角色隔离、多租户工作空间、沙箱、Code Review 闭环、实时预览和运行留痕，MIT 开源。
 
 ## 两种工作方式
 
 | | **与 Main Bot 对话** | **运行 SOP** |
 | --- | --- | --- |
-| 适合 | 探索、快速修复、与 Agent 反复迭代 | 阶段固定、需要签字确认的可重复交付 |
-| 如何运行 | Main Bot 按需打开[对话工作区](docs/conversation-workspaces.md)（带项目仓库的 Docker 沙箱），并把项目角色作为子 Agent 调用 | 引擎按顺序执行 Agent、脚本、人工关口和子 SOP 节点，每次运行有独立沙箱 |
+| 适合 | 探索、快速修复、知识库问答、实时预览与快速迭代 | 阶段固定、需要独立评审与签字确认的可重复交付 |
+| 如何运行 | Main Bot 按需打开[对话工作区](docs/conversation-workspaces.md)（带项目仓库的 Docker 沙箱），调用项目角色与直连知识库工具 | 引擎按顺序执行 Agent、脚本、人工关口和子 SOP 节点，每次运行有独立沙箱 |
 | 你如何把控 | 回复中途排队或「引导」消息；在对话里暂停、恢复或接管正在运行的 SOP | 在人工关口审批；打回到指定环节返工；从任意节点重试或重跑 |
-| 交付物 | PR/MR，或直推合入共享分支（`mode=direct`） | 文档、代码或 PR，以及每个节点的产物和日志 |
+| 交付物 | PR/MR、共享分支直推（`mode=direct`），或实时应用预览 | 文档、代码或 PR，以及每个节点的产物、评审与日志 |
 
-两种方式都挂在同一套**需求**上：无论改动来自对话还是 SOP，都能追溯到原始需求，并计入交付与成本统计。
+## Webuddy 2.0 核心增强
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/chat-home-dark.svg">
-    <img src="docs/assets/readme/chat-home.svg" alt="LoopForge 对话工作台：在输入框中描述需求，@ 面板列出角色、技能、需求和 SOP" width="100%">
-  </picture>
-</p>
-
-<p align="center"><sub>对话首页：描述需求，用 <code>@</code> 引用角色、技能、需求、SOP 或仓库；每个会话可单独选择执行器、模型和确认模式。</sub></p>
-
-## 为什么需要 LoopForge
-
-让编程 Agent "修一下这个 Bug"，结果往往取决于这一次的运行：可能跳过方案，可能忘了跑测试，可能自己评审自己的代码，也可能做到一半停下而没人发现。做演示没问题，但团队交付不能这样。
-
-- **可重复。** 同一条 SOP、同样的阶段、同样的检查，每个需求都一样。内置后端、前端、缺陷修复、产品方案四类 SOP 可直接起步。
-- **角色分离。** 方案、实现、评审、测试各有独立的角色提示词、执行器、模型、规则、Skills 和 MCP 工具；同一个角色既能做 SOP 节点，也能在对话中作为子 Agent 调用。
-- **人在回路之上。** Agent 自主运行，你负责监督：随时暂停、引导或接管；需要人拍板的地方由人工关口拦下，看完报告再放行，或打回到指定环节返工。
-- **可观测、可续跑。** 节点状态、工具轨迹、日志和产物集中呈现；支持暂停、重试失败步骤、从任意节点重跑。
-- **技术栈和服务器都是你的。** 执行器支持 10 种编程 Agent CLI，从 CodeBuddy、Codex、Claude Code 到 OpenCode、Cursor CLI 等；工具接入 GitHub、Skills、MCP；运行环境可选 Docker 沙箱或你自己的机器。
+- **源码知识库与多语言图谱（`webuddy_core`）**：零外部 Python 第三方依赖，内置在平台镜像中；支持 Go / Python / TS / JS / NestJS / Next.js / C# / PHP / Rust / Ruby / Kotlin / C++ / SQL 架构抽取、依赖链路分析、`file:line` 源码溯源校验与租户共享知识中心。
+- **AI Code Review 与有效性闭环**：支持按批提交 diff 审查，区分阻断项/建议项，人工反馈结果反哺后续交付与审核关口。
+- **一键实时应用预览**：支持在平台内直接启动项目并打穿 `/app-preview/<projectId>/` HTTPS 代理，前端卡片内嵌可交互预览。
+- **松散项目与压缩包导入**：支持无 Git 仓库直接上传 `.zip` / `.tar.gz` / `.tgz` 代码包（持久化落在 `${WEBUDDY_DATA_DIR}/uploaded-repos`），自动扫描构建知识库与环境。
+- **多租户隔离与团队 RBAC**：支持团队空间隔离、邀请码加入、成员权限管控与预置 SOP 策略。
+- **内置模型三层回退 & 4 条 `pstack` 内置 SOP**：支持 `WEBUDDY_LLM_*` → `OPENROUTER_API_KEY` → `OPENAI_API_KEY` 自动发现回退；默认执行器切换为 `codex`，预置 `pstack` 现状核对、小步交付、实证审查、减法重构 4 条工程 SOP。
 
 ## 快速开始
 
-先准备 **Git** 并克隆仓库。安装脚本会检查 Docker、Compose、Python 3 和 curl，并在获得确认后补装缺少的组件：Linux 的 Python/curl 支持 apt、dnf、yum，Compose 插件支持 x86_64/arm64 并校验官方发行文件的 SHA-256；macOS 需要可运行的 Python 3 和 Docker Desktop，可通过 Homebrew 补装缺少的组件。支持普通用户运行，需要时通过 Docker 组或 sudo 操作 Docker。设置 `LOOPFORGE_YES=1` 可接受安装提示；安装和拉取镜像需要可用的外网连接。
+先准备 **Git** 并克隆仓库。安装脚本会检查 Docker、Compose、Python 3 和 curl，并在获得确认后补装缺少的组件：Linux 的 Python/curl 支持 apt、dnf、yum，Compose 插件支持 x86_64/arm64 并校验官方发行文件的 SHA-256；macOS 需要可运行的 Python 3 和 Docker Desktop，可通过 Homebrew 补装缺少的组件。支持普通用户运行，需要时通过 Docker 组或 sudo 操作 Docker。设置 `WEBUDDY_YES=1` 可跳过确认提示。
 
 ```bash
-git clone https://github.com/Tencent/LoopForge.git
-cd LoopForge
+git clone https://github.com/auntunt/webuddy-next-loopforge.git
+cd webuddy-next-loopforge
 ./start.sh
 ```
 
-`./start.sh` 直接拉取 `compose.yaml` 中 pin 的 GHCR 发布镜像，不在本地构建（`bash scripts/install.sh` 效果相同）。安装流程会创建 MySQL 和平台服务，生成配置与会话密钥，并导入内置沙箱、通用 SOP 和体验项目；无需在宿主机安装 Go 或 Node.js。模型 API Key 和 GitHub 授权在启动后由用户配置。用 `./start.sh logs`、`stop`、`restart`、`pull` 管理服务；需要从源码构建时用 `./start.sh dev`。
+`./start.sh` 直接拉取 `compose.yaml` 中 pin 的 GHCR 发布镜像（`ghcr.io/auntunt/webuddy-next-loopforge:2.0.0`），不在本地编译（`bash scripts/install.sh` 效果相同）。安装流程会自动：
 
-国内拉取 `ghcr.io` 经常中断。`./start.sh` 和 `./start.sh pull` 会并行探测 `ghcr.io` 与南京大学镜像 [ghcr.nju.edu.cn](https://doc.nju.edu.cn/books/e1654/page/ghcr)。只有先从 ghcr.io 拿到 manifest 摘要，且南京返回同一摘要时，才按这个摘要拉取并改回 `compose.yaml` 里的原名；这表示信任该主机，因为下载结果会被标成官方镜像名。拿不到官方摘要、摘要不一致，或镜像拉取失败时，仍走 `ghcr.io`。`MIRROR=ghcr.io` 固定走官方源，`MIRROR=ghcr.nju.edu.cn` 固定走南京，选择不会写入 `.env`。发布说明里有 digest，可用 `docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/tencent/loopforge:<pin>` 核对，`@` 后面的摘要应一致。`compose.yaml` 不用改。Docker 引擎里的 `registry-mirrors`（包括 `https://docker.nju.edu.cn`）只加速 Docker Hub，不能填在 `MIRROR` 里。
+1. 生成 `.env`（包含随机数据库密码、会话密钥与 `${WEBUDDY_DATA_DIR}` 持久化目录）；
+2. 拉取发布镜像并启动 `mysql`（库名/用户 `webuddy`）与 `platform`（默认监听 `0.0.0.0:8090`）；
+3. 等 `/api/health` 就绪后，自动运行 `scripts/install-schema-extensions.sh` 补齐观测列、`webuddy_code_reviews` 表、公共目录与 `031/033/038` 迁移；
+4. 自动探测云厂商公网 IP（腾讯云 / 阿里云 / AWS / GCP / Azure）及局域网/本机访问地址。
+
+> **关于私有仓库与 GHCR 镜像可见性**：如果 `auntunt/webuddy-next-loopforge` 代码仓库保持 Private，只需在 GitHub Packages 将 `webuddy-next-loopforge` 容器镜像设为 **Public**，团队成员即可在任意机器免登录直接 `./start.sh` 并享南京大学镜像加速；如果镜像也保持 Private，安装前先执行 `docker login ghcr.io` 即可，或者使用 `./start.sh dev` 从本地源码构建。
+
+### 国内镜像加速与源码构建
+
+国内拉取 `ghcr.io` 经常中断。`./start.sh` 和 `./start.sh pull` 会并行测速 `ghcr.io` 与南京大学镜像 [ghcr.nju.edu.cn](https://doc.nju.edu.cn/books/e1654/page/ghcr)：只有当官方 manifest SHA-256 摘要与南京镜像一致时，才按摘要拉取并自动回标为 `compose.yaml` 中的官方镜像名。也可以手动固定源或从源码构建：
 
 ```bash
-./start.sh
-MIRROR=ghcr.io ./start.sh
-MIRROR=ghcr.nju.edu.cn ./start.sh pull
+./start.sh                                                                 # 自动测速拉取发布镜像
+MIRROR=ghcr.io ./start.sh                                                  # 强制直连官方 ghcr.io
+MIRROR=ghcr.nju.edu.cn ./start.sh pull                                     # 强制经南京大学镜像升级更新
+GOPROXY=https://goproxy.cn,direct NPM_REGISTRY=https://registry.npmmirror.com ./start.sh dev
+                                                                           # 使用国内 Go/npm 代理从源码构建
 ```
 
-打开安装脚本输出的地址创建账号，第一个账号自动成为管理员。服务默认监听 `0.0.0.0:8090`；在云主机上，安装脚本会从云厂商的元数据服务读取公网 IP 并直接打印出来，放通安全组端口即可访问，或配置 HTTPS 反向代理；管理员账号创建前，建议只允许你的 IP 访问。首页的「快速接入」会带你配置模型凭据、绑定仓库并选好默认 SOP。
+常用运维命令：
 
-GitLab、Gitea、Gogs 等托管可[配置 Git SSH](docs/deployment.md#git-repositories-over-ssh)，用个人密钥检出和推送分支。Issue 与 PR/MR 自动化需要托管平台的 API Token 或另行配置的 MCP。[CNB 官方仅支持 HTTPS + 访问令牌](https://docs.cnb.cool/zh/guide/git-access.html)。
+```bash
+./start.sh status     # 查看容器运行状态
+./start.sh logs       # 实时跟踪 platform 日志
+./start.sh pull       # 升级到当前 checkout 对应的发布镜像并执行增量 Schema 扩展
+./start.sh restart    # 重启 platform 服务
+./start.sh stop       # 停止容器（保留数据）
+./start.sh down       # 删除容器（保留 mysql-data / platform-data 与 .data/）
+./start.sh dev        # 切换到源码构建模式（compose.dev.yaml -> webuddy-platform:local）
+./start.sh release    # 从源码构建切回 GHCR 发布镜像模式
+```
 
 ### 免 API Key 体验
 
-新注册的账号会自动加入 **LoopForge 体验项目**，其中有一条只包含脚本和人工审批的 SOP：
+新注册的第一个账号自动成为平台管理员，并自动加入 **Webuddy 体验项目**（`WB`），其中内置一条仅包含脚本和人工审批的 SOP：
 
 1. 切换到体验项目，打开 **流程模板**，进入 **平台验收 · 脚本与审批**。
-2. 点击 **运行流程**。真实脚本会生成一份报告，然后在审批节点等你确认。
+2. 点击 **运行流程**。真实脚本会生成验收报告，然后在审批节点等你确认。
 3. 在 **待我确认** 或运行详情页审批通过，观察流程继续执行并产出最终产物。
 
 ### 真实任务需要准备什么
@@ -105,40 +104,24 @@ GitLab、Gitea、Gogs 等托管可[配置 Git SSH](docs/deployment.md#git-reposi
 | 我想要… | 需要准备 |
 | --- | --- |
 | 跑通脚本 + 人工审批体验 | 什么都不需要 |
-| 与 Main Bot 对话、生成文档或新项目 | 所选执行器的 API Key |
-| 修改已有仓库（通过对话或 SOP）并提交 PR | 模型凭据 + GitHub 仓库（在个人设置中连接 GitHub） |
+| 与 Main Bot 对话、分析本地/压缩包源码知识库、生成文档或新项目 | 所选执行器的凭据（或配置 `WEBUDDY_LLM_*` / `OPENROUTER_API_KEY`） |
+| 修改已有仓库并提交 PR/MR | 执行器凭据 + GitHub 授权或 Git SSH 密钥（在个人设置中配置） |
 
 <details>
-<summary><b>更多配置说明</b>：执行器、GitHub、沙箱、访问模型</summary>
+<summary><b>更多配置说明</b>：环境变量、执行器、沙箱、数据持久化</summary>
 
 <br>
 
-- **执行器。** 首页对话、需求澄清、Bot 回复、通知汇报、运行评测和静态预览均可选择 CLI 与模型。每个 SOP 角色可以独立选择 CLI，内置模板仍默认使用 CodeBuddy。定时提示词使用任务所选的 CLI。将使用中的流程配置为其他 CLI 后，平台可在未安装 CodeBuddy、未配置其 Key 的环境中运行。[部署与升级说明](docs/deployment.md#choosing-an-executor)
-
-  | 执行器 | 凭据 | 安装方式 |
-  | --- | --- | --- |
-  | **CodeBuddy** | 个人 Key，或管理员配置的平台共享 Key（覆盖对话和 SOP 运行） | 默认内置，源码构建时可省略 |
-  | **Codex** | 个人 Key；已连接的执行机器可使用本机登录 | Docker 镜像内置 |
-  | **Claude Code** | 个人 Key；已连接的执行机器可使用本机登录 | 首次使用时从 npm 安装并缓存 |
-  | **OpenCode · Kimi Code · Pi** | 仅个人 Key | 首次使用时从 npm 安装并缓存 |
-  | **DeepSeek Harness** | 仅个人 Key | Docker 镜像内置 |
-  | **Cursor CLI · Antigravity** | 仅个人 Key | 首次在对话中使用时通过厂商安装脚本安装；不会装进 SOP 沙箱 |
-  | **ZCode** | 仅个人 Key | 未内置，需安装到服务或执行机器的 PATH 中 |
-
-  Claude Code 之后的 7 种 Agent CLI 每次运行都在私有 HOME 目录里生成模型和 MCP 配置，因此始终使用需求责任人在个人设置中填写的 Key 和 Base URL，即使在已连接的执行机器上也一样。团队推广时，每位成员需要各自配置凭据。首次安装需要能访问 npm 或对应厂商；[原生部署](docs/deployment.md#workers-and-runners)需安装所选执行器的 CLI。
-- **企业微信通知。** 从本 Dockerfile 构建的平台镜像内置 `wecom-cli`，发布镜像将在下个版本包含它；原生部署需要另行安装，详见[部署指南](docs/deployment.md#native-development)。
-- **GitHub 可选。** 所有内置通用 SOP 都可以不绑定仓库运行：产品方案交付文档，前后端新项目在任务工作区交付源码；缺陷修复仍需提供待修代码和复现材料。需要修改已有代码或提交 PR 时再绑定仓库。
-- **交付到仓库。** 在个人设置中点击「连接 GitHub」，用设备码授权后选择自己的仓库（已内置 LoopForge 授权应用，无需申请 PAT，仍可手动填写 PAT），再配置执行器凭据（或绑定本机执行机器），之后既可以运行一条项目 SOP，也可以直接让 Main Bot 修改代码并提交 PR/MR。
-- **沙箱。** 默认 Compose 安装中，SOP 运行和对话工作区都使用 Docker 沙箱容器，由平台通过宿主机 Docker socket 启动；默认沙箱复用已安装的运行镜像，安装后无需再构建；自定义 Dockerfile 仍单独构建。Docker socket 赋予平台控制宿主机 Docker 的权限，因此只适用于可信团队，不构成不可信多租户隔离边界；详见[部署边界](docs/deployment.md#accounts)。重复执行安装脚本会保留已有数据。
-- **账号与访问。** 新安装默认监听所有网卡（已有安装保留原配置），面向可信团队：已登录用户可以读取实例内各项目的数据，团队成员可在登录页自助注册（在 `.env` 中设置 `AGENTFLOW_ALLOW_SIGNUP=false` 可关闭）。对团队以外开放前，请先阅读[账号与访问边界](docs/deployment.md#accounts)。
-- **远程访问、HTTPS、独立 Worker。** 见[部署指南](docs/deployment.md)。
-- **参与 LoopForge 本身的开发？** 用 `bash scripts/dev.sh` 原生运行（需要 Go 1.26.11+）。
+- **内置模型环境变量（可选）**：可在 `.env` 中配置 `WEBUDDY_LLM_BASE_URL`、`WEBUDDY_LLM_API_KEY`、`WEBUDDY_LLM_MODEL`、`OPENROUTER_API_KEY` 或 `OPENAI_API_KEY`；也可在界面 **平台管理 / 个人设置** 中直接配置。
+- **默认执行器与 22 种 CLI**：内置通用 SOP 默认使用 `codex`（可在角色或模板中切换为 `claude`、`codebuddy`、`gemini-cli`、`opencode`、`cursor`、`agy`、`kimi`、`pi`、`dsh`、`zcode`、`aider`、`cline`、`qwen-code`、`trae`、`copilot`、`amp`、`goose`、`windsurf`、`auggie`、`command-code`、`devin`）。
+- **持久化目录**：Compose 安装会自动把数据持久保存在：
+  - Docker 卷：`mysql-data`（MySQL 8.4 库 `webuddy`）、`platform-data`（`/data/assistant`、`/data/clarify`）；
+  - 宿主机目录 `${WEBUDDY_DATA_DIR}`（默认 `./.data`）：`home/`（含 `.webuddy-tenants.json`、`.webuddy-platform-policy.json`、`.webuddy-user-rbac.json`、`.webuddy-shared-kb.json`、`.webuddy-builtin-llm.json`）、`workspaces/`、`uploaded-repos/`、`conversations/`、`cli/`。
+- **更多细节**：独立 Worker/Runner 接入、Git SSH 信任、HTTPS 反向代理与 `/app-preview/` 配置、首次发版流程，详见 [部署指南](docs/deployment.md)。
 
 </details>
 
 ## SOP 如何运行
-
-**SOP** 就是每次交付遵循的工作流程。Agent、脚本和人在同一次运行中衔接：
 
 <p align="center">
   <picture>
@@ -146,12 +129,6 @@ GitLab、Gitea、Gogs 等托管可[配置 Git SSH](docs/deployment.md#git-reposi
     <img src="docs/assets/readme/sop-flow-zh.svg" alt="SOP 流程：需求 → 澄清需求、设计方案、开发实现、独立评审（Agent）→ 运行测试（脚本）→ 人工验收（人工关口）→ 交付；验收不通过可打回开发实现返工" width="100%">
   </picture>
 </p>
-
-<p align="center">
-  <img src="docs/assets/readme/designer-zh.svg" alt="LoopForge 流程设计器：内置缺陷修复 SOP，选中「独立评审」节点，右侧检查器显示角色、执行器与失败策略" width="100%">
-</p>
-
-<p align="center"><sub>流程设计器中的内置缺陷修复 SOP。每个步骤选择一个角色；检查失败时可以打回到前面的步骤。</sub></p>
 
 | 节点 | 作用 |
 | --- | --- |
@@ -161,97 +138,41 @@ GitLab、Gitea、Gogs 等托管可[配置 Git SSH](docs/deployment.md#git-reposi
 | **子 SOP** | 把另一条 SOP 作为子流程复用。 |
 | **预览构建** | 构建静态站点并归档，供评审查看。 |
 
-每个节点声明自己的产物和依赖，依赖完成后引擎自动推进下一步。从内置 SOP 起步，按项目调整角色、规则和执行环境，随着流程演进发布新版本。
-
-<p align="center">
-  <img src="docs/assets/readme/run-approval-zh.svg" alt="LoopForge 运行详情：报告脚本已完成，流程停在人工关口，提供确认通过、补充信息重跑、退回上游三种操作" width="100%">
-</p>
-
-<p align="center"><sub>停在人工关口的运行：确认通过继续下游、补充信息重跑当前节点，或退回上游重做。</sub></p>
-
-**我们实际跑过的一次交付：** 四个 CodeBuddy 角色依次完成 Python 修复的规划、实现、独立评审和交付汇总；三个真实测试通过，运行等待人工批准，批准后再次验证代码与验收时一致。这条链路已沉淀为[可复用验收用例](e2e/api/45-delivery-model.test.mjs)，覆盖范围和未联调项见[实测记录](docs/validation.md)。
-
 ## 功能一览
 
 | 方向 | 能力 |
 | --- | --- |
-| **对话工作台** | Main Bot 支持按会话选择执行器、模型和确认模式；`@` 引用角色、技能、需求、SOP 和仓库；回复进行中发送的消息进入排队托盘，「引导」可打断当前回复立即发送；生成的文件在侧边产物抽屉中预览、看源码和下载。 |
-| **对话工作区** | 按需创建带项目仓库的 Docker 沙箱，把项目角色作为原生子 Agent 调用，并能直接控制正在运行的 SOP 工作区：暂停、恢复或接管。 |
-| **流程设计器** | 在画布上编排 Agent、脚本、人工关口、子 SOP 和预览构建节点；支持失败打回、配置检查、版本历史与发布。内置后端、前端、缺陷修复和产品方案 SOP。 |
-| **角色** | 可复用的角色定义：提示词、执行器、模型、规则、Skills、MCP 工具、产物与门禁，SOP 节点和对话子 Agent 共用。 |
-| **需求到交付** | 无论通过 SOP 还是直接在对话中交付，需求都全程跟踪；支持 PR/MR 状态跟踪、合入检测和共享分支直推。 |
-| **运行与审批** | 实时节点状态、工具轨迹、Worker 日志、节点产物快照和工作区预览；所有等你处理的关口集中在 **待我确认**。 |
-| **AI 定时任务** | 周期性 Agent 任务，具备完整的工作区、SOP 与 MCP 权限；共享任务市场提供带版本和参数的任务模板；新需求可自动派发 SOP。 |
-| **统计与成本** | 研发效能指标、业务领域报表（可导出静态 HTML/SVG），以及按公开标准价核算的 SOP 与对话 Token 成本。 |
-| **执行环境** | 平台 Worker、Docker 沙箱，或连接一台使用你自己工具和仓库的本地执行机器。 |
-| **团队协作** | 密码账号、项目与成员、浅色 / 深色 / 跟随系统主题，以及有 OpenAPI 描述的 HTTP 与 MCP API。管理页面支持中英文，对话工作台目前为中文界面。 |
-
-<p align="center">
-  <img src="docs/assets/readme/sops-zh.svg" alt="流程模板页的「内置」标签：通用后端交付、通用前端交付、通用产品方案和通用缺陷修复四条 SOP" width="100%">
-</p>
-
-<p align="center"><sub>内置 SOP 是平台维护的只读蓝图，复制到本项目后即可运行和修改。</sub></p>
-
-## LoopForge Local
-
-> **旧版（Legacy）。** 已发布的 LoopForge Local（`loopforge-cli`）版本仍可安装。[Local 使用指南](docs/local/usage.zh-CN.md)介绍如何安装固定版本、继续使用既有工作流并保留产物。
-
-要在编码 Agent 中使用平台项目和 SOP，请[通过 MCP 将 CodeBuddy 接入 LoopForge 实例](docs/local/usage.zh-CN.md#通过-mcp-连接-loopforge)。Local 仍可在编码 Agent 中独立运行内置工作流，无需启动 LoopForge 服务端。
-
-| | 平台版 | Local（旧版） |
-| --- | --- | --- |
-| 适合 | 团队共享对话工作区、SOP、审批与运行记录 | 个人开发者在 IDE / CLI 中使用 |
-| 依赖 | Docker + Python 3 | Node.js 20+、Python 3.8+ 和一个编程助手 |
-| 工作流 | 与 Main Bot 对话 + 可视化画布自定义 SOP | 内置 Classic / Portable 工作流 |
-| 证据留存 | Web 工作台中共享运行详情、审批和指标 | `artifacts/{task_slug}/` 下的产物 + 可选本地看板 |
+| **对话工作台** | Main Bot 支持按会话选择执行器、模型和确认模式；`@` 引用角色、技能、需求、SOP、知识库与仓库；生成文件与实时应用预览直接在对话内展示。 |
+| **对话工作区** | 按需创建带项目仓库的 Docker 沙箱，把项目角色作为原生子 Agent 调用，并可直接暂停、恢复或接管正在运行的 SOP。 |
+| **源码知识库** | `webuddy_core` 多语言结构抽取、模块知识卡、架构图谱、依赖链与影响面分析、增量更新 `file:line` 源码溯源、租户共享知识中心。 |
+| **Code Review 闭环** | AI 代码评审列表、行级阻断项/建议项、人工有效性评分反馈、阻断未通过禁止放行验收关口。 |
+| **流程设计器** | 可视化画布编排 Agent、脚本、人工关口、子 SOP 与预览构建节点；内置 4 条通用交付 SOP 与 4 条 `pstack` 工程纪律 SOP。 |
+| **多租户与治理** | 团队空间切换与邀请码、成员 RBAC 权限管理、松散项目模式与代码压缩包直接导入。 |
+| **执行环境** | 平台 Docker 沙箱，或一行命令接入本地/云服务器 Runner 执行机（保留本机 CLI 登录态）。 |
 
 ## 常见问题
 
 **体验需要 API Key 吗？**
-不需要。体验 SOP 只包含脚本和人工审批。对话和 Agent 步骤需要所选执行器的 Key。平台不附带模型额度，凭据由你自己配置。
+不需要。体验 SOP 只包含脚本和人工审批。对话、知识库增量合成和 Agent 步骤需要配置执行器凭据或 `WEBUDDY_LLM_*` / `OPENROUTER_API_KEY`。
 
-**必须接入 GitHub 吗？**
-不必。对话、文档和新项目都在任务工作区完成。需要修改已有仓库或提交 PR 时再接入 GitHub。
+**没有 Git 仓库也能用吗？**
+可以。你可以直接创建松散项目，或者上传 `.zip` / `.tar.gz` 代码压缩包，Webuddy 会自动持久化落盘并完成知识库扫描与实时预览。
 
-**什么时候用对话，什么时候用 SOP？**
-探索和迭代用对话，Main Bot 同样可以提交 PR。当你希望每个需求都按同一套做法交付，有固定的评审、测试和签字环节，就把它做成 SOP。Main Bot 可以启动、暂停和接管 SOP 运行，两种方式可以配合使用。
-
-**和 Dify、n8n、Flowise 有什么区别？**
-它们是通用的 AI / 自动化工作流搭建平台。LoopForge 专注于 **用编程 Agent 做软件交付**：实现者与评审者等角色分工、带真实仓库的 Docker 沙箱、GitHub 交付、人工验收关口和运行证据。
-
-**和直接用 Claude Code / Codex / CodeBuddy 等编程 CLI 有什么区别？**
-LoopForge 不替代它们，而是编排它们。每个 Agent 步骤和每轮对话都运行这些 CLI 之一；LoopForge 补上外面的部分：谁来做、在哪个沙箱里、按什么顺序、经过哪些检查、由谁签字。
+**为什么首次安装拉取发布镜像很快？**
+`compose.yaml` 指向预编译多架构镜像（`linux/amd64` + `linux/arm64`），`./start.sh` 无需在你的服务器编译前端或 Go，直接拉取即可运行；默认沙箱也直接复用同一个运行时镜像。
 
 **可以直接暴露到公网吗？**
-新安装默认监听所有网卡，面向可信团队。开放前请阅读[账号与访问边界](docs/deployment.md#accounts)并配置 HTTPS。安全漏洞请按[安全政策](SECURITY.zh-CN.md)私密报告。
+新安装默认监听 `0.0.0.0:8090`。开放公网前请先完成首个管理员账号注册、配置 HTTPS 反向代理并设置 `AGENTFLOW_SECURE_COOKIES=true`，按需设置 `AGENTFLOW_ALLOW_SIGNUP=false` 关闭自助注册。详见[部署指南](docs/deployment.md#accounts)。
 
 ## 文档
 
 | 我想了解 | 从这里开始 |
 | --- | --- |
-| 部署、账号、执行机器与凭据 | [部署指南](docs/deployment.md) |
+| 部署、升级、环境变量、备份与发版 | [部署指南](docs/deployment.md) |
 | 对话工作区、AI 定时任务与 Token 成本口径 | [对话工作区](docs/conversation-workspaces.md) · [AI 定时任务](docs/ai-scheduled-task-capabilities.md) · [Token 成本统计](docs/token-pricing.md) |
-| 继续使用 Local 旧版工作流 | [LoopForge Local](docs/local/usage.zh-CN.md) · [版本差异](docs/local/editions.md) |
 | 扩展平台或接入 HTTP / MCP API | [架构](docs/architecture.md) · [API 参考](docs/api/README.md) · [共享定时任务 API](docs/api/shared-schedules.md) |
 | 参与前端开发 | [前端设计约定](design.md) |
-| 功能覆盖与发布就绪情况 | [实测记录](docs/validation.md) · [验收矩阵](docs/testing/acceptance-matrix.md) · [发布评审](docs/release-readiness.md) |
-| 来源与长期维护方式 | [开源范围](docs/open-source-scope.md) · [上游同步策略](docs/upstream-sync.md) |
-
-## 交流群
-
-扫描二维码加入 LoopForge 交流群。
-
-<img src="docs/community-wecom-qr.png" alt="LoopForge 交流群二维码" width="200" />
-
-## 参与贡献
-
-欢迎通过 Issue 和 PR 分享使用场景、报告问题，或改进流程、工具适配和平台体验。请先阅读[贡献指南](CONTRIBUTING.zh-CN.md)；安全问题请按[安全政策](SECURITY.zh-CN.md)私密报告。
-
-如果 LoopForge 对你有帮助，欢迎点个 Star，让更多人看到它。
-
-<a href="https://star-history.com/#Tencent/LoopForge&Date">
-  <img src="https://api.star-history.com/svg?repos=Tencent/LoopForge&type=Date" alt="Star history" width="600">
-</a>
+| 本地独立工作流工具（Legacy） | [Local 使用指南](docs/local/usage.zh-CN.md) · [版本差异](docs/local/editions.md) |
 
 ## 许可证
 

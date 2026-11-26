@@ -3,12 +3,14 @@
 # The fixed local tag keeps source builds from overwriting the pinned GHCR image.
 services:
   platform:
-    image: loopforge-platform:local
+    image: webuddy-platform:local
     build:
       context: .
       args:
-        LOOPFORGE_BUILD_JOBS: ${LOOPFORGE_BUILD_JOBS:-}
-        LOOPFORGE_COMMIT: ${LOOPFORGE_COMMIT:-}
+        WEBUDDY_BUILD_JOBS: ${WEBUDDY_BUILD_JOBS:-}
+        WEBUDDY_COMMIT: ${WEBUDDY_COMMIT:-}
         CODEBUDDY_PACKAGE: ${CODEBUDDY_PACKAGE-@tencent-ai/codebuddy-code@2.167.0}
+        GOPROXY: ${GOPROXY:-}
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
     environment:
-      AGENTFLOW_ISOLATED_IMAGE: loopforge-platform:local
+      AGENTFLOW_ISOLATED_IMAGE: webuddy-platform:local

@@ -212,11 +212,21 @@ func (d *deps) autoConfigureProjectEnv(userID int64, projectID string) (projectR
 
 // GET /api/webuddy/env/project-readiness?projectId=...
 func (h *webuddyEnvHandlers) projectReadiness(c *gin.Context) {
+	pid := strings.TrimSpace(c.Query("projectId"))
+	if authRequired() {
+		if pid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请指定 projectId"})
+			return
+		}
+		if !h.requireProjectReader(c, pid) {
+			return
+		}
+	}
 	var userID int64
 	if u, ok := h.requestUser(c.Request, true); ok {
 		userID = u.ID
 	}
-	res := h.computeProjectReadiness(userID, c.Query("projectId"))
+	res := h.computeProjectReadiness(userID, pid)
 	c.JSON(http.StatusOK, res)
 }
 
@@ -228,13 +238,19 @@ func (h *webuddyEnvHandlers) autoConfigure(c *gin.Context) {
 	if !decode(c, &input) {
 		return
 	}
+	pid := strings.TrimSpace(input.ProjectID)
+	if authRequired() {
+		if pid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请指定 projectId"})
+			return
+		}
+		if !h.requireProjectWriter(c, pid) {
+			return
+		}
+	}
 	var userID int64
 	if u, ok := h.requestUser(c.Request, true); ok {
 		userID = u.ID
-	}
-	pid := strings.TrimSpace(input.ProjectID)
-	if authRequired() && pid != "" && !h.requireProjectWriter(c, pid) {
-		return
 	}
 	after, actions, err := h.autoConfigureProjectEnv(userID, pid)
 	if err != nil {

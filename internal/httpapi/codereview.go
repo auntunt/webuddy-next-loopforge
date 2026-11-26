@@ -272,6 +272,7 @@ func (h *codeReviewHandlers) runAutomated(c *gin.Context) {
 			}
 		}
 		h.jobs[jobID] = job
+		initialSnap := *job
 		h.jobsMu.Unlock()
 
 		go func(in codereview.RunAutomatedReviewInput, act string, j *codeReviewJob) {
@@ -299,7 +300,7 @@ func (h *codeReviewHandlers) runAutomated(c *gin.Context) {
 			j.Review = &cp
 		}(input, actor, job)
 
-		c.JSON(http.StatusAccepted, job)
+		c.JSON(http.StatusAccepted, initialSnap)
 		return
 	}
 	rec, err := h.svc.RunAutomatedReview(c.Request.Context(), input, actor, h.diagnoser)

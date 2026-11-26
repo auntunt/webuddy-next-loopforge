@@ -844,7 +844,7 @@ func (e *Engine) executeNode(ctx context.Context, runID string, wf domain.Workfl
 		}
 		output, err = runOnce(loopFeedback)
 		if e.dropLostCLISession(runID, node.ID, output, err) {
-			output, err = runOnce("")
+			output, err = runOnce(loopFeedback)
 		}
 		if err != nil && strings.Contains(err.Error(), "without a terminal result") {
 			e.observe(runID, node.ID, domain.TelemetryEvent{Category: "orchestration", Name: "agent.loop", Phase: "finish", Message: "执行器未返回 result，按工作区产物继续门禁，不再重跑 Agent", Attributes: map[string]any{"iteration": iteration}})

@@ -116,16 +116,12 @@ function IssueConfirmCard({ spec = null, projectId = "" }) {
         body: JSON.stringify(payload),
       });
       setCreatedIssue(issue);
-      if (andRun && workflowId) {
-        const run = await api("/api/runs", {
+      if (andRun && workflowId && issue?.id) {
+        const dispatched = await api(`/api/issues/${encodeURIComponent(issue.id)}/dispatch`, {
           method: "POST",
-          body: JSON.stringify({
-            workflowId,
-            projectId: targetProjectId,
-            input: `需求 [${issue?.key || issue?.id || ""}] ${title.trim()}\n\n${description.trim()}`,
-          }),
+          body: JSON.stringify({ workflowId }),
         });
-        setStartedRun(run);
+        setStartedRun(dispatched?.run || (dispatched?.runId ? { id: dispatched.runId } : dispatched));
       }
     } catch (err) {
       setError(err?.message || "创建需求失败");
@@ -135,19 +131,15 @@ function IssueConfirmCard({ spec = null, projectId = "" }) {
   }
 
   async function triggerRunAfterCreate() {
-    if (!workflowId || !targetProjectId) return;
+    if (!workflowId || !createdIssue?.id) return;
     setSubmitting(true);
     setError("");
     try {
-      const run = await api("/api/runs", {
+      const dispatched = await api(`/api/issues/${encodeURIComponent(createdIssue.id)}/dispatch`, {
         method: "POST",
-        body: JSON.stringify({
-          workflowId,
-          projectId: targetProjectId,
-          input: `需求 [${createdIssue?.key || createdIssue?.id || ""}] ${title.trim()}\n\n${description.trim()}`,
-        }),
+        body: JSON.stringify({ workflowId }),
       });
-      setStartedRun(run);
+      setStartedRun(dispatched?.run || (dispatched?.runId ? { id: dispatched.runId } : dispatched));
     } catch (err) {
       setError(err?.message || "启动 SOP 执行失败");
     } finally {

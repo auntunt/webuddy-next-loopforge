@@ -18,8 +18,6 @@ node_modules/
 web/native-chat/
 __pycache__/
 *.pyc
-__pycache__/
-*.pyc
 .venv/
 playwright-report/
 test-results/

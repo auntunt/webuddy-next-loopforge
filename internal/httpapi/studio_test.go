@@ -166,14 +166,15 @@ func TestStudioIndexInjectsAppDomain(t *testing.T) {
 }
 
 func TestStudioPagesShowShortBuildCommit(t *testing.T) {
-	t.Setenv("LOOPFORGE_COMMIT", "60FC455aabbccddeeff001122334455667788990")
+	t.Setenv("WEBUDDY_COMMIT", "60FC455aabbccddeeff001122334455667788990")
+	t.Setenv("LOOPFORGE_COMMIT", "")
 	static := fstest.MapFS{
 		"index.html":  {Data: []byte(`<html><head></head><body><div id="app"></div></body></html>`)},
 		"login.html":  {Data: []byte(`<html><body class="login-page"></body></html>`)},
 		"vscode.html": {Data: []byte(`<html><body><div id="workbench"></div></body></html>`)},
 	}
 	h := studioFileServer(static)
-	want := `class="loopforge-build" title="镜像版本 60fc455aabbccddeeff001122334455667788990">60fc455</span>`
+	want := `class="webuddy-build" title="镜像版本 60fc455aabbccddeeff001122334455667788990">60fc455</span>`
 	for _, path := range []string{"/", "/login.html", "/vscode.html"} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -191,12 +192,14 @@ func TestStudioPagesShowShortBuildCommit(t *testing.T) {
 }
 
 func TestStudioPagesShowCommitBakedByDockerBuild(t *testing.T) {
+	t.Setenv("WEBUDDY_COMMIT", "")
 	t.Setenv("LOOPFORGE_COMMIT", "")
-	path := filepath.Join(t.TempDir(), "loopforge-commit")
+	path := filepath.Join(t.TempDir(), "webuddy-commit")
 	if err := os.WriteFile(path, []byte("60fc455aabbccddeeff001122334455667788990\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("LOOPFORGE_COMMIT_FILE", path)
+	t.Setenv("WEBUDDY_COMMIT_FILE", path)
+	t.Setenv("LOOPFORGE_COMMIT_FILE", "")
 	static := fstest.MapFS{
 		"index.html": {Data: []byte(`<html><body></body></html>`)},
 	}
@@ -207,8 +210,22 @@ func TestStudioPagesShowCommitBakedByDockerBuild(t *testing.T) {
 	}
 }
 
+func TestStudioPagesFallbackToLegacyLoopforgeCommit(t *testing.T) {
+	t.Setenv("WEBUDDY_COMMIT", "")
+	t.Setenv("LOOPFORGE_COMMIT", "77aa8899bbccddeeff0011223344556677889900")
+	static := fstest.MapFS{
+		"index.html": {Data: []byte(`<html><body></body></html>`)},
+	}
+	rec := httptest.NewRecorder()
+	studioFileServer(static).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(rec.Body.String(), `>77aa889</span>`) {
+		t.Fatalf("legacy LOOPFORGE_COMMIT should still work as fallback: %s", rec.Body.String())
+	}
+}
+
 func TestStudioPagesShowSHA256BuildCommit(t *testing.T) {
-	t.Setenv("LOOPFORGE_COMMIT", strings.Repeat("60fc455a", 8))
+	t.Setenv("WEBUDDY_COMMIT", strings.Repeat("60fc455a", 8))
+	t.Setenv("LOOPFORGE_COMMIT", "")
 	static := fstest.MapFS{
 		"index.html": {Data: []byte(`<html><body></body></html>`)},
 	}
@@ -220,17 +237,20 @@ func TestStudioPagesShowSHA256BuildCommit(t *testing.T) {
 }
 
 func TestStudioPagesOmitUnsafeOrMissingBuildCommit(t *testing.T) {
-	t.Setenv("LOOPFORGE_COMMIT_FILE", filepath.Join(t.TempDir(), "missing"))
+	missing := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("WEBUDDY_COMMIT_FILE", missing)
+	t.Setenv("LOOPFORGE_COMMIT_FILE", missing)
+	t.Setenv("LOOPFORGE_COMMIT", "")
 	static := fstest.MapFS{
 		"index.html": {Data: []byte(`<html><body></body></html>`)},
 	}
 	h := studioFileServer(static)
 	for _, commit := range []string{"", "60fc45", "<img src=x onerror=alert(1)>", "60fc455;rm", "not-a-sha"} {
 		t.Run(commit, func(t *testing.T) {
-			t.Setenv("LOOPFORGE_COMMIT", commit)
+			t.Setenv("WEBUDDY_COMMIT", commit)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-			if strings.Contains(rec.Body.String(), "loopforge-build") || strings.Contains(rec.Body.String(), "onerror") {
+			if strings.Contains(rec.Body.String(), "webuddy-build") || strings.Contains(rec.Body.String(), "onerror") {
 				t.Fatalf("commit %q must not be rendered: %s", commit, rec.Body.String())
 			}
 		})

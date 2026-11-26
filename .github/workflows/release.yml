@@ -7,9 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: "Existing platform release tag to publish (for example v0.3.0)"
+        description: "Existing release tag to publish (for example v2.0.0)"
         required: true
         type: string
+      skip_compose_pin_check:
+        description: "Skip compose.yaml image pin verification (for test builds)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -21,21 +26,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  verify:
+    name: Verify release readiness
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+      image: ${{ steps.release.outputs.image }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      commit: ${{ steps.release.outputs.commit }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ inputs.source_ref || github.ref }}
 
-      - name: Verify release tag
+      - name: Verify release tag and compose pin
         id: release
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.source_ref || github.ref_name }}
+          SKIP_PIN_CHECK: ${{ inputs.skip_compose_pin_check || 'false' }}
         run: |
           if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Release tag ${TAG} is not vMAJOR.MINOR.PATCH[-PRERELEASE]" >&2
@@ -46,19 +59,22 @@ jobs:
             echo "Checkout does not match the release tag commit" >&2
             exit 1
           fi
-          if ! git merge-base --is-ancestor "${tag_commit}" origin/main; then
-            echo "Release tag ${TAG} is not on main" >&2
-            exit 1
-          fi
-          ci="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow platform.yml --commit "${tag_commit}" \
-            --json event,conclusion --jq '[.[] | select(.event == "push")][0].conclusion // ""')"
-          if [[ "${ci}" != "success" ]]; then
-            echo "The platform workflow has not succeeded on ${tag_commit} (status: ${ci:-not run})" >&2
+          on_release_branch=0
+          for branch in origin/main origin/webuddy-v2; do
+            if git rev-parse --verify "${branch}" >/dev/null 2>&1 && git merge-base --is-ancestor "${tag_commit}" "${branch}"; then
+              on_release_branch=1
+              break
+            fi
+          done
+          if [[ "${on_release_branch}" != "1" ]]; then
+            echo "Release tag ${TAG} must be reachable from origin/main or origin/webuddy-v2" >&2
             exit 1
           fi
           version="${TAG#v}"
-          if [[ "$(grep -cF "/loopforge:${version}}" compose.yaml)" != 2 ]]; then
-            echo "compose.yaml must pin loopforge:${version} (platform image and AGENTFLOW_ISOLATED_IMAGE) before tagging ${TAG}" >&2
+          repo_name="${GITHUB_REPOSITORY##*/}"
+          repo_name="${repo_name,,}"
+          if [[ "${SKIP_PIN_CHECK}" != "true" && "$(grep -cF "/${repo_name}:${version}}" compose.yaml)" != 2 ]]; then
+            echo "compose.yaml must pin ${repo_name}:${version} (platform image and AGENTFLOW_ISOLATED_IMAGE) before tagging ${TAG}" >&2
             exit 1
           fi
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
@@ -72,6 +88,40 @@ jobs:
             echo "prerelease=${prerelease}"
             echo "commit=${tag_commit}"
           } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Verify installer and mirror regression suite
+        run: python3 scripts/test-install.py -v
+
+      - name: Verify Webuddy core Python KB engine
+        run: |
+          python3 webuddy_core/bridge.py overview >/dev/null
+          python3 webuddy_core/test_polyglot_structure.py
+
+      - name: Build and test the chatbot frontend embedded by the platform binary
+        run: bash scripts/build-chatbot.sh
+
+      - name: Go vet and core Webuddy verification tests
+        run: |
+          go vet ./...
+          go test -p=2 ./internal/webuddykb/... ./internal/builtinagent/... ./internal/codereview/... ./internal/envprobe/... ./deploy/... ./cmd/agentflow/... -count=1
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.verify.outputs.commit }}
 
       # arm64 lets Apple silicon and arm servers pull the image; only the final
       # stage runs under emulation, the Go and chatbot builds cross-compile.
@@ -90,13 +140,13 @@ jobs:
       - uses: docker/metadata-action@v5
         id: metadata
         with:
-          images: ${{ steps.release.outputs.image }}
+          images: ${{ needs.verify.outputs.image }}
           flavor: latest=false
           tags: |
-            type=semver,pattern={{version}},value=${{ steps.release.outputs.tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ steps.release.outputs.tag }}
-            type=raw,value=sha-${{ steps.release.outputs.sha }}
-            type=raw,value=latest,enable=${{ steps.release.outputs.prerelease == 'false' }}
+            type=semver,pattern={{version}},value=${{ needs.verify.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.verify.outputs.tag }}
+            type=raw,value=sha-${{ needs.verify.outputs.sha }}
+            type=raw,value=latest,enable=${{ needs.verify.outputs.prerelease == 'false' }}
 
       - uses: docker/build-push-action@v7
         id: push
@@ -105,18 +155,23 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            LOOPFORGE_COMMIT=${{ steps.release.outputs.commit }}
+            WEBUDDY_COMMIT=${{ needs.verify.outputs.commit }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Verify bundled runtime tools and webuddy_core in published image
+        run: bash scripts/test-runtime-image.sh "${{ needs.verify.outputs.image }}@${{ steps.push.outputs.digest }}"
+
       - name: Smoke-test the published image by digest
         env:
-          LOOPFORGE_IMAGE: ${{ steps.release.outputs.image }}@${{ steps.push.outputs.digest }}
+          WEBUDDY_IMAGE: ${{ needs.verify.outputs.image }}@${{ steps.push.outputs.digest }}
+          WEBUDDY_YES: '1'
         run: |
           ./start.sh -d
           curl -fsS http://127.0.0.1:8090/api/health
+          curl -fsS http://127.0.0.1:8090/api/auth/setup
 
       - if: failure()
         run: docker compose logs platform | tail -200
@@ -125,14 +180,14 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          VERSION: ${{ steps.release.outputs.version }}
-          IMAGE: ${{ steps.release.outputs.image }}
+          TAG: ${{ needs.verify.outputs.tag }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          IMAGE: ${{ needs.verify.outputs.image }}
           DIGEST: ${{ steps.push.outputs.digest }}
-          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
           notes="$(cat <<EOF
-          ## Install
+          ## 快速安装（Quick Install）
 
           \`\`\`bash
           git clone --branch ${TAG} https://github.com/${GITHUB_REPOSITORY}.git
@@ -140,18 +195,34 @@ jobs:
           ./start.sh
           \`\`\`
 
-          Platform image: \`${IMAGE}:${VERSION}\` (pinned in \`compose.yaml\`).
+          国内网络可选固定南京大学镜像加速（自动测速也会优先对比 \`ghcr.io\` 与 \`ghcr.nju.edu.cn\`）：
 
-          Digest: \`${IMAGE}@${DIGEST}\`.
+          \`\`\`bash
+          MIRROR=ghcr.nju.edu.cn ./start.sh
+          \`\`\`
 
-          Where \`ghcr.io\` is slow, set \`MIRROR\` to a registry host that replaces it (for example \`MIRROR=ghcr.nju.edu.cn ./start.sh\`). This trusts that host: the download is tagged as the pinned name. Check it with \`docker image inspect --format '{{index .RepoDigests 0}}' ${IMAGE}:${VERSION}\` and compare the digest after \`@\`. Existing installations: check out \`${TAG}\`, run \`./start.sh\`, and apply the new files under \`migrations/\` listed in [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/CHANGELOG.md).
+          > 若源码仓库为 Private，请先在 GitHub Packages 将 \`${GITHUB_REPOSITORY#*/}\` 镜像包设为 **Public**（可免登录一键部署），或安装前执行 \`docker login ghcr.io\`。
+
+          - **Platform image**: \`${IMAGE}:${VERSION}\` (pinned in \`compose.yaml\`)
+          - **Digest**: \`${IMAGE}@${DIGEST}\`
+          - **Verify local digest**: \`docker image inspect --format '{{index .RepoDigests 0}}' ${IMAGE}:${VERSION}\`
+
+          ## 升级已有实例
+
+          \`\`\`bash
+          git fetch --tags && git checkout ${TAG}
+          ./start.sh pull
+          \`\`\`
+
+          如果同时跨越了历史数据结构变更，请核对 [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/CHANGELOG.md) 与 [docs/deployment.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/deployment.md) 中的迁移说明。
           EOF
           )"
           if gh release view "${TAG}" >/dev/null 2>&1; then
-            echo "Release ${TAG} already exists; image republished"
+            gh release edit "${TAG}" --notes "${notes}"
+            echo "Release ${TAG} updated; image republished"
             exit 0
           fi
-          release_args=(--title "LoopForge v${VERSION}" --notes "${notes}" --generate-notes --verify-tag)
+          release_args=(--title "Webuddy v${VERSION}" --notes "${notes}" --generate-notes --verify-tag)
           if [[ "${PRERELEASE}" == "true" ]]; then
             release_args+=(--prerelease)
           else
