@@ -885,22 +885,32 @@ func DiscoverCodexGatewayModels(ctx context.Context) []string {
 	}
 	baseURL, token, defaultModel, ok := parseCodexGatewayConfig(string(raw))
 	if !ok {
+		if defaultModel != "" {
+			return []string{defaultModel}
+		}
 		return nil
 	}
-	cctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	fallbackDefault := func() []string {
+		if defaultModel != "" {
+			return []string{defaultModel}
+		}
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, baseURL+"/models", nil)
 	if err != nil {
-		return nil
+		return fallbackDefault()
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil
+		return fallbackDefault()
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil
+		return fallbackDefault()
 	}
 	var payload struct {
 		Data []struct {
@@ -908,7 +918,7 @@ func DiscoverCodexGatewayModels(ctx context.Context) []string {
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil
+		return fallbackDefault()
 	}
 	seen := make(map[string]struct{}, len(payload.Data)+1)
 	models := make([]string, 0, len(payload.Data)+1)
