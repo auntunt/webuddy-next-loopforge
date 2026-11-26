@@ -651,7 +651,7 @@ export function useChat() {
   const runnerId = composerRunnerId(session);
   const runner = executionMachines.machines.find(machine => machine.id === runnerId && machine.ownerUserId === user?.id);
   const availableExecutors = EXECUTORS.flatMap(item => {
-    const local = ["codex", "claude-code", "agy", "opencode"].includes(item.id) &&
+    const local = ["codex", "claude-code", "agy"].includes(item.id) &&
       runner?.runtimes?.some(runtime => runtime.provider === item.id && runtime.authMode !== "personal");
     if (local) return [{ ...item, detail: "使用执行机器上的本机登录态。" }];
     const configured = catalogEngines.find(engine => engine.id === item.id)?.configured ??
