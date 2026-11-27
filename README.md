@@ -1,55 +1,77 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-en-dark.svg">
-    <img src="docs/assets/readme/hero-en.svg" alt="Webuddy — From idea to merged code. Chat with coding agents in sandboxed workspaces, run repeatable SOPs, and approve what ships." width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/hero-zh-dark.svg">
+    <img src="docs/assets/readme/hero-zh.svg" alt="Webuddy 2.0 —— 图谱驱动 · 全量审查 · 可控交付。融合多语言代码图谱 (TMH)、AI 全量代码审查与多租户 SOP 流水线的企业级智能研发工作台。" width="100%">
   </picture>
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7b61ff?style=flat-square" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/self--hosted-Docker-526ce8?style=flat-square&logo=docker&logoColor=white" alt="Self-hosted with Docker">
-  <img src="https://img.shields.io/badge/Webuddy-2.0-0ea5e9?style=flat-square" alt="Webuddy 2.0">
+  <img src="https://img.shields.io/badge/Webuddy-2.0-4f46e5?style=flat-square" alt="Webuddy 2.0">
+  <img src="https://img.shields.io/badge/TMH-多语言代码图谱-0ea5e9?style=flat-square" alt="TMH 代码图谱">
+  <img src="https://img.shields.io/badge/AI_Code_Review-14K_分批全量审查-10b981?style=flat-square" alt="AI 全量代码审查">
+  <img src="https://img.shields.io/badge/Docker-一键自托管-526ce8?style=flat-square&logo=docker&logoColor=white" alt="Docker 自托管">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-7b61ff?style=flat-square" alt="MIT License"></a>
 </p>
 
 <p align="center">
-  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+  <b>简体中文</b> · <a href="README.en.md">English</a>
 </p>
 
 <p align="center">
-  <a href="#two-ways-to-work">Two ways to work</a> ·
-  <a href="#webuddy-20-highlights">Webuddy 2.0</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#how-sops-work">SOPs</a> ·
-  <a href="#features">Features</a> ·
-  <a href="#faq">FAQ</a> ·
-  <a href="#documentation">Docs</a>
+  <a href="#核心能力全景">核心能力</a> ·
+  <a href="#端到端交付闭环">交付闭环</a> ·
+  <a href="#三分钟快速部署">快速部署</a> ·
+  <a href="#全场景代码源与执行机接入">代码源与 Runner</a> ·
+  <a href="#sop-编排与智能评测">SOP 与智能评测</a> ·
+  <a href="#文档导航">文档</a>
 </p>
 
-**Webuddy (`webuddy-next-loopforge`)** is a self-hosted software delivery workbench built on top of LoopForge. Describe what you need to **Main Bot** in chat: it queries your codebase knowledge graph, opens a Docker sandbox when needed, delegates to project roles, runs AI code reviews, lets you inspect a live app preview, and opens the PR/MR. Once a delivery workflow proves itself, capture it as an **SOP** (a standard pipeline of agents, scripts, and human approval gates) so every future requirement ships with the same rigor.
+---
 
-Webuddy orchestrates 22 coding-agent CLIs — Codex, Claude Code, CodeBuddy, OpenCode, Cursor CLI, Antigravity, Kimi Code, Pi, DeepSeek Harness, ZCode, Gemini CLI, Aider, Cline CLI, Qwen Code, Trae CLI, GitHub Copilot CLI, Sourcegraph Amp, Block Goose, Windsurf CLI, Auggie, Command Code, and Devin CLI — while managing multi-tenant workspaces, source-grounded knowledge graphs, sandboxes, code review feedback loops, and audit trails on your own infrastructure under the MIT license.
+**Webuddy 2.0** 是一套面向研发团队的**可自托管智能软件工程工作台**——以 **TMH 多语言代码图谱**为底座，串联 **Main Bot 对话协作、可视化 SOP 交付流水线、14K 分批全量 AI 代码审查、6 维 Trace 智能评测与多租户空间治理**。
 
-## Two ways to work
+无论是直接接入 **GitHub / 私有 GitLab HTTP(S) / Git SSH 仓库**，还是零 Git 环境直接上传 **`.zip` / `.tar.gz` 代码压缩包**，Webuddy 都能自动构建业务域、流程链路与状态机图谱，统一调度 **22 种主流编程 Agent CLI**（Codex、Claude Code、CodeBuddy、OpenCode、Cursor CLI、Gemini CLI、Antigravity、Kimi Code、Devin CLI 等），并在人工验收或完结后自动向远端仓库推送分支、创建真实 Pull Request / Merge Request，同时将每次运行的工程经验自动沉淀回团队共享知识中心。
 
-| | **Chat with Main Bot** | **Run an SOP** |
-| --- | --- | --- |
-| Best for | Exploration, quick fixes, KB Q&A, live previews, and rapid iteration | Repeatable delivery with fixed stages, review gates, and sign-off |
-| How it runs | Main Bot uses direct server KB/preview tools or opens a [conversation workspace](docs/conversation-workspaces.md) (a Docker sandbox with your repos) and calls project roles as subagents | The engine runs Agent, Script, Human-gate, and sub-SOP nodes in order inside dedicated sandboxes |
-| You stay in control by | Queuing or steering messages mid-reply, and pausing, resuming, or taking over a running SOP | Approving at human gates, rejecting back to an upstream step, or retrying/rerunning from any node |
-| Delivers | A PR/MR, a direct merge (`mode=direct`), or an embedded live preview | Documents, source code, or a PR/MR, plus per-node artifacts, reviews, and logs |
+---
 
-## Webuddy 2.0 highlights
+## 核心能力全景
 
-- **Zero-dependency polyglot Knowledge Base (`webuddy_core`)**: Bundled directly inside the platform image (Python stdlib only); extracts architecture graphs, call/dependency chains, impact analysis, and `file:line`-verified KB pages across Go, Python, TS/JS, NestJS, Next.js, C#, PHP, Rust, Ruby, Kotlin, C++, and SQL, plus a Tenant Shared KB Hub.
-- **AI Code Review & effectiveness feedback loop**: Batched diff reviews linked to runs and approval gates, with human validity scoring that prevents unreviewed blockers from shipping.
-- **1-click live app preview**: Starts project servers in the platform and proxies `/app-preview/<projectId>/` over HTTPS directly inside chat cards.
-- **Loose projects & ZIP/TAR.GZ archive upload**: Import code archives without a Git remote; extracted sources are stored under `${WEBUDDY_DATA_DIR}/uploaded-repos` so container recreates never lose data.
-- **Multi-tenant isolation & RBAC**: Isolated team workspaces, invite codes, member roles, and tenant-scoped preset SOP policies.
-- **3-tier built-in LLM fallback & `pstack` SOPs**: Automatically resolves `WEBUDDY_LLM_*` → `OPENROUTER_API_KEY` → `OPENAI_API_KEY`; defaults generic roles to `codex` and ships 4 built-in `pstack` engineering discipline SOPs.
+| 核心模块 | 解决什么痛点 | Webuddy 2.0 工程实现 |
+| :--- | :--- | :--- |
+| **📊 TMH 多语言代码图谱 (`webuddy_core`)** | Agent 不懂存量业务边界、幻觉改坏状态流转 | 零外部第三方依赖内置引擎；覆盖 Go / Python / TS / JS / Node HTTP / NestJS / Next.js / Rust / Java / C# / PHP / SQL；自动抽取**业务域 · 核心流程 · 数据表 · 确定性业务状态机 (Statecharts)**，自动生成术语表、架构决策、踩坑指南与待决问题，支持 `file:line` 源码行级溯源核验；远端 GitHub/GitLab 仓库自动浅克隆镜像并实时扫描。 |
+| **🔍 14K 分批全量 AI 代码审查** | 大改动 Diff 超出上下文窗口、问题漏审或误报多 | 按批拆分大型 Diff 进行深度审查，分级输出阻断项（Blocker）与建议项；支持人工有效性打分闭环，阻断项未解除自动拦截验收关口。 |
+| **🧭 可视化 SOP 流水线 & `pstack` 纪律** | 纯对话交付不可复现、多人团队缺乏统一工程标准 | 可视化画布编排 **Agent · 脚本 · 人工关口 · 子 SOP · 预览构建** 节点；内置 4 条通用交付 SOP 与 4 条 `pstack` 工程纪律 SOP（现状核对、小步迭代、实证审查、减法重构），支持一键克隆定制为租户共享模板。 |
+| **🏅 6 维 Trace 智能评测 & 经验自动沉淀** | 跑完不知道 SOP 哪里低效、踩坑经验随运行流失 | 完结运行支持一键触发大模型全链路 Trace 评测（控制流健康、耗时、工具效率、Token、错误恢复、交付完整 6 维打分），生成**一键可回写 SOP 治理补丁**；产出 `knowledge.md` / `lessons-encoded.md` 自动去重入库至**租户共享知识中心**。 |
+| **🚀 全场景代码接入 & 控制面 PR 交付** | 内网私有 GitLab 难接入、隔离沙箱无外网无法提 PR | 原生支持 **GitHub、自建私有 GitLab HTTP(S)（含内网 IPv4 端口）、Git SSH、本地目录及 `.zip/.tar.gz` 压缩包上传**；即使 WSL2 / 内网 Runner 处于无外网隔离环境，控制面也可基于 `repository-patch` 自动或一键推送分支并创建真实 GitHub PR（凭据全程走内存环境变量作用域头，零命令行或配置落盘泄露）。 |
+| **🏢 企业多租户隔离 & 细粒度 RBAC** | 多团队共用一套平台导致项目、知识库与指标串租 | 独立团队空间无刷秒切、邀请码准入、成员角色权限管控；项目、代码知识库、共享知识中心、会话记录、SOP 指标与环境概览均严格按租户隔离，非管理员自动脱敏并收敛特权入口。 |
+| **🖥️ 实时应用预览 & 内置 Web IDE** | 后端/前端改动无法在浏览器当场验收 | 支持一键拉起项目服务并通过 `/app-preview/<projectId>/` HTTPS 安全代理内嵌交互预览；运行详情内置 **VS Code Web 工作区**，随时检视与接管沙箱文件。 |
 
-## Quick start
+---
 
-Install **Git** and clone the repository. The installer checks Docker, Compose, Python 3, and curl, and offers to install missing components (`apt`/`dnf`/`yum` on Linux, Homebrew on macOS, checksum-verified Docker Compose plugin on Linux x86_64/arm64). Non-root users are supported via Docker group membership or `sudo`. Set `WEBUDDY_YES=1` to accept installation prompts non-interactively.
+## 端到端交付闭环
+
+```mermaid
+flowchart LR
+    A["需求录入 / 对话澄清"] --> B["TMH 代码图谱定位<br/>(业务域 · 状态机 · 影响面)"]
+    B --> C["SOP 沙箱流水线执行<br/>(22 种 Agent CLI + 确定性脚本)"]
+    C --> D["14K 分批 AI 代码审查<br/>+ 人工验收关口"]
+    D --> E["控制面一键/自动创建 PR<br/>+ 实时应用预览"]
+    E --> F["6 维 Trace 智能评测<br/>+ 共享知识中心自动沉淀"]
+    F -. "反哺下一轮需求" .-> B
+```
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/sop-flow-zh-dark.svg">
+    <img src="docs/assets/readme/sop-flow-zh.svg" alt="SOP 标准交付流转：需求 → 澄清、设计、实现、独立评审 → 脚本测试 → 人工关口 → PR 交付" width="100%">
+  </picture>
+</p>
+
+---
+
+## 三分钟快速部署
+
+准备一台装有 **Git** 的 Linux 或 macOS 机器（安装脚本会自动检测并按需引导补装 Docker、Docker Compose、Python 3 与 curl；支持 `WEBUDDY_YES=1` 全自动非交互安装）：
 
 ```bash
 git clone https://github.com/auntunt/webuddy-next-loopforge.git
@@ -57,104 +79,75 @@ cd webuddy-next-loopforge
 ./start.sh
 ```
 
-`./start.sh` pulls the pre-built multi-architecture GHCR image pinned in `compose.yaml` (`ghcr.io/auntunt/webuddy-next-loopforge:2.0.0`) without building locally (`bash scripts/install.sh` does the same). It generates `.env` with unique secrets (`WEBUDDY_*`), starts MySQL (`webuddy`) and `platform`, applies schema extensions (`scripts/install-schema-extensions.sh`), and prints reachable public/LAN/local URLs.
+`./start.sh` 默认直接拉取预构建多架构发布镜像（`linux/amd64` + `linux/arm64`），无需在本机耗时编译：
 
-> **Private repository & GHCR image access**: Even if `auntunt/webuddy-next-loopforge` remains a Private GitHub repository, setting the `webuddy-next-loopforge` container package visibility to **Public** in GitHub Packages enables zero-login `./start.sh` installs and `ghcr.nju.edu.cn` acceleration for your entire team. Otherwise run `docker login ghcr.io` before `./start.sh`, or build from source with `./start.sh dev`.
+1. 自动生成 `.env`（唯一随机数据库密码、会话密钥及 `${WEBUDDY_DATA_DIR}` 持久化目录）；
+2. 启动 `mysql`（库名 `webuddy`）与 `platform`（默认监听 `0.0.0.0:8090`）；
+3. 健康检查通过后自动执行增量 Schema 迁移（含 `webuddy_code_reviews`、观测指标列与多租户存储初始化）；
+4. 自动输出公网、局域网与本机可访问的工作台地址。
 
-### Registry mirrors & source builds
+### 国内镜像测速与源码构建模式
 
-In regions where `ghcr.io` downloads stall, `./start.sh` and `./start.sh pull` probe `ghcr.io` and [ghcr.nju.edu.cn](https://doc.nju.edu.cn/books/e1654/page/ghcr) in parallel, verifying that the mirror returns the exact official manifest SHA-256 digest before pulling and re-tagging locally. You can also pin a registry host or build from source:
+针对国内网络环境，`./start.sh` 与 `./start.sh pull` 会并行探测官方 `ghcr.io` 与南京大学镜像源 `ghcr.nju.edu.cn`，严格校验 SHA-256 Manifest 摘要一致后高速拉取：
 
 ```bash
-./start.sh                                                                 # auto-probe ghcr.io vs ghcr.nju.edu.cn
-MIRROR=ghcr.io ./start.sh                                                  # force direct ghcr.io pull
-MIRROR=ghcr.nju.edu.cn ./start.sh pull                                     # force upgrade pull via Nanjing mirror
+./start.sh                                                                 # 自动测速选择最快镜像源启动
+MIRROR=ghcr.nju.edu.cn ./start.sh pull                                     # 强制经南京大学镜像拉取升级
 GOPROXY=https://goproxy.cn,direct NPM_REGISTRY=https://registry.npmmirror.com ./start.sh dev
-                                                                           # source build with optional Go/npm mirrors
+                                                                           # 使用国内 Go/npm 源从本地源码构建启动
 ```
 
-Lifecycle commands:
+常用生命周期命令：
 
 ```bash
-./start.sh status     # show container status
-./start.sh logs       # follow platform logs
-./start.sh pull       # pull updated release image and reapply schema extensions
-./start.sh restart    # restart the platform container
-./start.sh stop       # stop containers, keep data
-./start.sh down       # remove containers, keep mysql-data / platform-data and .data/
-./start.sh dev        # build from source (compose.dev.yaml -> webuddy-platform:local)
-./start.sh release    # switch a source-built installation back to the GHCR image
+./start.sh status     # 查看服务容器与健康状态
+./start.sh logs       # 实时查看平台日志
+./start.sh pull       # 拉取最新镜像并执行无损增量迁移
+./start.sh restart    # 平滑重启平台容器
+./start.sh stop       # 停止服务（完整保留数据库与持久化卷）
+./start.sh dev        # 切换至本地源码构建模式
+./start.sh release    # 切回预编译发布镜像模式
 ```
 
-### Try it without an API key
+---
 
-The first account created in the browser becomes the platform administrator and automatically joins the **Webuddy demo project** (`WB`), which includes a no-key script + approval SOP:
+## 全场景代码源与执行机接入
 
-1. Switch to the demo project, open **Templates**, and select **Platform check · script & approval**.
-2. Click **Run SOP**. A real script generates `reports/welcome.md`, then pauses at the approval gate.
-3. Approve from **Needs review** or the run details page and watch the workflow finish.
+### 1. 四种代码接入方式（新建项目向导第 2 步直达）
+- **GitHub 仓库**：在「设置 → Git 配置」粘贴 GitHub Personal Access Token（或启用 OAuth），粘贴 `https://github.com/owner/repo` 即可绑定、自动镜像扫描知识库，并支持控制面自动/一键创建 GitHub PR。
+- **自建私有 GitLab / Gitea HTTP(S)**：原生支持企业内网域名或 IPv4 端口地址（如 `http://127.0.0.1:8929/group/repo.git`、`https://gitlab.corp.local/team/app.git`）配合主机级 HTTP 访问令牌。
+- **Git SSH 仓库**：支持 `git@host:group/repo.git` 与自定义端口 `ssh://git@host:port/group/repo.git`，平台内置 SSH 主机指纹信任管理。
+- **零 Git 代码压缩包直传**：在建项向导或项目设置直接拖拽上传 `.zip` / `.tar.gz` / `.tgz` 源码包，自动持久化解压至 `${WEBUDDY_DATA_DIR}/uploaded-repos` 并触发全量 TMH 图谱构建。
 
-<details>
-<summary><b>More setup details</b>: env vars, executors, sandboxes, persistence</summary>
+### 2. 22 种编程 Agent CLI 与独立执行机（Runner）
+平台支持两类执行算力：
+- **内置 Docker 沙箱**：开箱即用，每次对话工作区或 SOP 运行分配独立隔离容器；
+- **一行命令接入外部 Runner 执行机**（Linux / macOS / Windows WSL2）：在「平台管理 → 执行机」生成绑定命令，即可将团队服务器或开发机接入控制面，直接复用本机已登录的 **Codex、Claude Code、CodeBuddy、OpenCode、Cursor CLI、Gemini CLI** 等 22 种 CLI 算力与内网测试环境。
 
-<br>
+---
 
-- **Built-in LLM (optional)**: Configure `WEBUDDY_LLM_BASE_URL`, `WEBUDDY_LLM_API_KEY`, `WEBUDDY_LLM_MODEL`, `OPENROUTER_API_KEY`, or `OPENAI_API_KEY` in `.env` or directly in the Web UI.
-- **Persistence**: Compose persists MySQL (`mysql-data`, database `webuddy`), platform uploads/sessions (`platform-data` at `/data`), and `${WEBUDDY_DATA_DIR}` (default `./.data`: `home/`, `workspaces/`, `uploaded-repos/`, `conversations/`, `cli/`).
-- **Full operations reference**: See [Deployment](docs/deployment.md) for reverse proxies, `/app-preview/` streaming headers, Git SSH trust, connected Runners, backups, and cutting releases.
+## SOP 编排与智能评测
 
-</details>
+1. **开箱即用模板**：
+   - **免 Key 快速体验**：注册首个账号（自动成为平台管理员）后即可运行体验项目中的「平台验收 · 脚本与审批」SOP；
+   - **`pstack` 工程纪律套件**：内置 `pstack · 现状核对`、`pstack · 小步迭代与实证交付`、`pstack · 实证代码审查`、`pstack · 减法重构`，团队管理员可一键克隆至当前租户空间共享。
+2. **智能评测闭环**：
+   - 任意已完结 SOP 运行打开「智能评测」标签页即可启动 6 维量化诊断，针对薄弱节点直接点击 **「应用此修改」** 将门禁或提示词补丁回写至流程定义。
 
-## How SOPs work
+---
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/sop-flow-en-dark.svg">
-    <img src="docs/assets/readme/sop-flow-en.svg" alt="The SOP flow: Requirement, then Clarify, Design, Implement, Review (agents), Test (script) and Accept (human gate), then Delivery" width="100%">
-  </picture>
-</p>
+## 文档导航
 
-| Node | What it does |
-| --- | --- |
-| **Agent** | A role (prompt, executor, model, rules, Skills, and MCP tools) that plans, implements, reviews, or tests. |
-| **Script** | A deterministic shell step: build, test, lint, or report generation. |
-| **Human gate** | Pauses the run until a reviewer inspects artifacts and approves or sends work back upstream. |
-| **Sub-SOP** | Invokes another SOP as a reusable sub-workflow. |
-| **Preview build** | Builds and archives a static site for review. |
+| 主题 | 文档入口 |
+| :--- | :--- |
+| 生产部署、HTTPS 反向代理、环境变量、备份与发版 | [部署与运维指南](docs/deployment.md) |
+| 对话工作区机制、AI 定时任务与 Token 成本核算 | [对话工作区](docs/conversation-workspaces.md) · [AI 定时任务](docs/ai-scheduled-task-capabilities.md) · [Token 成本统计](docs/token-pricing.md) |
+| 平台架构与 HTTP / MCP 开放接口 | [系统架构](docs/architecture.md) · [API 参考手册](docs/api/README.md) · [共享定时任务 API](docs/api/shared-schedules.md) |
+| 前端视觉与交互规范 | [前端设计约定](design.md) |
+| 英文版主页 | [English README](README.en.md) |
 
-## Features
+---
 
-| Area | What you get |
-| --- | --- |
-| **Chat workbench** | Main Bot with per-session executor, model, and permission controls; `@` mentions for roles, skills, requirements, SOPs, KB pages, and repos; inline artifact and live preview cards. |
-| **Conversation workspaces** | On-demand Docker sandboxes with project repos checked out, project roles as subagents, and live SOP pause/resume/takeover controls. |
-| **Knowledge Base** | Polyglot structure extraction (`webuddy_core`), module cards, architecture graphs, impact analysis, source-verified incremental synthesis, and Tenant Shared KB Hub. |
-| **Code Review loop** | Batched diff review with blocking/advisory findings, human effectiveness feedback, and approval-gate integration. |
-| **SOP designer** | Visual canvas with Agent, Script, Human gate, Sub-SOP, and Preview nodes, plus 4 generic delivery SOPs and 4 `pstack` SOPs. |
-| **Multi-tenant & RBAC** | Tenant workspaces, invite codes, member RBAC roles, loose project mode, and direct `.zip` / `.tar.gz` archive uploads. |
-| **Execution environments** | Built-in Docker sandboxes (reusing the platform image) or 1-line connected local/cloud Runner machines. |
+## 开源许可
 
-## FAQ
-
-**Do I need an API key to try it?**
-No. The demo SOP uses only a script and a human gate. Chat, KB synthesis, and Agent SOP steps require credentials for your chosen executor or `WEBUDDY_LLM_*` / `OPENROUTER_API_KEY`.
-
-**Can I use Webuddy without a Git repository?**
-Yes. Create a loose project or upload a `.zip` / `.tar.gz` code archive; Webuddy persists it in `${WEBUDDY_DATA_DIR}/uploaded-repos`, scans its architecture/KB, and supports live preview.
-
-**Is it safe to expose on the public internet?**
-New installs listen on `0.0.0.0:8090` for trusted teams. Register the first admin account immediately, place an HTTPS reverse proxy in front with `AGENTFLOW_SECURE_COOKIES=true`, and set `AGENTFLOW_ALLOW_SIGNUP=false` if public signups should be disabled. See [accounts and access](docs/deployment.md#accounts).
-
-## Documentation
-
-| I want to… | Start here |
-| --- | --- |
-| Deploy, upgrade, configure env vars, back up, and release | [Deployment](docs/deployment.md) |
-| Understand chat workspaces, AI schedules, and token pricing | [Conversation workspaces](docs/conversation-workspaces.md) · [AI scheduled tasks](docs/ai-scheduled-task-capabilities.md) · [Token pricing](docs/token-pricing.md) |
-| Extend the platform or use HTTP / MCP APIs | [Architecture](docs/architecture.md) · [API reference](docs/api/README.md) · [Shared schedules API](docs/api/shared-schedules.md) |
-| Contribute to the UI | [Frontend design conventions](design.md) |
-| Maintain legacy Local workflows | [Webuddy/LoopForge Local](docs/local/usage.md) · [Editions](docs/local/editions.md) |
-
-## License
-
-[MIT](LICENSE). Third-party components keep their own licenses and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+本项目采用 [MIT License](LICENSE) 开源（基于 LoopForge 架构深度演进构建 Webuddy 2.0 代码图谱、全量审查、多租户治理与全链路交付体系）。第三方依赖组件保留各自原始许可证与声明，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

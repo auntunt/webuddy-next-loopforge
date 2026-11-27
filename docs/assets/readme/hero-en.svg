@@ -1,62 +1,128 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="title">
-<title id="title">LoopForge — From idea to merged code, with agents you can steer.</title>
-<defs><linearGradient id="mark" x1="19" y1="20" x2="93" y2="93" gradientUnits="userSpaceOnUse"><stop stop-color="#008dcc"/><stop offset=".48" stop-color="#526ce8"/><stop offset="1" stop-color="#8a4ed9"/></linearGradient><linearGradient id="ink" x1="0" x2="1"><stop stop-color="#008dcc"/><stop offset=".5" stop-color="#526ce8"/><stop offset="1" stop-color="#8a4ed9"/></linearGradient><radialGradient id="g1" cx="0.78" cy="0.1" r="0.55"><stop stop-color="#7b61ff" stop-opacity=".10"/><stop offset="1" stop-color="#7b61ff" stop-opacity="0"/></radialGradient><radialGradient id="g2" cx="0.08" cy="1" r="0.5"><stop stop-color="#008dcc" stop-opacity=".07"/><stop offset="1" stop-color="#008dcc" stop-opacity="0"/></radialGradient><pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1.1" fill="#ecebf1"/></pattern><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#1b1540" flood-opacity=".08"/></filter><filter id="blur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.4"/></filter><clipPath id="frame"><rect width="1280" height="400" rx="20"/></clipPath></defs>
-<g clip-path="url(#frame)">
-<rect width="1280" height="400" fill="#fafafb"/>
-<rect x="640" width="640" height="400" fill="url(#dots)" opacity=".9"/>
-<rect width="1280" height="400" fill="url(#g1)"/><rect width="1280" height="400" fill="url(#g2)"/>
-</g>
-<rect x=".5" y=".5" width="1279" height="399" rx="19.5" fill="none" stroke="#eae9ee"/>
-<g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif">
-<g transform="translate(66 62) scale(.82) translate(-12 -12)"><path d="M53 72 C53 59 63 52.5 73 52.5 C83 52.5 93 59 93 72 C93 85 83 91.5 73 91.5 C63 91.5 53 85 53 72 C53 66.667 53 61.333 53 56 C53 50.667 53 45.333 53 40 C53 27 44.5 20.5 36 20.5 C27.5 20.5 19 27 19 40" stroke="url(#mark)" stroke-width="11" stroke-linecap="round" fill="none" opacity=".35" filter="url(#blur)"/><path d="M53 72 C53 59 63 52.5 73 52.5 C83 52.5 93 59 93 72 C93 85 83 91.5 73 91.5 C63 91.5 53 85 53 72 C53 66.667 53 61.333 53 56 C53 50.667 53 45.333 53 40 C53 27 44.5 20.5 36 20.5 C27.5 20.5 19 27 19 40" stroke="url(#mark)" stroke-width="7.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>
-<text x="150" y="119" fill="#252529" font-size="46" font-weight="700" letter-spacing="-1.2">LoopForge</text>
-<text x="70" y="200" fill="#252529" font-size="40" font-weight="650" letter-spacing="-.8">From idea to merged code.</text>
-<rect x="70" y="218" width="64" height="4" rx="2" fill="url(#ink)"/>
-<text x="70" y="262" fill="#62626c" font-size="19">Chat with coding agents in sandboxed workspaces,</text>
-<text x="70" y="291" fill="#62626c" font-size="19">run repeatable SOPs, and approve what ships.</text>
-<rect x="70" y="320" width="111" height="30" rx="15" fill="#ffffff" stroke="#eae9ee"/>
-<text x="84" y="340" fill="#62626c" font-size="13.5" font-weight="500">Self-hosted</text>
-<rect x="191.15999999999997" y="320" width="55" height="30" rx="15" fill="#ffffff" stroke="#eae9ee"/>
-<text x="205.15999999999997" y="340" fill="#62626c" font-size="13.5" font-weight="500">MIT</text>
-<rect x="255.89" y="320" width="242" height="30" rx="15" fill="#ffffff" stroke="#eae9ee"/>
-<text x="269.89" y="340" fill="#62626c" font-size="13.5" font-weight="500">CodeBuddy · Codex · Claude Code</text>
-<g filter="url(#shadow)"><rect x="700" y="30" width="520" height="340" rx="16" fill="#ffffff" stroke="#eae9ee"/></g>
-<circle cx="722" cy="50" r="4.5" fill="#ff5f57" opacity=".85"/>
-<circle cx="738" cy="50" r="4.5" fill="#febc2e" opacity=".85"/>
-<circle cx="754" cy="50" r="4.5" fill="#28c840" opacity=".85"/>
-<path d="M700 70h520" stroke="#f1f0f4"/>
-<rect x="897" y="86" width="301" height="36" rx="12" fill="#f1f1f1"/>
-<text x="913" y="109" fill="#252529" font-size="14">Fix the flaky login test and open a PR</text>
-<g transform="translate(720 140) scale(.27) translate(-12 -12)"><path d="M53 72 C53 59 63 52.5 73 52.5 C83 52.5 93 59 93 72 C93 85 83 91.5 73 91.5 C63 91.5 53 85 53 72 C53 66.667 53 61.333 53 56 C53 50.667 53 45.333 53 40 C53 27 44.5 20.5 36 20.5 C27.5 20.5 19 27 19 40" stroke="url(#mark)" stroke-width="9" stroke-linecap="round" fill="none"/></g>
-<text x="750" y="157" fill="#252529" font-size="13.5" font-weight="600">Main Bot</text>
-<text x="821" y="157" fill="#62626c" font-size="13.5">Started Bug-fix SOP in a Docker sandbox</text>
-<rect x="750" y="172" width="448" height="128" rx="12" fill="#f5f6f7" stroke="#f1f0f4"/>
-<path d="M801.0 210H868.0" stroke="#338768" stroke-opacity=".55" stroke-width="2"/>
-<path d="M894.0 210H961.0" stroke="#338768" stroke-opacity=".55" stroke-width="2"/>
-<path d="M987.0 210H1054.0" stroke="#338768" stroke-opacity=".55" stroke-width="2"/>
-<path d="M1080.0 210H1147.0" stroke="#b7791f" stroke-opacity=".55" stroke-width="2" stroke-dasharray="4 4"/>
-<circle cx="788.0" cy="210" r="12" fill="#338768" fill-opacity=".12" stroke="#338768" stroke-opacity=".5"/>
-<path d="M784.8 210.2l2.2 2.2 4.4-4.6" fill="none" stroke="#338768" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="773.6" y="241" fill="#62626c" font-size="12.5" font-weight="500">Plan</text>
-<circle cx="881.0" cy="210" r="12" fill="#338768" fill-opacity=".12" stroke="#338768" stroke-opacity=".5"/>
-<path d="M877.8 210.2l2.2 2.2 4.4-4.6" fill="none" stroke="#338768" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="870.0" y="241" fill="#62626c" font-size="12.5" font-weight="500">Fix</text>
-<circle cx="974.0" cy="210" r="12" fill="#338768" fill-opacity=".12" stroke="#338768" stroke-opacity=".5"/>
-<path d="M970.8 210.2l2.2 2.2 4.4-4.6" fill="none" stroke="#338768" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="952.7" y="241" fill="#62626c" font-size="12.5" font-weight="500">Review</text>
-<circle cx="1067.0" cy="210" r="12" fill="#338768" fill-opacity=".12" stroke="#338768" stroke-opacity=".5"/>
-<path d="M1063.8 210.2l2.2 2.2 4.4-4.6" fill="none" stroke="#338768" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="1052.6" y="241" fill="#62626c" font-size="12.5" font-weight="500">Test</text>
-<circle cx="1160.0" cy="210" r="12" fill="#b7791f" fill-opacity=".12" stroke="#b7791f" stroke-opacity=".5"/>
-<circle cx="1160.0" cy="210" r="4" fill="#b7791f"/>
-<text x="1135.2" y="241" fill="#b7791f" font-size="12.5" font-weight="600">Approve</text>
-<circle cx="772" cy="276" r="3.5" fill="#b7791f"/>
-<text x="783" y="280.5" fill="#62626c" font-size="12.5">Waiting for your approval</text>
-<rect x="1001" y="264" width="183" height="24" rx="12" fill="#338768" fill-opacity=".09" stroke="#338768" stroke-opacity=".3"/>
-<path d="M1012.8 276.2l2.2 2.2 4.4-4.6" fill="none" stroke="#338768" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-<text x="1027" y="280.5" fill="#338768" font-size="12.5" font-weight="600">PR #128 · ready to merge</text>
-<rect x="720" y="312" width="480" height="40" rx="12" fill="#ffffff" stroke="#eae9ee"/>
-<text x="738" y="337" fill="#9a9aa4" font-size="13.5">Ask anything, @ a role, SOP or repo…</text>
-<circle cx="1178" cy="332" r="13" fill="#7b61ff"/>
-<path d="M1178 338v-12m-4.5 4.5 4.5-4.5 4.5 4.5" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-</g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-labelledby="title">
+  <title id="title">Webuddy 2.0 — Graph-grounded, reviewed, and multi-tenant AI software delivery workbench</title>
+  <defs>
+    <linearGradient id="wbBadge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#382C96"/>
+      <stop offset="0.52" stop-color="#545DC2"/>
+      <stop offset="1" stop-color="#7D98F7"/>
+    </linearGradient>
+    <linearGradient id="wbAccent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#382C96"/>
+      <stop offset="0.5" stop-color="#4F6BFF"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.82" cy="0.12" r="0.58">
+      <stop offset="0" stop-color="#545DC2" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#545DC2" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.1" cy="0.95" r="0.5">
+      <stop offset="0" stop-color="#0EA5E9" stop-opacity="0.09"/>
+      <stop offset="1" stop-color="#0EA5E9" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="gridDots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.15" fill="#E2E8F0"/>
+    </pattern>
+    <filter id="cardShadow" x="-8%" y="-8%" width="116%" height="124%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#1E293B" flood-opacity="0.08"/>
+    </filter>
+    <clipPath id="outerClip">
+      <rect width="1280" height="420" rx="22"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#outerClip)">
+    <rect width="1280" height="420" fill="#F8FAFC"/>
+    <rect x="610" width="670" height="420" fill="url(#gridDots)" opacity="0.85"/>
+    <rect width="1280" height="420" fill="url(#glow1)"/>
+    <rect width="1280" height="420" fill="url(#glow2)"/>
+  </g>
+  <rect x="0.5" y="0.5" width="1279" height="419" rx="21.5" fill="none" stroke="#E2E8F0"/>
+
+  <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <g transform="translate(68, 54)">
+      <rect width="60" height="60" rx="16" fill="url(#wbBadge)"/>
+      <path d="M16 36 C16 26, 26 20, 34 26 C38 18, 48 20, 48 30 C48 39, 39 43, 29 43 C21 43, 16 40, 16 36 Z" fill="none" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M23 34 C27 30, 33 30, 38 35" fill="none" stroke="#BAE6FD" stroke-width="2.8" stroke-linecap="round"/>
+      <circle cx="44" cy="18" r="3" fill="#93C5FD"/>
+      <text x="76" y="44" fill="#0F172A" font-size="44" font-weight="800" letter-spacing="-1.1">Webuddy</text>
+      <rect x="284" y="17" width="52" height="26" rx="13" fill="#EEF2FF" stroke="#C7D2FE"/>
+      <text x="297" y="35" fill="#4338CA" font-size="14" font-weight="700">2.0</text>
+    </g>
+
+    <text x="68" y="182" fill="#0F172A" font-size="36" font-weight="750" letter-spacing="-0.8">Graph-grounded. Reviewed. Shipped.</text>
+    <rect x="68" y="200" width="76" height="4.5" rx="2.25" fill="url(#wbAccent)"/>
+
+    <text x="68" y="242" fill="#475569" font-size="18">Self-hosted AI engineering workbench uniting polyglot code graphs,</text>
+    <text x="68" y="271" fill="#475569" font-size="18">batched code reviews, multi-tenant SOPs, and 1-click GitHub PRs.</text>
+
+    <g transform="translate(68, 306)">
+      <rect x="0" y="0" width="166" height="32" rx="16" fill="#FFFFFF" stroke="#CBD5E1"/>
+      <text x="15" y="21" fill="#334155" font-size="13" font-weight="600">📊 TMH Code Graph</text>
+
+      <rect x="176" y="0" width="146" height="32" rx="16" fill="#FFFFFF" stroke="#CBD5E1"/>
+      <text x="191" y="21" fill="#334155" font-size="13" font-weight="600">🔍 AI Code Review</text>
+
+      <rect x="332" y="0" width="194" height="32" rx="16" fill="#FFFFFF" stroke="#CBD5E1"/>
+      <text x="347" y="21" fill="#334155" font-size="13" font-weight="600">🏢 Multi-Tenant · 22 CLIs</text>
+    </g>
+
+    <text x="68" y="372" fill="#64748B" font-size="13" font-weight="500">MIT Open Source · Docker Self-Hosted · GitHub / Private GitLab / SSH / Archive</text>
+
+    <g filter="url(#cardShadow)">
+      <rect x="668" y="28" width="554" height="364" rx="18" fill="#FFFFFF" stroke="#E2E8F0"/>
+    </g>
+    <circle cx="692" cy="50" r="4.8" fill="#EF4444" opacity="0.85"/>
+    <circle cx="708" cy="50" r="4.8" fill="#F59E0B" opacity="0.85"/>
+    <circle cx="724" cy="50" r="4.8" fill="#10B981" opacity="0.85"/>
+    <text x="744" y="54.5" fill="#334155" font-size="12.5" font-weight="600">Webuddy · Code Graph &amp; AI Delivery Workbench</text>
+    <rect x="1084" y="38" width="120" height="24" rx="12" fill="#EEF2FF"/>
+    <text x="1096" y="54" fill="#4338CA" font-size="11.5" font-weight="600">🏢 Core Team Space</text>
+    <path d="M668 70 H1222" stroke="#F1F5F9" stroke-width="1.5"/>
+
+    <rect x="690" y="84" width="510" height="58" rx="12" fill="#F8FAFC" stroke="#E2E8F0"/>
+    <text x="708" y="107" fill="#0F172A" font-size="13" font-weight="700">Knowledge Base · TMH Polyglot Graph Ready</text>
+    <text x="708" y="128" fill="#64748B" font-size="12">3 Domains · 4 Flows · 4 Statecharts · 7/7 Pages file:line verified</text>
+    <rect x="1104" y="97" width="80" height="26" rx="8" fill="#ECFDF5" stroke="#A7F3D0"/>
+    <text x="1115" y="114" fill="#059669" font-size="11.5" font-weight="700">✓ Verified</text>
+
+    <rect x="690" y="154" width="510" height="156" rx="12" fill="#F8FAFC" stroke="#E2E8F0"/>
+    <text x="708" y="179" fill="#0F172A" font-size="13" font-weight="700">pstack · Iterative Delivery SOP</text>
+    <text x="950" y="179" fill="#64748B" font-size="12">Codex + Claude · Eval 83/100</text>
+
+    <path d="M750 218 H826" stroke="#10B981" stroke-width="2"/>
+    <path d="M854 218 H930" stroke="#10B981" stroke-width="2"/>
+    <path d="M958 218 H1034" stroke="#10B981" stroke-width="2"/>
+    <path d="M1062 218 H1138" stroke="#4F46E5" stroke-width="2"/>
+
+    <circle cx="736" cy="218" r="13" fill="#ECFDF5" stroke="#10B981" stroke-width="1.6"/>
+    <path d="M732 218.2 l2.6 2.6 5.2-5.4" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="718" y="248" fill="#334155" font-size="12" font-weight="600">Graph</text>
+
+    <circle cx="840" cy="218" r="13" fill="#ECFDF5" stroke="#10B981" stroke-width="1.6"/>
+    <path d="M836 218.2 l2.6 2.6 5.2-5.4" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="826" y="248" fill="#334155" font-size="12" font-weight="600">Code</text>
+
+    <circle cx="944" cy="218" r="13" fill="#ECFDF5" stroke="#10B981" stroke-width="1.6"/>
+    <path d="M940 218.2 l2.6 2.6 5.2-5.4" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="924" y="248" fill="#334155" font-size="12" font-weight="600">Review</text>
+
+    <circle cx="1048" cy="218" r="13" fill="#ECFDF5" stroke="#10B981" stroke-width="1.6"/>
+    <path d="M1044 218.2 l2.6 2.6 5.2-5.4" fill="none" stroke="#059669" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="1036" y="248" fill="#334155" font-size="12" font-weight="600">Eval</text>
+
+    <circle cx="1152" cy="218" r="13" fill="#EEF2FF" stroke="#4F46E5" stroke-width="1.6"/>
+    <circle cx="1152" cy="218" r="4.5" fill="#4F46E5"/>
+    <text x="1125" y="248" fill="#4338CA" font-size="12" font-weight="700">PR Ready</text>
+
+    <rect x="708" y="268" width="218" height="28" rx="14" fill="#EEF2FF" stroke="#C7D2FE"/>
+    <text x="723" y="286.5" fill="#4338CA" font-size="12" font-weight="600">📚 Harvested to Shared KB Hub</text>
+
+    <rect x="986" y="268" width="196" height="28" rx="14" fill="#ECFDF5" stroke="#A7F3D0"/>
+    <text x="1003" y="286.5" fill="#059669" font-size="12" font-weight="700">🔗 GitHub PR #1 · Open</text>
+
+    <rect x="690" y="326" width="510" height="44" rx="12" fill="#FFFFFF" stroke="#CBD5E1"/>
+    <text x="708" y="353" fill="#94A3B8" font-size="13">Describe a requirement, @ a role, KB graph, SOP, or repository…</text>
+    <circle cx="1176" cy="348" r="14" fill="url(#wbBadge)"/>
+    <path d="M1176 354 v-12 m-4.5 4.5 4.5-4.5 4.5 4.5" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
