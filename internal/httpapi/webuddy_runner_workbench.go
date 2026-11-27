@@ -341,8 +341,8 @@ func (d *deps) requestRunnerCLIConfig(ctx context.Context, user domain.User, run
 			code = http.StatusBadGateway
 		}
 		errMsg := resp.Error
-		if strings.Contains(errMsg, "unsupported workspace operation") {
-			errMsg = "该测试机上的 Runner 守护进程尚未升级到支持远程配置的新版本，请先执行 `/runner upgrade` 或点击卡片右上角「检查更新」完成一键升级（约 5 秒）"
+		if strings.Contains(errMsg, "unsupported workspace operation") || strings.Contains(errMsg, "invalid run id") {
+			errMsg = "该测试机上的 Runner 守护进程尚未加载远程配置模块，请先执行 `/runner upgrade`、点击「检查更新」或重启该机器上的 Runner 服务"
 		}
 		return domain.RunnerCLIConfigStatus{}, hostSummary, code, errMsg
 	}
