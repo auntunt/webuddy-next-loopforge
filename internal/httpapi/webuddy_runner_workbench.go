@@ -179,7 +179,7 @@ func readControlPlaneHostCLIConfig(provider string) (domain.RunnerCLIConfigReque
 		if err != nil {
 			return domain.RunnerCLIConfigRequest{}, hostGatewaySummary{Provider: provider}, false
 		}
-		gw, baseURL, token, model, effort, hasCustom := runtime.ParseCodexConfigDetails(string(raw))
+		gw, baseURL, token, model, effort, extraTOML, _, hasCustom := runtime.ParseCodexConfigFull(string(raw))
 		if !hasCustom || baseURL == "" || token == "" {
 			return domain.RunnerCLIConfigRequest{}, hostGatewaySummary{Provider: provider}, false
 		}
@@ -191,6 +191,7 @@ func readControlPlaneHostCLIConfig(provider string) (domain.RunnerCLIConfigReque
 			APIKey:               token,
 			Model:                model,
 			Effort:               effort,
+			ExtraProviderTOML:    extraTOML,
 			ClearConflictingAuth: true,
 		}
 		return req, hostGatewaySummary{
@@ -255,6 +256,7 @@ func readControlPlaneHostCLIConfig(provider string) (domain.RunnerCLIConfigReque
 
 type runnerCLIConfigHTTPInput struct {
 	Provider             string `json:"provider"`
+	UseOfficialLogin     bool   `json:"useOfficialLogin"`
 	SyncFromHost         bool   `json:"syncFromHost"`
 	GatewayName          string `json:"gatewayName"`
 	BaseURL              string `json:"baseUrl"`
@@ -303,7 +305,9 @@ func (d *deps) requestRunnerCLIConfig(ctx context.Context, user domain.User, run
 		if input.ClearConflictingAuth != nil {
 			clearAuth = *input.ClearConflictingAuth
 		}
-		if input.SyncFromHost {
+		if input.UseOfficialLogin {
+			rpcReq.UseOfficialLogin = true
+		} else if input.SyncFromHost {
 			if !canSync {
 				return domain.RunnerCLIConfigStatus{}, hostSummary, http.StatusBadRequest, "主控机尚未配置可同步的网关模板，请直接填写网关地址与访问令牌"
 			}
@@ -648,6 +652,11 @@ func (d *deps) executeWorkbenchRunnerOp(ctx context.Context, user domain.User, o
 			case "gateway", "provider_name":
 				input.GatewayName = v
 				hasMutation = true
+			case "mode", "auth":
+				if strings.EqualFold(v, "official") || strings.EqualFold(v, "oauth") || v == "官方" {
+					input.UseOfficialLogin = true
+					hasMutation = true
+				}
 			case "sync":
 				if v == "1" || strings.EqualFold(v, "true") {
 					input.SyncFromHost = true

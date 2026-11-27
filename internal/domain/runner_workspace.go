@@ -58,17 +58,20 @@ type GitSSHKnownHosts struct {
 type RunnerCLIConfigRequest struct {
 	Action               string `json:"action"`   // "get" | "set"
 	Provider             string `json:"provider"` // "codex" | "claude-code"
+	UseOfficialLogin     bool   `json:"useOfficialLogin,omitempty"`
 	GatewayName          string `json:"gatewayName,omitempty"`
 	BaseURL              string `json:"baseUrl,omitempty"`
 	APIKey               string `json:"apiKey,omitempty"`
 	Model                string `json:"model,omitempty"`
 	Effort               string `json:"effort,omitempty"`
+	ExtraProviderTOML    string `json:"extraProviderToml,omitempty"`
 	RawConfigTOML        string `json:"rawConfigToml,omitempty"`
 	ClearConflictingAuth bool   `json:"clearConflictingAuth,omitempty"`
 }
 
 type RunnerCLIConfigStatus struct {
 	Provider            string   `json:"provider"`
+	AuthSource          string   `json:"authSource,omitempty"` // "official" | "custom_gateway" | "none"
 	ConfigPath          string   `json:"configPath"`
 	Exists              bool     `json:"exists"`
 	GatewayName         string   `json:"gatewayName,omitempty"`

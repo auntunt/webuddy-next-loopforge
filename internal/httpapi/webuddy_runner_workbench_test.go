@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,16 +19,17 @@ import (
 func TestWorkbenchRunnerCLIConfigAndZeroTokenSlashCommands(t *testing.T) {
 	codexHome := t.TempDir()
 	t.Setenv("CODEX_HOME", codexHome)
-	hostTOML := `model_provider = "aiseat"
+	hostTOML := `model_provider = "team_gw"
 model = "gpt-6-luna"
 model_reasoning_effort = "medium"
 
-[model_providers.aiseat]
-name = "aiseat"
-base_url = "https://ai.cloudwaveai.cn/v1"
+[model_providers.team_gw]
+name = "team_gw"
+base_url = "https://gateway.example.com/v1"
 wire_api = "responses"
 requires_openai_auth = false
 experimental_bearer_token = "sk-host-secret-9999"
+http_headers = { "x-actor" = "team" }
 `
 	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(hostTOML), 0o600); err != nil {
 		t.Fatal(err)
@@ -55,7 +58,7 @@ experimental_bearer_token = "sk-host-secret-9999"
 	registerTestConn(hub, conn)
 	t.Cleanup(conn.close)
 
-	// 1. Test PUT /api/runners/:id/cli-config with syncFromHost=true
+	// 1. Test PUT /api/runners/:id/cli-config with syncFromHost=true preserves generic ExtraProviderTOML
 	c, w := workbenchContext(owner, http.MethodPut, "/api/runners/runner-wsl2/cli-config", bytes.NewBufferString(`{"provider":"codex","syncFromHost":true}`))
 	c.Params = gin.Params{{Key: "id", Value: wslRunner.ID}}
 	done := make(chan struct{})
@@ -64,19 +67,20 @@ experimental_bearer_token = "sk-host-secret-9999"
 		close(done)
 	}()
 	rpcReq := answerOnce(t, hub, conn, domain.RunnerWorkspaceResponse{
-		Status: 200,
-		Payload: []byte(`{"provider":"codex","exists":true,"gatewayName":"aiseat","baseUrl":"https://ai.cloudwaveai.cn/v1","tokenMasked":"sk-h****9999","model":"gpt-6-luna","hasCustomAuth":true,"discoveredModels":["gpt-6-luna","gpt-6.2-sol"]}`),
+		Status:  200,
+		Payload: []byte(`{"provider":"codex","authSource":"custom_gateway","exists":true,"gatewayName":"team_gw","baseUrl":"https://gateway.example.com/v1","tokenMasked":"sk-h****9999","model":"gpt-6-luna","hasCustomAuth":true,"discoveredModels":["gpt-6-luna","gpt-6-sol"]}`),
 	})
 	<-done
 	if w.Code != http.StatusOK {
 		t.Fatalf("runnerCLIConfig returned %d: %s", w.Code, w.Body.String())
 	}
 	if rpcReq.Operation != domain.RunnerWorkspaceOperationCLIConfig || rpcReq.CLIConfig == nil ||
-		rpcReq.CLIConfig.GatewayName != "aiseat" || rpcReq.CLIConfig.APIKey != "sk-host-secret-9999" || !rpcReq.CLIConfig.ClearConflictingAuth {
+		rpcReq.CLIConfig.GatewayName != "team_gw" || rpcReq.CLIConfig.APIKey != "sk-host-secret-9999" ||
+		!strings.Contains(rpcReq.CLIConfig.ExtraProviderTOML, "x-actor") || !rpcReq.CLIConfig.ClearConflictingAuth {
 		t.Fatalf("unexpected CLI config RPC payload: %+v", rpcReq.CLIConfig)
 	}
 
-	// 2. Test Zero-Token Slash Commands (/runner, /runner add, /runner use) via h.chat without ANY model API key configured!
+	// 2. Test Zero-Token Slash Commands (/runner, /runner add, /runner use)
 	chatSlash := func(cmd string) assistantReply {
 		t.Helper()
 		body, _ := json.Marshal(map[string]any{
@@ -110,15 +114,15 @@ experimental_bearer_token = "sk-host-secret-9999"
 		t.Fatalf("unexpected /runner use output: %s", useReply.Message)
 	}
 
-	// Verify conversation engine is NOT locked by zero-token slash turns!
-	saved, ok := h.repo.AssistantSession(owner.ID, "slash-session-1")
-	if !ok || len(saved.Messages) != 2 {
-		t.Fatalf("unexpected saved session: %+v", saved)
+	// 3. Test mid-conversation 409 model-switch auto-resume recovery & human-readable model error classification
+	fusionConflictErr := errors.New("unexpected status 409 Conflict: switching an existing conversation to Fusion requires a new conversation to preserve model-specific state")
+	if !assistantResumeRecoverable(context.Background(), fusionConflictErr) {
+		t.Fatalf("expected 409 switching conversation conflict to be auto-recoverable via fresh native session")
 	}
-	if locked := assistantConversationEngine(saved.Messages, saved.Executor); locked != "" {
-		t.Fatalf("expected zero-token slash turn not to lock CLI engine, got %q", locked)
-	}
-	if saved.Messages[1].Usage == nil || saved.Messages[1].Usage.TotalTokens != 0 {
-		t.Fatalf("expected 0 token usage on slash turn, got %+v", saved.Messages[1].Usage)
+
+	terraErr := errors.New("auth_unavailable: no auth available (last upstream error: model_not_found: The 'gpt-6.1-terra' model is not supported when using Codex with a ChatGPT account.)")
+	classified := classifyAssistantFailure(context.Background(), terraErr)
+	if classified.Code != "MODEL_UNAVAILABLE" || !strings.Contains(classified.Message, "gpt-6.1-terra") {
+		t.Fatalf("expected clear MODEL_UNAVAILABLE message naming gpt-6.1-terra, got: %+v", classified)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -49,6 +50,68 @@ func resolveHostCLIConfigPaths(provider string) (configDir, configFile, oauthFil
 	}
 }
 
+func restoreLatestOAuthBackupIfMissing(oauthFile string) bool {
+	if st, err := os.Stat(oauthFile); err == nil && st.Mode().IsRegular() {
+		return true
+	}
+	matches, err := filepath.Glob(oauthFile + ".bak-*")
+	if err != nil || len(matches) == 0 {
+		return false
+	}
+	slices.Sort(matches)
+	latest := matches[len(matches)-1]
+	return os.Rename(latest, oauthFile) == nil
+}
+
+func switchHostToOfficialLogin(provider, configFile, oauthFile string) error {
+	switch provider {
+	case "codex":
+		existing, err := os.ReadFile(configFile)
+		if err == nil {
+			_ = os.WriteFile(configFile+".custom-bak-"+time.Now().Format("20060102150405"), existing, 0o600)
+			projects := extractCodexProjectsBlocks(string(existing))
+			if projects != "" {
+				if wErr := writeConfigAtomic(configFile, []byte(projects)); wErr != nil {
+					return wErr
+				}
+			} else {
+				_ = os.Remove(configFile)
+			}
+		}
+		restoreLatestOAuthBackupIfMissing(oauthFile)
+		return nil
+	case "claude-code":
+		existing, err := os.ReadFile(configFile)
+		if err == nil {
+			_ = os.WriteFile(configFile+".custom-bak-"+time.Now().Format("20060102150405"), existing, 0o600)
+			doc := map[string]any{}
+			if json.Unmarshal(existing, &doc) == nil {
+				if envMap, ok := doc["env"].(map[string]any); ok {
+					delete(envMap, "ANTHROPIC_AUTH_TOKEN")
+					delete(envMap, "ANTHROPIC_API_KEY")
+					delete(envMap, "ANTHROPIC_BASE_URL")
+					delete(envMap, "ANTHROPIC_MODEL")
+					if len(envMap) == 0 {
+						delete(doc, "env")
+					}
+				}
+				delete(doc, "model")
+				if len(doc) > 0 {
+					if enc, mErr := json.MarshalIndent(doc, "", "  "); mErr == nil {
+						_ = writeConfigAtomic(configFile, append(enc, '\n'))
+					}
+				} else {
+					_ = os.Remove(configFile)
+				}
+			}
+		}
+		restoreLatestOAuthBackupIfMissing(oauthFile)
+		return nil
+	default:
+		return fmt.Errorf("不支持切换该 CLI 的登录模式: %s", provider)
+	}
+}
+
 func (d *Daemon) handleRunnerCLIConfig(ctx context.Context, req *domain.RunnerCLIConfigRequest) domain.RunnerWorkspaceResponse {
 	if req == nil {
 		return domain.RunnerWorkspaceResponse{Status: http.StatusBadRequest, Error: "缺少 CLI 配置请求"}
@@ -72,29 +135,35 @@ func (d *Daemon) handleRunnerCLIConfig(ctx context.Context, req *domain.RunnerCL
 		if err := os.MkdirAll(configDir, 0o700); err != nil {
 			return domain.RunnerWorkspaceResponse{Status: http.StatusInternalServerError, Error: "创建 CLI 配置目录失败: " + err.Error()}
 		}
-		hasConfigFields := strings.TrimSpace(req.RawConfigTOML) != "" ||
-			strings.TrimSpace(req.GatewayName) != "" ||
-			strings.TrimSpace(req.BaseURL) != "" ||
-			strings.TrimSpace(req.APIKey) != "" ||
-			strings.TrimSpace(req.Model) != "" ||
-			strings.TrimSpace(req.Effort) != ""
-		if hasConfigFields || !req.ClearConflictingAuth {
-			switch provider {
-			case "codex":
-				if err := applyCodexHostConfig(configFile, req); err != nil {
-					return domain.RunnerWorkspaceResponse{Status: http.StatusBadRequest, Error: err.Error()}
-				}
-			case "claude-code":
-				if err := applyClaudeHostConfig(configFile, req); err != nil {
-					return domain.RunnerWorkspaceResponse{Status: http.StatusBadRequest, Error: err.Error()}
+		if req.UseOfficialLogin {
+			if err := switchHostToOfficialLogin(provider, configFile, oauthFile); err != nil {
+				return domain.RunnerWorkspaceResponse{Status: http.StatusInternalServerError, Error: "切回官方账号登录模式失败: " + err.Error()}
+			}
+		} else {
+			hasConfigFields := strings.TrimSpace(req.RawConfigTOML) != "" ||
+				strings.TrimSpace(req.GatewayName) != "" ||
+				strings.TrimSpace(req.BaseURL) != "" ||
+				strings.TrimSpace(req.APIKey) != "" ||
+				strings.TrimSpace(req.Model) != "" ||
+				strings.TrimSpace(req.Effort) != ""
+			if hasConfigFields || !req.ClearConflictingAuth {
+				switch provider {
+				case "codex":
+					if err := applyCodexHostConfig(configFile, req); err != nil {
+						return domain.RunnerWorkspaceResponse{Status: http.StatusBadRequest, Error: err.Error()}
+					}
+				case "claude-code":
+					if err := applyClaudeHostConfig(configFile, req); err != nil {
+						return domain.RunnerWorkspaceResponse{Status: http.StatusBadRequest, Error: err.Error()}
+					}
 				}
 			}
-		}
-		if req.ClearConflictingAuth {
-			if st, statErr := os.Stat(oauthFile); statErr == nil && st.Mode().IsRegular() {
-				backup := oauthFile + ".bak-" + time.Now().Format("20060102150405")
-				if renameErr := os.Rename(oauthFile, backup); renameErr == nil {
-					clearedBackup = backup
+			if req.ClearConflictingAuth {
+				if st, statErr := os.Stat(oauthFile); statErr == nil && st.Mode().IsRegular() {
+					backup := oauthFile + ".bak-" + time.Now().Format("20060102150405")
+					if renameErr := os.Rename(oauthFile, backup); renameErr == nil {
+						clearedBackup = backup
+					}
 				}
 			}
 		}
@@ -108,52 +177,58 @@ func (d *Daemon) handleRunnerCLIConfig(ctx context.Context, req *domain.RunnerCL
 func inspectHostCLIConfig(ctx context.Context, d *Daemon, provider, configFile, oauthFile string) domain.RunnerCLIConfigStatus {
 	st := domain.RunnerCLIConfigStatus{
 		Provider:   provider,
+		AuthSource: "none",
 		ConfigPath: configFile,
 	}
 	if info, err := os.Stat(oauthFile); err == nil && info.Mode().IsRegular() {
 		st.HasOAuthFile = true
+		st.AuthSource = "official"
 	}
 	rawBytes, err := os.ReadFile(configFile)
-	if err != nil {
-		return st
-	}
-	st.Exists = true
-	if info, statErr := os.Stat(configFile); statErr == nil {
-		st.UpdatedAt = info.ModTime().UTC().Format(time.RFC3339)
+	if err == nil {
+		st.Exists = true
+		if info, statErr := os.Stat(configFile); statErr == nil {
+			st.UpdatedAt = info.ModTime().UTC().Format(time.RFC3339)
+		}
+		switch provider {
+		case "codex":
+			provName, baseURL, token, model, effort, hasCustom := runtime.ParseCodexConfigDetails(string(rawBytes))
+			st.GatewayName = provName
+			st.BaseURL = baseURL
+			st.TokenMasked = maskSecretToken(token)
+			st.Model = model
+			st.Effort = effort
+			st.HasCustomAuth = hasCustom
+			st.ConflictingAuth = hasCustom && st.HasOAuthFile
+			if hasCustom {
+				st.AuthSource = "custom_gateway"
+			}
+		case "claude-code":
+			var doc struct {
+				Model string            `json:"model"`
+				Env   map[string]string `json:"env"`
+			}
+			if json.Unmarshal(rawBytes, &doc) == nil {
+				tok := strings.TrimSpace(doc.Env["ANTHROPIC_AUTH_TOKEN"])
+				if tok == "" {
+					tok = strings.TrimSpace(doc.Env["ANTHROPIC_API_KEY"])
+				}
+				st.BaseURL = strings.TrimSpace(doc.Env["ANTHROPIC_BASE_URL"])
+				st.TokenMasked = maskSecretToken(tok)
+				st.Model = strings.TrimSpace(doc.Model)
+				if st.Model == "" {
+					st.Model = strings.TrimSpace(doc.Env["ANTHROPIC_MODEL"])
+				}
+				st.HasCustomAuth = tok != ""
+				st.ConflictingAuth = st.HasCustomAuth && st.HasOAuthFile
+				if st.HasCustomAuth {
+					st.AuthSource = "custom_gateway"
+				}
+			}
+		}
 	}
 
-	switch provider {
-	case "codex":
-		provName, baseURL, token, model, effort, hasCustom := runtime.ParseCodexConfigDetails(string(rawBytes))
-		st.GatewayName = provName
-		st.BaseURL = baseURL
-		st.TokenMasked = maskSecretToken(token)
-		st.Model = model
-		st.Effort = effort
-		st.HasCustomAuth = hasCustom
-		st.ConflictingAuth = hasCustom && st.HasOAuthFile
-	case "claude-code":
-		var doc struct {
-			Model string            `json:"model"`
-			Env   map[string]string `json:"env"`
-		}
-		if json.Unmarshal(rawBytes, &doc) == nil {
-			tok := strings.TrimSpace(doc.Env["ANTHROPIC_AUTH_TOKEN"])
-			if tok == "" {
-				tok = strings.TrimSpace(doc.Env["ANTHROPIC_API_KEY"])
-			}
-			st.BaseURL = strings.TrimSpace(doc.Env["ANTHROPIC_BASE_URL"])
-			st.TokenMasked = maskSecretToken(tok)
-			st.Model = strings.TrimSpace(doc.Model)
-			if st.Model == "" {
-				st.Model = strings.TrimSpace(doc.Env["ANTHROPIC_MODEL"])
-			}
-			st.HasCustomAuth = tok != ""
-			st.ConflictingAuth = st.HasCustomAuth && st.HasOAuthFile
-		}
-	}
-
-	pctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	pctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	binPath := ""
 	if d != nil {
@@ -176,7 +251,6 @@ func inspectHostCLIConfig(ctx context.Context, d *Daemon, provider, configFile, 
 			}
 		}
 	} else if provider == "codex" && st.HasCustomAuth {
-		// Even if binary lookup skipped, custom config models come directly from config.toml + /models.
 		if list, mErr := runtime.DiscoverRunnerLoginModels(pctx, provider, "codex"); mErr == nil {
 			for _, m := range list {
 				if m.ID != "" && m.ID != "default" {
@@ -218,7 +292,7 @@ func applyCodexHostConfig(configFile string, req *domain.RunnerCLIConfigRequest)
 		return writeConfigAtomic(configFile, []byte(raw+"\n"))
 	}
 	existingBytes, _ := os.ReadFile(configFile)
-	oldProv, oldURL, oldTok, oldModel, oldEffort, _ := runtime.ParseCodexConfigDetails(string(existingBytes))
+	oldProv, oldURL, oldTok, oldModel, oldEffort, oldExtra, _, _ := runtime.ParseCodexConfigFull(string(existingBytes))
 
 	gw := strings.TrimSpace(req.GatewayName)
 	if gw == "" {
@@ -238,7 +312,7 @@ func applyCodexHostConfig(configFile string, req *domain.RunnerCLIConfigRequest)
 		baseURL = oldURL
 	}
 	if baseURL == "" {
-		return fmt.Errorf("请填写 Codex 网关 Base URL（例如 https://ai.cloudwaveai.cn/v1）")
+		return fmt.Errorf("请填写 Codex 网关 Base URL（例如 https://api.example.com/v1）")
 	}
 	apiKey := strings.TrimSpace(req.APIKey)
 	if apiKey == "" {
@@ -249,11 +323,7 @@ func applyCodexHostConfig(configFile string, req *domain.RunnerCLIConfigRequest)
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
-		if oldModel != "" {
-			model = oldModel
-		} else {
-			model = "gpt-6-luna"
-		}
+		model = oldModel
 	}
 	effort := strings.TrimSpace(req.Effort)
 	if effort == "" {
@@ -263,12 +333,18 @@ func applyCodexHostConfig(configFile string, req *domain.RunnerCLIConfigRequest)
 			effort = "medium"
 		}
 	}
+	extraTOML := strings.TrimSpace(req.ExtraProviderTOML)
+	if extraTOML == "" && oldURL == baseURL {
+		extraTOML = strings.TrimSpace(oldExtra)
+	}
 
 	preservedProjects := extractCodexProjectsBlocks(string(existingBytes))
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "model_provider = %s\n", strconv.Quote(gw))
-	fmt.Fprintf(&b, "model = %s\n", strconv.Quote(model))
+	if model != "" {
+		fmt.Fprintf(&b, "model = %s\n", strconv.Quote(model))
+	}
 	fmt.Fprintf(&b, "model_reasoning_effort = %s\n", strconv.Quote(effort))
 	b.WriteString("service_tier = \"default\"\n\n")
 	fmt.Fprintf(&b, "[model_providers.%s]\n", gw)
@@ -278,14 +354,15 @@ func applyCodexHostConfig(configFile string, req *domain.RunnerCLIConfigRequest)
 	b.WriteString("requires_openai_auth = false\n")
 	fmt.Fprintf(&b, "experimental_bearer_token = %s\n", strconv.Quote(apiKey))
 	b.WriteString("supports_websockets = false\n")
-	if gw == "aiseat" || strings.Contains(baseURL, "cloudwaveai") {
-		b.WriteString("http_headers = { \"x-openai-actor-authorization\" = \"aiseat\" }\n")
-		b.WriteString("supports_standalone_web_search = true\n")
+	if extraTOML != "" {
+		b.WriteString(extraTOML + "\n")
 	}
 	if preservedProjects != "" {
 		b.WriteString("\n")
 		b.WriteString(preservedProjects)
 	}
+	// Clear cached accessibility probe so new config re-verifies models cleanly.
+	_ = os.Remove(filepath.Join(filepath.Dir(configFile), ".model-accessibility-cache.json"))
 	return writeConfigAtomic(configFile, []byte(b.String()))
 }
 

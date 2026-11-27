@@ -26,9 +26,10 @@ func (h *assistantHandlers) freshPhasePrompt(req assistantRequest, sourceRoot st
 }
 
 // assistantResumeRejectedRe matches providers refusing a replayed native
-// journal: a 400/422, or the wording CodeBuddy and OpenAI-compatible
-// gateways use for a transcript whose structure they reject.
-var assistantResumeRejectedRe = regexp.MustCompile(`(?i)(must end with a user message|request parameters were rejected|invalid_request_error|invalid request|(?:status|status code|http)[ =:]*(?:400|422)\b|\b(?:400|422) bad request)`)
+// journal: a 400/409/422, or the wording CodeBuddy and OpenAI-compatible
+// gateways use for a transcript whose structure or mid-conversation model
+// switch they reject.
+var assistantResumeRejectedRe = regexp.MustCompile(`(?i)(must end with a user message|request parameters were rejected|switching an existing conversation|requires a new conversation|model-specific state|cannot (?:switch|change) model|invalid_request_error|invalid request|(?:status|status code|http)[ =:]*(?:400|409|422)\b|\b(?:400|409|422) (?:bad request|conflict))`)
 
 // assistantPhaseProgress reports whether an event shows the CLI got past
 // replaying its journal: model output or a tool call. A phase that failed
@@ -61,6 +62,9 @@ func assistantResumeRecoverable(ctx context.Context, err error) bool {
 		return false
 	}
 	failure := classifyAssistantFailure(ctx, err)
+	if failure.Code == "SESSION_MODEL_CONFLICT" {
+		return true
+	}
 	if assistantResumeRejectedRe.MatchString(err.Error()) {
 		// A rejection wording outranks generic exit codes, but never an
 		// explicit provider cause such as authentication or rate limiting.

@@ -466,7 +466,7 @@ function openRunnerCLIConfigModal(runner,runtime){
   const endpoint=`/api/runners/${encodeURIComponent(runner.id)}/cli-config?provider=${encodeURIComponent(provider)}`;
   return afOpenDialog(modal=>{
     $('#confirmTitle').textContent=`远程配置 ${runner.name||runner.id} · ${label}`;
-    $('#confirmMessage').textContent='无需登录目标测试机终端，直接从工作台下发专用网关、令牌与默认模型，并自动隔离冲突的 OAuth 登录态。';
+    $('#confirmMessage').textContent='兼容标准官方账号登录（OAuth）与任意兼容网关：可随时切换回本机正常登录，也可从工作台下发自定义网关并自动过滤不可用模型。';
     const ok=$('#confirmOkBtn'),cancel=$('#confirmCancelBtn'),card=modal.querySelector('.confirm-modal-card');
     const panel=document.createElement('div');
     panel.className='credential-panel runner-cli-config-panel';
@@ -477,10 +477,14 @@ function openRunnerCLIConfigModal(runner,runtime){
         <div style="min-width:0;"><b style="display:block;color:var(--ink,#111827);">⚡ 主控同源网关一键下发</b><small data-cfg-sync-desc style="color:var(--muted,#667085);"></small></div>
         <button type="button" class="button primary small" data-cfg-sync-btn style="white-space:nowrap;">一键从主控同步</button>
       </div>
-      <label style="display:flex;flex-direction:column;gap:4px;"><span>网关服务地址（Base URL）</span><input type="url" class="input" data-cfg-url placeholder="${provider==='codex'?'https://ai.cloudwaveai.cn/v1':'https://api.anthropic.com'}"></label>
+      <div data-cfg-official-box hidden style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-radius:8px;background:var(--surface-2,#f6f7f9);border:1px dashed var(--line,#d0d5dd);">
+        <small style="color:var(--muted,#667085);">想用本机正常的官方账号登录（<code>${provider==='codex'?'codex login':'claude login'}</code>）？可一键移除自定义网关并恢复官方 OAuth 登录态。</small>
+        <button type="button" class="button ghost small" data-cfg-official-btn style="white-space:nowrap;">切回官方登录</button>
+      </div>
+      <label style="display:flex;flex-direction:column;gap:4px;"><span>网关服务地址（Base URL）</span><input type="url" class="input" data-cfg-url placeholder="${provider==='codex'?'https://api.openai.com/v1 或自定义网关地址':'https://api.anthropic.com'}"></label>
       <label style="display:flex;flex-direction:column;gap:4px;"><span>访问令牌（Bearer Token / API Key，留空保持原令牌）</span><input type="password" class="input" data-cfg-key autocomplete="new-password" placeholder="留空则保留测试机现有令牌"></label>
       <div style="display:grid;grid-template-columns:1fr 140px;gap:10px;">
-        <label style="display:flex;flex-direction:column;gap:4px;"><span>默认模型（Model）</span><input type="text" class="input" data-cfg-model placeholder="${provider==='codex'?'gpt-6-luna / gpt-6.2-sol':'claude-sonnet-4-6'}"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;"><span>默认模型（Model）</span><input type="text" class="input" data-cfg-model placeholder="${provider==='codex'?'留空使用默认或填模型名':'claude-sonnet-4-6'}"></label>
         <label style="display:flex;flex-direction:column;gap:4px;"><span>默认思考强度</span>
           <select class="input" data-cfg-effort>
             <option value="low">low</option>
@@ -502,6 +506,8 @@ function openRunnerCLIConfigModal(runner,runtime){
     const syncBox=panel.querySelector('[data-cfg-sync-box]');
     const syncDesc=panel.querySelector('[data-cfg-sync-desc]');
     const syncBtn=panel.querySelector('[data-cfg-sync-btn]');
+    const officialBox=panel.querySelector('[data-cfg-official-box]');
+    const officialBtn=panel.querySelector('[data-cfg-official-btn]');
     const urlInput=panel.querySelector('[data-cfg-url]');
     const keyInput=panel.querySelector('[data-cfg-key]');
     const modelInput=panel.querySelector('[data-cfg-model]');
@@ -514,17 +520,24 @@ function openRunnerCLIConfigModal(runner,runtime){
       const st=res?.status||{};
       const hg=res?.hostGateway||{};
       gatewayName=st.gatewayName||hg.gatewayName||'';
-      if(st.baseUrl)urlInput.value=st.baseUrl;
-      if(st.model)modelInput.value=st.model;
+      urlInput.value=st.baseUrl||'';
+      modelInput.value=st.model||'';
       if(st.effort&&[...effortSelect.options].some(o=>o.value===st.effort))effortSelect.value=st.effort;
-      if(st.tokenMasked)keyInput.placeholder=`已配置（${st.tokenMasked}），留空保持不变`;
-      const modelsPreview=(st.discoveredModels||[]).slice(0,6).join(', ')+((st.discoveredModels||[]).length>6?` 等 ${st.discoveredModels.length} 个`:'');
+      keyInput.placeholder=st.tokenMasked?`已配置（${st.tokenMasked}），留空保持不变`:'填写网关访问令牌';
+      const modelsPreview=(st.discoveredModels||[]).slice(0,8).join(', ')+((st.discoveredModels||[]).length>8?` 等 ${st.discoveredModels.length} 个`:'');
       const conflictHtml=st.conflictingAuth
-        ?'<div style="color:#b42318;margin-top:4px;">⚠️ 检测到残留官方 OAuth 登录文件，建议立即点击保存或一键同步完成清理。</div>'
+        ?'<div style="color:#b42318;margin-top:4px;">⚠️ 检测到残留官方 OAuth 登录文件，建议点击保存或一键同步完成清理。</div>'
         :(st.clearedAuthBackup?`<div style="color:#027a48;margin-top:4px;">✓ 已自动备份隔离冲突登录文件</div>`:'');
-      statusEl.innerHTML=st.exists
-        ?`<div><b>当前状态：</b>已配置 <code>${escapeHTML(st.gatewayName||'custom')}</code> · 默认模型 <code>${escapeHTML(st.model||'默认')}</code> · 令牌 <code>${escapeHTML(st.tokenMasked||'未设')}</code></div>${modelsPreview?`<div style="color:var(--muted,#667085);margin-top:2px;">实时可用模型：${escapeHTML(modelsPreview)}</div>`:''}${conflictHtml}`
-        :`<div><b>当前状态：</b>测试机尚未创建 <code>${escapeHTML(st.configPath||label+' 配置文件')}</code>，可直接一键从主控同步或手工填写。</div>`;
+      if(st.hasCustomAuth){
+        statusEl.innerHTML=`<div><b>当前模式：</b>自定义网关 <code>${escapeHTML(st.gatewayName||'custom')}</code> · 默认模型 <code>${escapeHTML(st.model||'默认')}</code> · 令牌 <code>${escapeHTML(st.tokenMasked||'未设')}</code></div>${modelsPreview?`<div style="color:var(--muted,#667085);margin-top:2px;">已核验可用模型：${escapeHTML(modelsPreview)}</div>`:''}${conflictHtml}`;
+        officialBox.hidden=false;officialBox.style.display='flex';
+      }else if(st.hasOAuthFile){
+        statusEl.innerHTML=`<div><b>当前模式：</b><span style="color:#027a48;">官方账号登录（OAuth 正常生效中）</span></div>${modelsPreview?`<div style="color:var(--muted,#667085);margin-top:2px;">账号可用模型：${escapeHTML(modelsPreview)}</div>`:''}`;
+        officialBox.hidden=true;
+      }else{
+        statusEl.innerHTML=`<div><b>当前模式：</b>未检测到网关或登录文件，可在终端执行正常登录，或在此下发自定义网关。</div>`;
+        officialBox.hidden=true;
+      }
       if(hg?.available){
         syncBox.hidden=false;
         syncBox.style.display='flex';
@@ -536,22 +549,24 @@ function openRunnerCLIConfigModal(runner,runtime){
       statusEl.innerHTML=`<span style="color:#b42318;">${escapeHTML(err.message||'读取测试机配置失败')}</span>`;
     });
 
-    const applyConfig=async(syncFromHost)=>{
+    const applyConfig=async(mode)=>{
       if(busy)return;
-      busy=true;ok.disabled=true;cancel.disabled=true;if(syncBtn)syncBtn.disabled=true;
+      busy=true;ok.disabled=true;cancel.disabled=true;if(syncBtn)syncBtn.disabled=true;if(officialBtn)officialBtn.disabled=true;
       const prevOk=ok.textContent;
-      ok.textContent=syncFromHost?'同步中…':'下发中…';
+      ok.textContent=mode==='sync'?'同步并核验模型中…':mode==='official'?'切换中…':'下发并核验模型中…';
       try{
-        const payload={
-          provider,
-          syncFromHost:!!syncFromHost,
-          gatewayName,
-          baseUrl:urlInput.value.trim(),
-          apiKey:keyInput.value.trim(),
-          model:modelInput.value.trim(),
-          effort:effortSelect.value,
-          clearConflictingAuth:!!clearAuthCb.checked
-        };
+        const payload=mode==='official'
+          ? {provider,useOfficialLogin:true}
+          : {
+              provider,
+              syncFromHost:mode==='sync',
+              gatewayName,
+              baseUrl:urlInput.value.trim(),
+              apiKey:keyInput.value.trim(),
+              model:modelInput.value.trim(),
+              effort:effortSelect.value,
+              clearConflictingAuth:!!clearAuthCb.checked
+            };
         const res=await api(`/api/runners/${encodeURIComponent(runner.id)}/cli-config`,{
           method:'PUT',
           body:JSON.stringify(payload),
@@ -560,19 +575,22 @@ function openRunnerCLIConfigModal(runner,runtime){
         keyInput.value='';
         renderLoaded(res);
         const cnt=res?.status?.discoveredModels?.length||0;
-        toast(`${runner.name||runner.id} 网关配置已生效${cnt?`（已探测 ${cnt} 个可用模型）`:''}`,'ok');
-        if(!syncFromHost&&panel.isConnected)confirmPromiseResolve?.(true);
+        toast(mode==='official'
+          ?`${runner.name||runner.id} 已切回官方账号登录模式`
+          :`${runner.name||runner.id} 网关配置已生效${cnt?`（已核验 ${cnt} 个真实可用模型）`:''}`,'ok');
+        if(mode==='save'&&panel.isConnected)confirmPromiseResolve?.(true);
       }catch(err){
         toast(err.message||'下发配置失败','err',5000);
       }finally{
-        busy=false;ok.textContent=prevOk;ok.disabled=false;cancel.disabled=false;if(syncBtn)syncBtn.disabled=false;
+        busy=false;ok.textContent=prevOk;ok.disabled=false;cancel.disabled=false;if(syncBtn)syncBtn.disabled=false;if(officialBtn)officialBtn.disabled=false;
       }
     };
 
-    syncBtn.onclick=()=>applyConfig(true);
+    syncBtn.onclick=()=>applyConfig('sync');
+    if(officialBtn)officialBtn.onclick=()=>applyConfig('official');
     const submit=event=>{
       event.stopImmediatePropagation();
-      applyConfig(false);
+      applyConfig('save');
     };
     ok.addEventListener('click',submit,true);
     return {focus:urlInput,value:()=>{

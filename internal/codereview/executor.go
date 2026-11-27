@@ -17,6 +17,7 @@ import (
 
 	"agentflow/internal/apperr"
 	"agentflow/internal/domain"
+	"agentflow/internal/runtime"
 )
 
 const DefaultBatchTimeout = 5 * time.Minute
@@ -936,6 +937,10 @@ func DiscoverCodexGatewayModels(ctx context.Context) []string {
 		}
 		seen[id] = struct{}{}
 		models = append(models, id)
+	}
+	if len(models) > 1 {
+		_, _, _, _, _, _, hdrs, _ := runtime.ParseCodexConfigFull(string(raw))
+		models = runtime.FilterAccessibleModelIDs(ctx, configDir, baseURL, token, hdrs, models)
 	}
 	if len(models) > 0 {
 		codexGwCacheMu.Lock()

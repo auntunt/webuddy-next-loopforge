@@ -138,7 +138,17 @@ func classifyAssistantFailureParts(f domain.AssistantFailure, err error) (domain
 	return c, false
 }
 
-var assistantModelMissingRe = regexp.MustCompile("(?i)\\bmodel\\s+[`'\"]?[^\\s`'\"]*[`'\"]?\\s*(?:does not exist|not found|is not available)")
+var (
+	assistantModelMissingRe   = regexp.MustCompile("(?i)\\bmodel\\s+[`'\"]?[^\\s`'\"]*[`'\"]?\\s*(?:does not exist|not found|is not available)")
+	assistantQuotedModelErrRe = regexp.MustCompile(`(?i)the ['"` + "`" + `]([a-zA-Z0-9._:/-]+)['"` + "`" + `] model is not supported`)
+)
+
+func extractUnsupportedModelHint(text string) string {
+	if m := assistantQuotedModelErrRe.FindStringSubmatch(text); len(m) == 2 && m[1] != "" {
+		return "（" + m[1] + "）"
+	}
+	return ""
+}
 
 func classifyAssistantFailureText(f domain.AssistantFailure, err error, text string) domain.AssistantFailure {
 	message := strings.ToLower(text)
@@ -151,6 +161,11 @@ func classifyAssistantFailureText(f domain.AssistantFailure, err error, text str
 		return false
 	}
 	switch {
+	case has("switching an existing conversation", "requires a new conversation", "model-specific state"):
+		f.Code, f.Phase, f.Message, f.Suggestion = "SESSION_MODEL_CONFLICT", "provider", "所选模型不支持在旧对话线程中直接切换，请点击左上角「新对话」后使用", "部分有状态推理模型（如 Fusion）要求从新会话首轮开始调用。"
+	case has("is not supported when using codex", "model_not_in_accessible_catalog", "no auth available", "auth_unavailable", "no available channel"):
+		hint := extractUnsupportedModelHint(text)
+		f.Code, f.Phase, f.Message, f.Suggestion = "MODEL_UNAVAILABLE", "provider", "当前模型服务或上游账号池未开通该模型"+hint+"，请切换其他可用模型", "请在左下角模型选择器切换其他可用型号后重试。"
 	case has("本机登录态"):
 		f.Code, f.Phase, f.Message, f.Suggestion = "RUNNER_LOGIN_REQUIRED", "setup", "执行机器上的 CLI 本机登录态不可用，请检查执行机器上的 CLI 登录", "请在运行 Runner 的系统账户下检查 CLI 登录，或切换到个人凭证。"
 	case has("执行机器需升级至"):
