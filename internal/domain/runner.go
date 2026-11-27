@@ -348,7 +348,7 @@ func (r Runner) RuntimeAuthMode(provider string) string {
 			break
 		}
 	}
-	if strings.EqualFold(provider, "codebuddy") {
+	if !RunnerLoginByDefault(provider) {
 		return RuntimeAuthPersonal
 	}
 	return RuntimeAuthLocal
@@ -356,10 +356,22 @@ func (r Runner) RuntimeAuthMode(provider string) string {
 
 func SupportsRunnerLogin(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "codex", "claude-code", "agy":
+	case "codex", "claude-code", "agy", "opencode":
 		return true
 	default:
 		return false
+	}
+}
+
+// RunnerLoginByDefault reports whether a runtime without a saved preference
+// uses the machine's CLI login. OpenCode is opt-in, so machines that already
+// run it with a personal API key keep doing so.
+func RunnerLoginByDefault(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "codebuddy", "opencode":
+		return false
+	default:
+		return true
 	}
 }
 

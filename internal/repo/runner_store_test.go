@@ -89,22 +89,48 @@ func TestRunnerHeartbeatPreservesRuntimeAuthMode(t *testing.T) {
 func TestAgentCLIHeartbeatForcesPersonalAuth(t *testing.T) {
 	s := newTestRunner(t)
 	now := time.Now().UTC()
-	if err := s.PutRunner(domain.Runner{ID: "runner-agy", Status: domain.RunnerStatusOnline, Runtimes: []domain.RunnerRuntime{{Provider: "opencode", Status: domain.RuntimeStatusOnline, AuthMode: domain.RuntimeAuthLocal}}}); err != nil {
+	if err := s.PutRunner(domain.Runner{ID: "runner-agy", Status: domain.RunnerStatusOnline, Runtimes: []domain.RunnerRuntime{{Provider: "kimi", Status: domain.RuntimeStatusOnline, AuthMode: domain.RuntimeAuthLocal}}}); err != nil {
 		t.Fatal(err)
 	}
 	runner, _ := s.Runner("runner-agy")
-	if got := runner.RuntimeAuthMode("opencode"); got != domain.RuntimeAuthPersonal {
+	if got := runner.RuntimeAuthMode("kimi"); got != domain.RuntimeAuthPersonal {
 		t.Fatalf("stored local agent CLI auth = %q", got)
 	}
-	if err := s.SetRunnerRuntimeAuthMode("runner-agy", "opencode", domain.RuntimeAuthLocal, now); err == nil {
-		t.Fatal("local auth accepted for opencode")
+	if err := s.SetRunnerRuntimeAuthMode("runner-agy", "kimi", domain.RuntimeAuthLocal, now); err == nil {
+		t.Fatal("local auth accepted for kimi")
 	}
-	if err := s.RunnerHeartbeat("runner-agy", []domain.RunnerRuntime{{Provider: "opencode", Status: domain.RuntimeStatusOnline}}, "1", now, now.Add(time.Hour)); err != nil {
+	if err := s.RunnerHeartbeat("runner-agy", []domain.RunnerRuntime{{Provider: "kimi", Status: domain.RuntimeStatusOnline}}, "1", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	runner, _ = s.Runner("runner-agy")
 	if len(runner.Runtimes) != 1 || runner.Runtimes[0].AuthMode != domain.RuntimeAuthPersonal {
 		t.Fatalf("heartbeat = %+v", runner.Runtimes)
+	}
+}
+
+func TestOpenCodeLocalLoginIsOptIn(t *testing.T) {
+	s := newTestRunner(t)
+	now := time.Now().UTC()
+	reported := []domain.RunnerRuntime{{Provider: "opencode", Status: domain.RuntimeStatusOnline}}
+	if err := s.PutRunner(domain.Runner{ID: "runner-oc", Status: domain.RunnerStatusOnline, Runtimes: reported}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunnerHeartbeat("runner-oc", reported, "1", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	runner, _ := s.Runner("runner-oc")
+	if got := runner.RuntimeAuthMode("opencode"); got != domain.RuntimeAuthPersonal {
+		t.Fatalf("default auth mode = %q, want personal", got)
+	}
+	if err := s.SetRunnerRuntimeAuthMode("runner-oc", "opencode", domain.RuntimeAuthLocal, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunnerHeartbeat("runner-oc", reported, "1", now.Add(time.Second), now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	runner, _ = s.Runner("runner-oc")
+	if got := runner.RuntimeAuthMode("opencode"); got != domain.RuntimeAuthLocal {
+		t.Fatalf("auth mode after heartbeat = %q, want local", got)
 	}
 }
 
