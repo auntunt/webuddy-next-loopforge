@@ -48,8 +48,17 @@ func (h *webuddyEnvHandlers) overview(c *gin.Context) {
 	}
 
 	importedPaths := make(map[string]bool)
+	var visibleProjects map[string]bool
+	if authRequired() {
+		visibleProjects = h.visibleProjectIDSetForRequest(c.Request)
+	}
 	allRepos := h.repo.Repositories()
+	visibleReposCount := 0
 	for _, r := range allRepos {
+		if visibleProjects != nil && !visibleProjects[r.ProjectID] {
+			continue
+		}
+		visibleReposCount++
 		if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
 			importedPaths[lp] = true
 		}
@@ -109,7 +118,7 @@ func (h *webuddyEnvHandlers) overview(c *gin.Context) {
 		"server":        serverProf,
 		"runners":       runnersOut,
 		"importedMcps":  importedMCPList,
-		"importedRepos": len(allRepos),
+		"importedRepos": visibleReposCount,
 	})
 }
 

@@ -78,6 +78,18 @@ func (h *assistantHandlers) listSessions(c *gin.Context) {
 	}
 	out := visibleAssistantConversations(append(append(items, shared...), projectChats...), current.ID, sharedIDs, runProjects, allowedProjects)
 	out = assistantSessionsForSurface(out, strings.TrimSpace(c.Query("surface")), strings.TrimSpace(c.Query("workflowId")), strings.TrimSpace(c.Query("projectId")), current.ID)
+	if authRequired() {
+		visibleTenantProjects := h.visibleProjectIDSetForRequest(c.Request)
+		tenantFiltered := make([]assistantConversation, 0, len(out))
+		for _, item := range out {
+			pid := strings.TrimSpace(item.ProjectID)
+			if pid != "" && !visibleTenantProjects[pid] {
+				continue
+			}
+			tenantFiltered = append(tenantFiltered, item)
+		}
+		out = tenantFiltered
+	}
 	ids := make([]string, 0, len(out))
 	for _, item := range out {
 		ids = append(ids, item.ID)

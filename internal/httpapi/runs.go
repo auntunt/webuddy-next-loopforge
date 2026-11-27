@@ -65,7 +65,15 @@ func (h *runsHandlers) analytics(c *gin.Context) {
 }
 
 func (h *runsHandlers) workflowMetrics(c *gin.Context) {
-	c.JSON(200, h.repo.WorkflowMetricsFor(c.Query("projectId")))
+	pid := strings.TrimSpace(c.Query("projectId"))
+	if authRequired() {
+		visible := h.visibleProjectIDSetForRequest(c.Request)
+		if (pid != "" && !visible[pid]) || (pid == "" && len(visible) == 0) {
+			c.JSON(200, map[string]domain.WorkflowMetrics{})
+			return
+		}
+	}
+	c.JSON(200, h.repo.WorkflowMetricsFor(pid))
 }
 
 func (h *runsHandlers) runs(c *gin.Context) {

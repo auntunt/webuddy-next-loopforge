@@ -4,6 +4,7 @@ html[data-theme="dark"] { color-scheme:dark }
 html[data-lang="en"] .platform-sidebar { width:230px }
 html[data-lang="en"] .shell-main { min-width:0 }
 html[data-lang="en"] .nav-label { white-space:normal;line-height:1.3 }
+html[data-lang="en"] .platform-rail .rail-label { font-size:10px;line-height:1.15;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
 html[data-lang="en"] .topbar-project-label { white-space:nowrap }
 .lang-switch {
   display: inline-flex;

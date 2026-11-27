@@ -1353,6 +1353,7 @@ function bindCredentialPanel(panel){
     if(select){
       const key=select.value;
       select.value='';
+      window.HuiSelect?.sync?.(select);
       if(!key)return;
       select.focus();
       if(select.dataset.credentialAddMenu==='model'||key==='gitToken')openCredentialWizard(key);
@@ -1423,7 +1424,7 @@ function openCredentialWizard(key){
   const kind=preset||CREDENTIAL_RECOMMENDED.map(credentialKind).find(k=>!credentialConfigured(k,user))||CREDENTIAL_KINDS.find(k=>!credentialConfigured(k,user))||null;
   if(credentialWizard)closeCredentialWizard(true);
   credentialUI().open&&toggleCredentialRow(credentialUI().open,false);
-  credentialWizard={step:preset?2:1,kind:kind?.key||null,direct:!!preset,secret:'',extra:credentialWizardDefaults(kind,user),baseUrl:credentialValue(user,kind?.baseURL)||'',protocol:credentialProtocol(kind||{},user),saving:false,error:'',done:false,guide:{},returnFocus:document.activeElement};
+  credentialWizard={step:preset?2:1,kind:kind?.key||null,direct:!!preset,githubMethod:(kind?.key==='gitToken'&&!state.gongfengOAuthEnabled&&!state.githubOAuthEnabled)?'manual':undefined,secret:'',extra:credentialWizardDefaults(kind,user),baseUrl:credentialValue(user,kind?.baseURL)||'',protocol:credentialProtocol(kind||{},user),saving:false,error:'',done:false,guide:{},returnFocus:document.activeElement};
   let scrim=$('#credentialWizard');
   if(scrim?.closeTimer){clearTimeout(scrim.closeTimer);scrim.closeTimer=0}
   if(!scrim){

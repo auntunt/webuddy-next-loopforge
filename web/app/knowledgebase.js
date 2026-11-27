@@ -109,15 +109,28 @@
   async function loadKnowledgeBaseView() {
     const root = document.getElementById('knowledgebaseRoot');
     if (!root) return;
+    if (!root.innerHTML.trim()) {
+      root.innerHTML = '<div class="wb-page"><div class="wb-header"><div><h1>知识库</h1><p class="wb-subtitle">正在加载项目知识图谱…</p></div></div></div>';
+    }
     try {
       const repoData = await reqJSON('/api/webuddy/kb/repos');
       kbState.repos = repoData.repos || [];
     } catch (_) {
       kbState.repos = [];
     }
+    if (kbState.repos.length === 0) {
+      kbState.repoPath = '';
+      kbState.overview = null;
+      kbState.statecharts = null;
+      kbState.batchRunning = false;
+      render();
+      return;
+    }
     const storedPath = localStorage.getItem('webuddy.kb.repoPath') || '';
     if (storedPath && kbState.repos.some(r => r.localPath === storedPath && r.exists)) {
       kbState.repoPath = storedPath;
+    } else if (!kbState.repos.some(r => r.localPath === kbState.repoPath && r.exists)) {
+      kbState.repoPath = '';
     }
     const activePid = (window.state && window.state.projectFilter) || '';
     const currentRepo = kbState.repos.find(r => r.localPath === kbState.repoPath && r.exists);

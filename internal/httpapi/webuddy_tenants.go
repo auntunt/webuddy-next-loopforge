@@ -1009,7 +1009,7 @@ func (h *webuddyEnvHandlers) clonePresetSOPToTenant(c *gin.Context) {
 	cloned.Name = newName
 	cloned.ProjectID = targetProjectID
 	cloned.Generic = false
-	cloned.Shared = false
+	cloned.Shared = targetProjectID == ""
 	cloned.Status = "published"
 	cloned.Owner = actor
 	cloned.Version = 1
