@@ -484,7 +484,8 @@ async function adoptGenericTemplate(){
 function renderSOPCatalog(){
   renderCatalogScopes();
   let workflows=scopedWorkflows();
-  const metrics=new Map((state.data.workflowMetrics||[]).map(m=>[m.workflowId,m]));
+  const rawMetrics=Array.isArray(state.data.workflowMetrics)?state.data.workflowMetrics:[];
+  const metrics=new Map(rawMetrics.map(m=>[m.workflowId,m]));
   const live=liveRuns();
   const all=[...metrics.values()],totalRuns=all.reduce((n,m)=>n+m.totalRuns,0),succeeded=all.reduce((n,m)=>n+m.succeededRuns,0),failed=all.reduce((n,m)=>n+m.failedRuns,0),active=live.length,tokens=all.reduce((n,m)=>n+m.totalTokens,0);
   const scopeLabel=state.sopScope==='generic'?'通用':state.sopScope==='shared'?'共享':'项目';

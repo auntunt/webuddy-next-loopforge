@@ -38,18 +38,19 @@ globalThis.LoopForgeGitSSH = function parseSSHRepository(raw) {
   return { provider: 'ssh', host: endpoint, project: `${host.toLowerCase()}${port === '22' ? '' : ':' + port}/${segments.join('/')}`, name, cloneUrl, webUrl: '' };
 };
 
-// Unknown HTTPS hosts use Git transport without identifying the hosting product.
+// Self-hosted HTTP(S) and unknown Git hosts use Git transport without identifying the hosting product.
 globalThis.LoopForgeGitHTTPS = function parseHTTPSRepository(raw) {
   const address=String(raw||'').trim().replace(/^git clone\s+/i,'');
-  if(!/^https:\/\//i.test(address)||/[\s\\]/.test(address))return null;
+  if(!/^https?:\/\//i.test(address)||/[\s\\]/.test(address))return null;
   try{
-    const u=new URL(address),host=u.host.toLowerCase();
-    if(u.username||u.password||u.search||u.hash||['github.com','git.example.com'].includes(u.hostname.toLowerCase()))return null;
-    if(!/^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?$/i.test(host)||u.hostname.includes('..')||/^\d+(?:\.\d+){3}$/.test(u.hostname))return null;
+    const u=new URL(address),host=u.host.toLowerCase(),hostname=u.hostname.toLowerCase();
+    if((u.protocol!=='https:'&&u.protocol!=='http:')||u.username||u.password||u.search||u.hash||['github.com','git.example.com'].includes(hostname))return null;
+    if(hostname.startsWith('-')||hostname.includes('..')||!/^(?:\[[a-f0-9:]+\]|[a-z0-9][a-z0-9.-]*|\d+(?:\.\d+){3})(?::[0-9]+)?$/i.test(host))return null;
     const parts=u.pathname.replace(/^\/+|\/+$/g,'').split('/');
     if(parts.some(part=>!part||decodeURIComponent(part)==='.'||decodeURIComponent(part)==='..'))return null;
     const name=parts[parts.length-1].replace(/\.git$/,'');if(!name)return null;
-    const cloneUrl='https://'+host+'/'+parts.join('/');
+    const scheme=u.protocol==='http:'?'http://':'https://';
+    const cloneUrl=scheme+host+'/'+parts.join('/');
     return {provider:'https',host,project:host+'/'+parts.join('/').replace(/\.git$/,''),name,cloneUrl,webUrl:cloneUrl.replace(/\.git$/,'')};
   }catch{return null}
 };

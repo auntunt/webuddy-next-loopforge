@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"agentflow/internal/domain"
 	"agentflow/internal/webuddykb"
 
 	"github.com/gin-gonic/gin"
@@ -52,11 +53,24 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 		}
 		return rp, true
 	}
+	var actorUID int64
+	if u, ok := h.requestUser(c.Request, true); ok && u != nil {
+		actorUID = u.ID
+	}
+	resolveRepoLP := func(r domain.Repository, ensureClone bool) string {
+		if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
+			return lp
+		}
+		if h.deps != nil {
+			return strings.TrimRight(h.deps.effectiveKBRepoPath(c.Request.Context(), r, actorUID, ensureClone, false), "/")
+		}
+		return ""
+	}
 	if rp == "" {
 		if pid := strings.TrimSpace(c.Query("projectId")); pid != "" {
 			for _, r := range repos {
 				if r.ProjectID == pid {
-					if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
+					if lp := resolveRepoLP(r, true); lp != "" {
 						if !checkPerm(r.ProjectID) {
 							return "", false
 						}
@@ -71,7 +85,7 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 			if authRequired() && r.ProjectID != "" && !visible[r.ProjectID] {
 				continue
 			}
-			if lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/"); lp != "" {
+			if lp := resolveRepoLP(r, true); lp != "" {
 				if !checkPerm(r.ProjectID) {
 					return "", false
 				}
@@ -82,11 +96,16 @@ func (h *webuddyKBHandlers) resolveAuthorizedKBRepo(c *gin.Context, rawRepoPath 
 	}
 	for _, r := range repos {
 		lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/")
-		if (lp != "" && lp == rp) || r.ID == rp {
+		mp := strings.TrimRight(remoteMirrorDirForRepo(r), "/")
+		if (lp != "" && lp == rp) || (mp != "" && mp == rp) || r.ID == rp {
 			if !checkPerm(r.ProjectID) {
 				return "", false
 			}
-			return lp, true
+			eff := resolveRepoLP(r, true)
+			if eff == "" && mp != "" {
+				eff = mp
+			}
+			return eff, true
 		}
 	}
 	if authRequired() {
@@ -102,7 +121,9 @@ func (h *webuddyKBHandlers) projectIDForRepoPath(repoPath string) string {
 		return ""
 	}
 	for _, r := range h.repo.Repositories() {
-		if strings.TrimRight(strings.TrimSpace(r.LocalPath), "/") == rp {
+		lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/")
+		mp := strings.TrimRight(remoteMirrorDirForRepo(r), "/")
+		if (lp != "" && lp == rp) || (mp != "" && mp == rp) {
 			return r.ProjectID
 		}
 	}
@@ -130,6 +151,18 @@ func (h *webuddyKBHandlers) scan(c *gin.Context) {
 	rp, ok := h.resolveAuthorizedKBRepo(c, input.RepoPath, true)
 	if !ok {
 		return
+	}
+	if h.deps != nil && h.repo != nil && rp != "" {
+		var actorUID int64
+		if u, ok := h.requestUser(c.Request, true); ok && u != nil {
+			actorUID = u.ID
+		}
+		for _, r := range h.repo.Repositories() {
+			if strings.TrimRight(remoteMirrorDirForRepo(r), "/") == rp {
+				h.deps.refreshRemoteRepoMirror(c.Request.Context(), r, rp, actorUID)
+				break
+			}
+		}
 	}
 	raw, err := h.svc.Scan(c.Request.Context(), rp)
 	renderRawJSON(c, raw, err)

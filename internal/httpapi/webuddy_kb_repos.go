@@ -64,6 +64,10 @@ func (h *webuddyKBHandlers) repos(c *gin.Context) {
 	for _, p := range projects {
 		projName[p.ID] = p.Name
 	}
+	var actorUID int64
+	if u, ok := h.requestUser(c.Request, true); ok && u != nil {
+		actorUID = u.ID
+	}
 	allRepos := h.repo.Repositories()
 	items := make([]localRepoItem, 0, len(allRepos))
 	for _, r := range allRepos {
@@ -71,6 +75,16 @@ func (h *webuddyKBHandlers) repos(c *gin.Context) {
 			continue
 		}
 		lp := strings.TrimSpace(r.LocalPath)
+		if lp == "" && h.deps != nil {
+			lp = h.deps.effectiveKBRepoPath(c.Request.Context(), r, actorUID, true, false)
+			if lp != "" {
+				if _, hg0, hkb0, _ := inspectLocalRepo(lp); !hg0 && !hkb0 {
+					scanCtx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+					_, _ = h.svc.Scan(scanCtx, lp)
+					cancel()
+				}
+			}
+		}
 		if lp == "" {
 			continue
 		}
@@ -270,7 +284,9 @@ func (h *webuddyKBHandlers) gitRefs(c *gin.Context) {
 		visible := h.visibleProjectIDSetForRequest(c.Request)
 		allowed := false
 		for _, r := range h.repo.Repositories() {
-			if strings.TrimRight(strings.TrimSpace(r.LocalPath), "/") == rp && visible[r.ProjectID] {
+			lp := strings.TrimRight(strings.TrimSpace(r.LocalPath), "/")
+			mp := strings.TrimRight(remoteMirrorDirForRepo(r), "/")
+			if ((lp != "" && lp == rp) || (mp != "" && mp == rp)) && visible[r.ProjectID] {
 				allowed = true
 				break
 			}

@@ -86,7 +86,8 @@ func (d *deps) resolveProjectAndRepoPath(projectID string) (string, string, stri
 		projName = p.Name
 	}
 	repoPath := ""
-	for _, r := range d.repo.Repositories() {
+	allRepos := d.repo.Repositories()
+	for _, r := range allRepos {
 		if (pid == "" || r.ProjectID == pid) && strings.TrimSpace(r.LocalPath) != "" {
 			repoPath = strings.TrimSpace(r.LocalPath)
 			if pid == "" {
@@ -96,6 +97,22 @@ func (d *deps) resolveProjectAndRepoPath(projectID string) (string, string, stri
 				}
 			}
 			break
+		}
+	}
+	if repoPath == "" {
+		for _, r := range allRepos {
+			if pid == "" || r.ProjectID == pid {
+				if mp := d.effectiveKBRepoPath(context.Background(), r, 0, true, false); mp != "" {
+					repoPath = mp
+					if pid == "" {
+						pid = r.ProjectID
+						if p, ok := d.repo.Project(pid); ok {
+							projName = p.Name
+						}
+					}
+					break
+				}
+			}
 		}
 	}
 	return pid, projName, repoPath

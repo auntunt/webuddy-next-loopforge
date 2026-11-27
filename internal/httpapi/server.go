@@ -248,8 +248,14 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 				Author:            "SOP自动沉淀",
 			})
 		}
-		// 2. Auto-trigger incremental KB scan & stale page update for succeeded runs!
+		// 2. Auto-trigger GitHub PR creation (when runner sandbox has no direct GitHub access)
+		// and incremental KB scan & stale page update for succeeded runs!
 		if settled.Status == "succeeded" {
+			go func(runID string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+				defer cancel()
+				_, _ = d.createGitHubPRFromRunPatch(ctx, runID, 0)
+			}(settled.ID)
 			_ = d.startAsyncKBBatchUpdate("sop-auto-sync", pid, 3, "", false)
 		}
 	}
@@ -738,6 +744,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/runs/:id/evals", api.runs.listRunEvals)
 	g.GET("/api/runs/:id/eval/stream", api.runs.streamRunEval)
 	g.POST("/api/runs/:id/eval/apply", api.runs.applyRunEval)
+	g.POST("/api/runs/:id/create-pr", api.runs.createGitHubPR)
 	g.GET("/api/runs/:id/preview", api.previews.runPreview)
 	g.GET("/api/runs/:id/preview/download", api.previews.downloadRunPreview)
 	g.PUT("/api/runs/:id/preview/backend", api.previews.updatePreviewBackend)

@@ -69,7 +69,7 @@ func (h *runsHandlers) workflowMetrics(c *gin.Context) {
 	if authRequired() {
 		visible := h.visibleProjectIDSetForRequest(c.Request)
 		if (pid != "" && !visible[pid]) || (pid == "" && len(visible) == 0) {
-			c.JSON(200, map[string]domain.WorkflowMetrics{})
+			c.JSON(200, []domain.WorkflowMetrics{})
 			return
 		}
 	}

@@ -147,10 +147,17 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 		return
 	}
 	// One pasted repository reference (web / SSH / clone / git clone)
-	// An unknown HTTPS host is a Git transport, not an unknown hosting adapter.
+	// An unknown HTTPS/HTTP host is a Git transport, not an unknown hosting adapter.
 	_, knownHost := domain.ParseRepositoryURL(sshReference)
-	if v.Provider == domain.RepositoryProviderHTTPS || !knownHost && strings.HasPrefix(strings.TrimPrefix(sshReference, "git clone "), "https://") {
-		remote, name, err := gitwork.HTTPSRepositoryURL(sshReference)
+	trimmedHTTP := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(sshReference), "git clone "))
+	looseHTTP := defaultGovStore.getPolicy().AllowLooseProjects
+	isGenericHTTP := strings.HasPrefix(strings.ToLower(trimmedHTTP), "https://") || (looseHTTP && strings.HasPrefix(strings.ToLower(trimmedHTTP), "http://"))
+	if v.Provider == domain.RepositoryProviderHTTPS || (!knownHost && isGenericHTTP) {
+		parseGitHTTP := gitwork.HTTPSRepositoryURL
+		if looseHTTP {
+			parseGitHTTP = gitwork.FlexibleGitHTTPURL
+		}
+		remote, name, err := parseGitHTTP(sshReference)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -159,7 +166,7 @@ func (h *catalogHandlers) repositories(c *gin.Context) {
 			if candidate == "" {
 				continue
 			}
-			other, _, err := gitwork.HTTPSRepositoryURL(candidate)
+			other, _, err := parseGitHTTP(candidate)
 			if err != nil || other != remote {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "仓库地址与 cloneUrl 不一致"})
 				return
@@ -301,6 +308,13 @@ func (h *catalogHandlers) saveRepository(c *gin.Context, v domain.Repository) {
 		return
 	}
 	stored, _ := h.repo.Repository(v.ID)
+	var actorUID int64
+	if u, ok := h.requestUser(c.Request, true); ok && u != nil {
+		actorUID = u.ID
+	}
+	if h.deps != nil && shouldAutoMirrorRemoteRepo(stored) {
+		go h.deps.ensureRemoteRepoMirrorAndScan(stored, actorUID)
+	}
 	c.JSON(200, domain.PublicRepository(stored))
 }
 
