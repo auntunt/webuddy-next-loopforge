@@ -398,13 +398,12 @@ def _scan(repo_path: str) -> dict:
     from tmh.polyglot_structure import build_polyglot_structure
 
     stats = build(root, use_cache=True)
-    if kb.needs_structure(root):
-        try:
-            poly = build_polyglot_structure(root)
-            if poly.get("applied"):
-                stats["polyglot"] = poly
-        except Exception:
-            pass
+    try:
+        poly = build_polyglot_structure(root)
+        if poly.get("applied") or poly.get("statecharts") or poly.get("corePages"):
+            stats["polyglot"] = poly
+    except Exception:
+        pass
     try:
         kb_stats = kb.build(root)
         stats["kbBuild"] = kb_stats
@@ -1306,8 +1305,7 @@ def _kb_next(repo_path: str, limit: int, query: str, who: str) -> dict:
     if not graph_path(root).exists() or (git_head and build_head != git_head):
         try:
             graph_build(root, use_cache=True)
-            if kb.needs_structure(root):
-                build_polyglot_structure(root)
+            build_polyglot_structure(root)
             kb.build(root)
             _write_build_head(root, git_head)
         except Exception:

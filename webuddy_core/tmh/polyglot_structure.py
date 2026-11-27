@@ -58,6 +58,23 @@ _JS_ROUTE_RE = re.compile(
     r"""\b(?:app|router|fastify|server|hono|r)\.(get|post|put|delete|patch|all)\s*\(\s*['"`]([^'"`\n]+)['"`]""",
     re.I,
 )
+# Native Node.js http.createServer / URL routing:
+# e.g. if (req.method === 'POST' && pathname === '/api/orders')
+# e.g. if (method === 'POST' && pathname.match(/^\/api\/orders\/([^/]+)\/approve$/))
+_JS_NATIVE_ROUTE_EQ_RE = re.compile(
+    r"""\b(?:req\.)?method\s*={2,3}\s*['"](GET|POST|PUT|DELETE|PATCH)['"][^;\n]{0,80}?(?:pathname|url|path)\s*={2,3}\s*['"`]([^'"`\n]+)['"`]""",
+    re.I,
+)
+_JS_NATIVE_ROUTE_MATCH_RE = re.compile(
+    r"""\b(?:req\.)?method\s*={2,3}\s*['"](GET|POST|PUT|DELETE|PATCH)['"][^;\n]{0,80}?(?:pathname|url|path)\.match\(\s*/\^?([^/\n]+?)\$?/\s*\)""",
+    re.I,
+)
+_JS_URL_MATCH_ONLY_RE = re.compile(
+    r"""\b(?:pathname|url)\.(?:startsWith|endsWith)\(\s*['"`](/[^'"`\n]+)['"`]\s*\)""",
+)
+_JS_FUNC_RE = re.compile(
+    r"""^\s*(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(""",
+)
 # NestJS / Spring-like / Kotlin decorators
 _NEST_CTRL_RE = re.compile(r"""@Controller\s*\(\s*['"]([^'"]*)['"]""")
 _NEST_METHOD_RE = re.compile(r"""@(Get|Post|Put|Delete|Patch)\s*\(\s*(?:['"]([^'"]*)['"])?\s*\)""")
@@ -219,6 +236,16 @@ def extract_polyglot_proposal(root: Path, *, allowed_files: set[str] | None = No
                     m_rt = _JS_ROUTE_RE.search(ln)
                     if m_rt:
                         add_entry("接口", m_rt.group(1), m_rt.group(2), idx)
+                    m_nat = _JS_NATIVE_ROUTE_EQ_RE.search(ln)
+                    if m_nat:
+                        add_entry("接口", m_nat.group(1), m_nat.group(2), idx)
+                    else:
+                        m_natm = _JS_NATIVE_ROUTE_MATCH_RE.search(ln)
+                        if m_natm:
+                            norm_p = re.sub(r"\([^)]+\)", ":id", m_natm.group(2).replace("\\/", "/"))
+                            if not norm_p.startswith("/"):
+                                norm_p = "/" + norm_p
+                            add_entry("接口", m_natm.group(1), norm_p, idx)
                     m_nest = _NEST_METHOD_RE.search(ln)
                     if m_nest:
                         sub = (m_nest.group(2) or "").strip("/")
@@ -347,25 +374,254 @@ def build_polyglot_structure(root: Path) -> dict:
             pass
 
     proposal = extract_polyglot_proposal(root)
-    proposal["flows"] = [
+    statecharts = extract_and_write_statecharts(root)
+    new_flows = [
         f for f in proposal["flows"]
         if f["trigger"] not in existing_triggers and f["id"] not in existing_ids
     ]
-    proposal["tables"] = [
+    new_tables = [
         t for t in proposal["tables"]
         if t["name"].lower() not in existing_tables
     ]
-    if not proposal["flows"] and not proposal["tables"]:
-        return {"applied": False, "flows": 0, "tables": 0, "errors": []}
+    core_pages = ensure_tmh_core_pages(root, proposal, statecharts)
+    if not new_flows and not new_tables:
+        return {
+            "applied": False,
+            "flows": 0,
+            "tables": 0,
+            "statecharts": len(statecharts),
+            "corePages": core_pages,
+            "errors": [],
+        }
 
-    proposal_text = json.dumps(proposal, ensure_ascii=False, indent=2)
+    proposal_to_apply = {"flows": new_flows, "tables": new_tables}
+    proposal_text = json.dumps(proposal_to_apply, ensure_ascii=False, indent=2)
     struct_path = root / ".tmh" / "knowledge" / "structure.json"
     struct_path.parent.mkdir(parents=True, exist_ok=True)
     struct_path.write_text(proposal_text, encoding="utf-8")
     res = graph_build(root, use_cache=False, proposal_text=proposal_text)
     return {
         "applied": not bool(res.get("structure_errors")),
-        "flows": len(proposal["flows"]),
-        "tables": len(proposal["tables"]),
+        "flows": len(new_flows),
+        "tables": len(new_tables),
+        "statecharts": len(statecharts),
+        "corePages": core_pages,
         "errors": res.get("structure_errors") or [],
     }
+
+
+_STATE_ASSIGN_RE = re.compile(
+    r"""(?:\b([a-zA-Z_][a-zA-Z0-9_]*)\.)?status\s*(?:=|:)\s*['"]([a-zA-Z][a-zA-Z0-9_-]{1,28})['"]""",
+)
+_STATE_GUARD_RE = re.compile(
+    r"""(?:\b([a-zA-Z_][a-zA-Z0-9_]*)\.)?status\s*(?:===|!==|==|!=)\s*['"]([a-zA-Z][a-zA-Z0-9_-]{1,28})['"]""",
+)
+_STATE_IGNORED_VALS = {"ok", "error", "err", "true", "false", "null", "none", "success", "fail", "200", "400", "401", "403", "404", "500"}
+_FUNC_DEF_ANY_RE = re.compile(
+    r"""^\s*(?:export\s+)?(?:async\s+)?(?:function|def|func|public\s+\S+|private\s+\S+)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(""",
+)
+_AUTH_GUARD_RE = re.compile(r"""(?:401|403|unauthorized|forbidden|role\s*!==|role\s*!=|requireAuth|isAdmin)""", re.I)
+
+
+def extract_and_write_statecharts(root: Path) -> list[dict]:
+    """Deterministically extract code-level status state machines into .tmh/knowledge/statecharts/*.json."""
+    sc_dir = root / ".tmh" / "knowledge" / "statecharts"
+    all_exts = CODE_EXTS | {".py", ".go", ".java"}
+    by_entity: dict[str, dict] = {}
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        for fn in filenames:
+            ext = Path(fn).suffix.lower()
+            if ext not in all_exts:
+                continue
+            fp = Path(dirpath) / fn
+            try:
+                rel = fp.relative_to(root).as_posix()
+                if fp.stat().st_size > 300_000:
+                    continue
+                lines = fp.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+
+            cur_fn = Path(fn).stem
+            recent_guard: tuple[str, str, int] | None = None  # (entity, state, line)
+            for idx, ln in enumerate(lines, 1):
+                mf = _FUNC_DEF_ANY_RE.match(ln)
+                if mf:
+                    cur_fn = mf.group(1)
+                    recent_guard = None
+
+                mg = _STATE_GUARD_RE.search(ln)
+                if mg:
+                    ent = (mg.group(1) or Path(fn).stem).lower()
+                    st = mg.group(2).strip()
+                    if st.lower() not in _STATE_IGNORED_VALS:
+                        recent_guard = (ent, st, idx)
+                        bucket = by_entity.setdefault(ent, {"states": {}, "edges": [], "rules": []})
+                        bucket["states"].setdefault(st, {"where": f"{rel}:{idx}", "summary": f"前置状态校验 ({cur_fn})"})
+                        bucket["rules"].append({
+                            "text": f"{cur_fn}: 前置状态校验 {ln.strip()[:80]}",
+                            "where": f"{rel}:{idx}",
+                            "holds": True,
+                        })
+
+                ma = _STATE_ASSIGN_RE.search(ln)
+                if ma:
+                    ent = (ma.group(1) or Path(fn).stem).lower()
+                    st = ma.group(2).strip()
+                    if st.lower() in _STATE_IGNORED_VALS:
+                        continue
+                    bucket = by_entity.setdefault(ent, {"states": {}, "edges": [], "rules": []})
+                    bucket["states"].setdefault(st, {"where": f"{rel}:{idx}", "summary": f"由 {cur_fn} 写入状态"})
+                    if recent_guard and (idx - recent_guard[2]) <= 25 and recent_guard[1] != st:
+                        bucket["edges"].append((recent_guard[1], st, cur_fn))
+                    elif any(k in cur_fn.lower() for k in ("create", "new", "init", "insert", "add", "submit")):
+                        bucket["edges"].append(("[*]", st, cur_fn))
+                    elif any(k in st.lower() for k in ("pending", "draft", "init", "created", "open")):
+                        bucket["edges"].append(("[*]", st, cur_fn))
+
+    written: list[dict] = []
+    for ent, info in by_entity.items():
+        if len(info["states"]) < 2:
+            continue
+        slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", ent).strip("-").lower() or "entity"
+        out_path = sc_dir / f"{slug}-lifecycle.json"
+        # Preserve human-authored statecharts
+        if out_path.exists():
+            try:
+                existing = json.loads(out_path.read_text(encoding="utf-8", errors="replace"))
+                if existing.get("status") == "已确认":
+                    written.append(existing)
+                    continue
+            except Exception:
+                pass
+
+        seen_edges: list[tuple[str, str, str]] = []
+        for e in info["edges"]:
+            if e not in seen_edges:
+                seen_edges.append(e)
+        # Ensure at least one initial edge if none inferred
+        state_names = list(info["states"].keys())
+        if not any(e[0] == "[*]" for e in seen_edges) and state_names:
+            seen_edges.insert(0, ("[*]", state_names[0], "初始"))
+        if len(seen_edges) < 2 and len(state_names) >= 2:
+            for i in range(len(state_names) - 1):
+                pair = (state_names[i], state_names[i + 1], "流转")
+                if pair not in seen_edges:
+                    seen_edges.append(pair)
+
+        mermaid_lines = ["stateDiagram-v2"]
+        for src_s, dst_s, lbl in seen_edges[:24]:
+            mermaid_lines.append(f"  {src_s} --> {dst_s} : {lbl}")
+
+        payload = {
+            "title": f"{slug} 状态机流转图",
+            "domain": slug,
+            "status": "待确认",
+            "mermaid": "\n".join(mermaid_lines) + "\n",
+            "states": info["states"],
+            "rules": info["rules"][:12],
+            "paths": [],
+        }
+        sc_dir.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        written.append(payload)
+    return written
+
+
+def _is_empty_stub(path: Path) -> bool:
+    if not path.exists():
+        return True
+    try:
+        lines = [ln.strip() for ln in path.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
+    except OSError:
+        return True
+    # Only title + description / empty markdown table header
+    meaningful = [ln for ln in lines if not ln.startswith("#") and not ln.startswith("|---") and not ln.startswith("| 业务词 |") and not ln.startswith("| 问题 |")]
+    return len(meaningful) <= 1
+
+
+def ensure_tmh_core_pages(root: Path, proposal: dict, statecharts: list[dict]) -> list[str]:
+    """Populate empty TMH core knowledge stubs (glossary, decisions, pitfalls, open-questions) with file:line evidence."""
+    kdir = root / ".tmh" / "knowledge"
+    kdir.mkdir(parents=True, exist_ok=True)
+    updated: list[str] = []
+
+    flows = proposal.get("flows") or []
+    tables = proposal.get("tables") or []
+
+    # 1. glossary.md
+    gl_path = kdir / "glossary.md"
+    if _is_empty_stub(gl_path) and (flows or tables or statecharts):
+        rows = ["# 术语表", "", "| 业务词 | 代码 / 表 | 说明 |", "|---|---|---|"]
+        for t in tables[:30]:
+            rows.append(f"| `{t['name']}` | `{t.get('where', '')}` | 数据表 / 核心实体 |")
+        for sc in statecharts[:10]:
+            for st_name, meta in (sc.get("states") or {}).items():
+                rows.append(f"| `{sc.get('domain', '')}.{st_name}` | `{meta.get('where', '')}` | {meta.get('summary', '业务状态')} |")
+        for f in flows[:20]:
+            rows.append(f"| `{f.get('trigger', f.get('name', ''))}` | `{f.get('entry', '')}` | 业务域 `{f.get('domain', 'core')}` 入口 |")
+        gl_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        updated.append("glossary.md")
+
+    # 2. decisions.md
+    dec_path = kdir / "decisions.md"
+    if _is_empty_stub(dec_path):
+        stack_notes: list[str] = []
+        if (root / "package.json").exists():
+            stack_notes.append("- **Node.js / JavaScript 运行时**：检测到 `package.json:1`，采用 Node.js 工程结构。")
+        if (root / "go.mod").exists():
+            stack_notes.append("- **Go 后端服务**：检测到 `go.mod:1`，采用 Go 模块化构建。")
+        if (root / "pyproject.toml").exists() or (root / "requirements.txt").exists():
+            stack_notes.append("- **Python 服务**：检测到 Python 依赖清单。")
+        if (root / "pom.xml").exists() or (root / "build.gradle").exists():
+            stack_notes.append("- **JVM / Spring 服务**：检测到 Maven/Gradle 构建配置。")
+        if tables:
+            stack_notes.append(f"- **数据存储模型**：共识别 {len(tables)} 张数据表（如 `{tables[0]['name']}` 位于 `{tables[0].get('where', '')}`）。")
+        if flows:
+            doms = sorted({f.get("domain") or "core" for f in flows})
+            stack_notes.append(f"- **业务入口与分域**：共识别 {len(flows)} 条业务入口，归属 {len(doms)} 个业务域（`{', '.join(doms[:8])}`）。")
+        if statecharts:
+            stack_notes.append(f"- **状态机设计**：识别到 {len(statecharts)} 个实体生命周期状态机，已固化至 `.tmh/knowledge/statecharts/`。")
+        if stack_notes:
+            dec_path.write_text("# 技术与业务决定\n\n以下为基于源码自动提取的架构与技术决策（含真实 `file:line` 证据，可人工补充原因）：\n\n" + "\n".join(stack_notes) + "\n", encoding="utf-8")
+            updated.append("decisions.md")
+
+    # 3. pitfalls.md
+    pit_path = kdir / "pitfalls.md"
+    if _is_empty_stub(pit_path):
+        pits: list[str] = []
+        for sc in statecharts:
+            for r in (sc.get("rules") or [])[:8]:
+                pits.append(f"- **状态前置约束**：{r.get('text', '')}（证据：`{r.get('where', '')}`）")
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+            for fn in filenames:
+                if Path(fn).suffix.lower() not in (CODE_EXTS | {".py", ".go", ".java"}):
+                    continue
+                fp = Path(dirpath) / fn
+                try:
+                    rel = fp.relative_to(root).as_posix()
+                    for idx, ln in enumerate(fp.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                        if _AUTH_GUARD_RE.search(ln) and len(pits) < 16:
+                            pits.append(f"- **权限 / 边界拦截**：`{ln.strip()[:90]}`（证据：`{rel}:{idx}`）")
+                except OSError:
+                    continue
+        if pits:
+            pit_path.write_text("# 坑与反直觉的地方\n\n以下为源码中的关键状态前置校验与权限拦截边界，改动时请重点核查：\n\n" + "\n".join(pits) + "\n", encoding="utf-8")
+            updated.append("pitfalls.md")
+
+    # 4. open-questions.md
+    oq_path = kdir / "open-questions.md"
+    if _is_empty_stub(oq_path) and (flows or statecharts):
+        rows = ["# 待确认问题", "", "| 问题 | 涉及页面 | 要问谁 | 答复 |", "|---|---|---|---|"]
+        for sc in statecharts[:5]:
+            rows.append(f"| `{sc.get('domain', '')}` 状态机各终态是否允许回退或重复提交？ | `statecharts/{sc.get('domain', '')}-lifecycle.json` | 业务负责人 | 待确认 |")
+        for f in flows[:5]:
+            if f.get("kind") == "接口":
+                rows.append(f"| 入口 `{f.get('trigger', '')}`（`{f.get('entry', '')}`）的权限角色边界与幂等策略是否已对齐线上？ | `modules/` | 接口负责人 | 待确认 |")
+        oq_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        updated.append("open-questions.md")
+
+    return updated
