@@ -1955,8 +1955,9 @@ async function loadPlatformTenants(host){
 
       listEl.querySelectorAll('[data-switch-tenant]').forEach(btn=>btn.onclick=async ()=>{
         try{
-          await api('/api/tenants/switch',{method:'POST',body:JSON.stringify({tenantId:btn.dataset.switchTenant})});
-          window.location.reload();
+          if(typeof applyActiveTenantSwitch==='function')await applyActiveTenantSwitch(btn.dataset.switchTenant);
+          else{await api('/api/tenants/switch',{method:'POST',body:JSON.stringify({tenantId:btn.dataset.switchTenant})});window.location.reload();}
+          refresh();
         }catch(err){showFb(err.message||'切换失败',true)}
       });
       listEl.querySelectorAll('[data-rotate-invite]').forEach(btn=>btn.onclick=async ()=>{
@@ -2003,6 +2004,9 @@ async function loadPlatformTenants(host){
         const [tid,sopId]=btn.dataset.clonePreset.split(':');
         try{
           const r=await api(`/api/tenants/${encodeURIComponent(tid)}/sops/${encodeURIComponent(sopId)}/clone`,{method:'POST',body:JSON.stringify({})});
+          if(r?.workflow&&Array.isArray(state.data?.workflows)&&!state.data.workflows.some(w=>w.id===r.workflow.id)){
+            state.data.workflows.unshift(r.workflow);
+          }
           showFb(`✅ 已复制为本租户专属 SOP：${r.workflow?.name||r.workflow?.id}（可在 SOP 页面自由定制）`,false);
         }catch(err){showFb(err.message||'复制失败',true)}
       });
@@ -2015,8 +2019,11 @@ async function loadPlatformTenants(host){
     e.preventDefault();
     const fd=new FormData(createForm);
     try{
-      await api('/api/tenants',{method:'POST',body:JSON.stringify({name:fd.get('name')})});
-      window.location.reload();
+      const created=await api('/api/tenants',{method:'POST',body:JSON.stringify({name:fd.get('name')})});
+      createForm.reset();
+      const newTid=created?.tenant?.id||created?.activeTenantId;
+      if(newTid&&typeof applyActiveTenantSwitch==='function'){await applyActiveTenantSwitch(newTid);refresh();}
+      else window.location.reload();
     }catch(err){showFb(err.message||'创建租户失败',true)}
   };
   const joinForm=card.querySelector('[data-tenant-join-form]');
@@ -2024,8 +2031,11 @@ async function loadPlatformTenants(host){
     e.preventDefault();
     const fd=new FormData(joinForm);
     try{
-      await api('/api/tenants/join',{method:'POST',body:JSON.stringify({inviteCode:fd.get('inviteCode')})});
-      window.location.reload();
+      const joined=await api('/api/tenants/join',{method:'POST',body:JSON.stringify({inviteCode:fd.get('inviteCode')})});
+      joinForm.reset();
+      const jTid=joined?.tenant?.id||joined?.activeTenantId;
+      if(jTid&&typeof applyActiveTenantSwitch==='function'){await applyActiveTenantSwitch(jTid);refresh();}
+      else window.location.reload();
     }catch(err){showFb(err.message||'加入租户失败',true)}
   };
   refresh();

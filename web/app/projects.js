@@ -1,3 +1,21 @@
+async function applyActiveTenantSwitch(tid){
+  await api('/api/tenants/switch',{method:'POST',body:JSON.stringify({tenantId:tid})});
+  const shell=await api('/api/bootstrap',{silent:true});
+  for(const k of ['projects','repositories','issues','tasks','runs','workflows','agents','tenants','activeTenantId']){
+    if(k in shell)state.data[k]=shell[k];
+  }
+  Object.assign(state.data,shell);
+  state.projectFilter=defaultProjectId(state.data.projects,state.currentUser?.id);
+  localStorage.setItem('agentflow.activeProject',state.projectFilter||'');
+  renderAll();
+  const frame=$('#chatNextFrame');
+  if(frame&&frame.dataset.src==='native'){frame.dataset.src='';if(activeViewName()==='collaboration')mountNativeChat();}
+  const cur=activeViewName();
+  if(cur==='knowledgebase'&&typeof loadKnowledgeBaseView==='function')loadKnowledgeBaseView();
+  else if(cur==='onboarding'&&typeof loadOnboardingView==='function')loadOnboardingView();
+  else if(cur==='platform'&&typeof renderPlatformAdminPanel==='function')renderPlatformAdminPanel();
+  else if(cur==='sops'){renderSOPCatalog();refreshWorkflowMetrics();}
+}
 function renderTenantSwitcher(){
   const sw=$('#tenantSwitcher');if(!sw)return;
   const tenants=state.data?.tenants||[];
@@ -19,8 +37,7 @@ function renderTenantSwitcher(){
       }
       if(!tid||tid===(state.data?.activeTenantId||''))return;
       try{
-        await api('/api/tenants/switch',{method:'POST',body:JSON.stringify({tenantId:tid})});
-        window.location.reload();
+        await applyActiveTenantSwitch(tid);
       }catch(err){
         toast?.(err?.message||'切换租户失败');
       }

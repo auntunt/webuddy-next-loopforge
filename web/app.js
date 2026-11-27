@@ -978,13 +978,10 @@ function finishBootLoader(){
   clearTimeout(bootLoaderTimer);bootLoaderTimer=0;
   document.body.classList.remove('booting');
   const loader=document.getElementById('bootLoader');
-  if(!loader?.isConnected||loader.classList.contains('leaving'))return;
+  if(!loader?.isConnected)return;
   loader.setAttribute('aria-busy','false');
-  if(matchMedia('(prefers-reduced-motion: reduce)').matches){loader.remove();return}
-  loader.classList.add('leaving');
-  const remove=()=>loader.remove();
-  loader.addEventListener('transitionend',remove,{once:true});
-  setTimeout(remove,250);
+  loader.style.display='none';
+  loader.remove();
 }
 function settleBootLoader(){
   if(!document.body.classList.contains('chat-next-active')||nativeChatReady){finishBootLoader();return}
@@ -2006,7 +2003,7 @@ function switchView(name){
   const noSidebarViews = ['issues', 'approvals', 'observability', 'codereview', 'knowledgebase', 'onboarding', 'sops', 'flow', 'platform'];
   document.body.classList.toggle('no-sidebar', noSidebarViews.includes(name));
   document.body.classList.toggle('chat-next-active', name==='collaboration');
-  if(name==='collaboration'||isPureManagement)mountNativeChat();
+  if(name==='collaboration')mountNativeChat();
   showDirectRunButton(name==='flow');
   closeIssueDrawer();
   if(name!=='sops'&&typeof hideSOPCardMenu==='function')hideSOPCardMenu();
