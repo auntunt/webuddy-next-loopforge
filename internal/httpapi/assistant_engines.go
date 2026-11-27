@@ -268,17 +268,20 @@ func (h *assistantHandlers) assistantTurnUser(stored domain.User, model string, 
 			return stored, "", assistantEngineMissingKey(engine)
 		}
 		if engine == assistantEngineCodex && runnerLogin {
-			if gwModels := codereview.DiscoverCodexGatewayModels(context.Background()); len(gwModels) > 0 {
-				allowed := false
-				for _, m := range gwModels {
-					if m == id {
-						allowed = true
-						break
+			var gwModels []string
+			if h != nil && h.deps != nil {
+				target := h.deps.resolveUserTargetRunner(stored.ID, "", engine)
+				for _, rm := range h.deps.discoverTargetRunnerModels(context.Background(), target, engine) {
+					if rm.ID != "" {
+						gwModels = append(gwModels, rm.ID)
 					}
 				}
-				if !allowed {
-					id = gwModels[0]
-				}
+			}
+			if len(gwModels) == 0 {
+				gwModels = codereview.DiscoverCodexGatewayModels(context.Background())
+			}
+			if len(gwModels) > 0 && id == assistantDefaultModel {
+				id = gwModels[0]
 			}
 		}
 		return stored, engine + ":" + id, ""
@@ -383,13 +386,30 @@ func assistantSavedModels(user domain.User, engine string) []assistantDiscovered
 }
 
 func assistantEngineModels(ctx context.Context, user domain.User, runnerLogin map[string]bool) (models []assistantModel, cursorModelsPending bool) {
+	return (*assistantHandlers)(nil).assistantEngineModelsForUser(ctx, user, runnerLogin, "")
+}
+
+func (h *assistantHandlers) assistantEngineModelsForUser(ctx context.Context, user domain.User, runnerLogin map[string]bool, explicitRunnerID string) (models []assistantModel, cursorModelsPending bool) {
 	for _, engine := range assistantCLIEngines() {
 		key, baseURL := assistantEngineCredential(user, engine)
 		listed := assistantSavedModels(user, engine)
 		if key == "" && !runnerLogin[engine] && len(listed) == 0 {
 			continue
 		}
-		if !runnerLogin[engine] || (engine == assistantEngineCodex && len(listed) == 0) {
+		if runnerLogin[engine] && len(listed) == 0 && (engine == assistantEngineCodex || engine == assistantEngineClaude) && h != nil && h.deps != nil {
+			target := h.deps.resolveUserTargetRunner(user.ID, explicitRunnerID, engine)
+			for _, rm := range h.deps.discoverTargetRunnerModels(ctx, target, engine) {
+				if rm.ID != "" && rm.ID != assistantDefaultModel && assistantValidEngineModel(rm.ID) {
+					listed = append(listed, assistantDiscoveredModel{
+						ID:                         rm.ID,
+						Name:                       firstNonEmpty(rm.Name, rm.ID),
+						ReasoningEfforts:           rm.ReasoningEfforts,
+						DiscoveredReasoningEfforts: rm.DiscoveredReasoningEfforts,
+					})
+				}
+			}
+		}
+		if len(listed) == 0 && (!runnerLogin[engine] || engine == assistantEngineCodex) {
 			var pending bool
 			listed, pending = assistantDiscoveredModelsFor(ctx, user, engine)
 			cursorModelsPending = cursorModelsPending || pending

@@ -186,6 +186,33 @@ func (h *assistantHandlers) models(c *gin.Context) {
 		} else if id == "claude" {
 			engine = assistantEngineClaude
 		}
+		if engine == assistantEngineCodex || engine == assistantEngineClaude {
+			if current, signedIn := h.requestUser(c.Request, true); signedIn {
+				target := h.deps.resolveUserTargetRunner(current.ID, c.Query("runnerId"), engine)
+				if rModels := h.deps.discoverTargetRunnerModels(c.Request.Context(), target, engine); len(rModels) > 0 {
+					result := assistantModelCatalog{
+						Default: rModels[0].ID,
+						Models:  make([]assistantModel, 0, len(rModels)),
+					}
+					for _, rm := range rModels {
+						effs := []string{"low", "medium", "high", "xhigh", "max"}
+						if rm.DiscoveredReasoningEfforts != nil && len(*rm.DiscoveredReasoningEfforts) > 0 {
+							effs = append([]string(nil), (*rm.DiscoveredReasoningEfforts)...)
+						}
+						result.Models = append(result.Models, assistantModel{
+							ID:      rm.ID,
+							Name:    firstNonEmpty(rm.Name, rm.ID),
+							Family:  assistantModelFamily(rm.ID, engine),
+							Engine:  engine,
+							Efforts: effs,
+						})
+					}
+					c.Header("Cache-Control", "private, no-store")
+					c.JSON(200, result)
+					return
+				}
+			}
+		}
 		if engine == assistantEngineCodex {
 			if gwModels := codereview.DiscoverCodexGatewayModels(c.Request.Context()); len(gwModels) > 0 {
 				result := assistantModelCatalog{
@@ -288,7 +315,7 @@ func (h *assistantHandlers) models(c *gin.Context) {
 				}
 			}
 		}
-		models, pending := assistantEngineModels(c.Request.Context(), user, runnerLogin)
+		models, pending := h.assistantEngineModelsForUser(c.Request.Context(), user, runnerLogin, c.Query("runnerId"))
 		catalog.Models = append(catalog.Models, models...)
 		catalog.CursorModelsPending = pending
 		h.saveCursorCatalog(user)

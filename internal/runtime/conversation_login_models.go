@@ -58,6 +58,16 @@ func DiscoverRunnerLoginModels(ctx context.Context, provider, binary string) ([]
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	environment := appendEnvironment(terminalBaseEnvironment(home), env, loginEnv)
+	if login.binding == BindCodex {
+		if customModels := discoverCodexCustomConfigModels(ctx, filepath.Join(home, login.dir, "config.toml")); len(customModels) > 0 {
+			return customModels, nil
+		}
+	}
+	if login.binding == BindClaudeCode {
+		if customModels := discoverClaudeCustomSettingsModels(ctx, filepath.Join(home, login.dir, "settings.json")); len(customModels) > 0 {
+			return customModels, nil
+		}
+	}
 	if provider == AgentCLIAntigravity {
 		cmd := exec.CommandContext(ctx, binary, "models")
 		cmd.Dir, cmd.Env, cmd.WaitDelay = root, environment, time.Second

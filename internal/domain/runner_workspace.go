@@ -33,6 +33,7 @@ const (
 	RunnerWorkspaceOperationCheckouts         = "checkouts"
 	RunnerWorkspaceOperationMaintenance       = "maintenance"
 	RunnerWorkspaceOperationLoginModels       = "login_models"
+	RunnerWorkspaceOperationCLIConfig         = "cli_config"
 	RunnerWorkspaceOperationSSHHostKeyProbe   = "ssh_host_key_probe"
 	RunnerWorkspaceOperationConversationCLI   = "conversation_process"
 )
@@ -54,11 +55,41 @@ type GitSSHKnownHosts struct {
 	TooLarge   bool   `json:"tooLarge,omitempty"`
 }
 
+type RunnerCLIConfigRequest struct {
+	Action               string `json:"action"`   // "get" | "set"
+	Provider             string `json:"provider"` // "codex" | "claude-code"
+	GatewayName          string `json:"gatewayName,omitempty"`
+	BaseURL              string `json:"baseUrl,omitempty"`
+	APIKey               string `json:"apiKey,omitempty"`
+	Model                string `json:"model,omitempty"`
+	Effort               string `json:"effort,omitempty"`
+	RawConfigTOML        string `json:"rawConfigToml,omitempty"`
+	ClearConflictingAuth bool   `json:"clearConflictingAuth,omitempty"`
+}
+
+type RunnerCLIConfigStatus struct {
+	Provider            string   `json:"provider"`
+	ConfigPath          string   `json:"configPath"`
+	Exists              bool     `json:"exists"`
+	GatewayName         string   `json:"gatewayName,omitempty"`
+	BaseURL             string   `json:"baseUrl,omitempty"`
+	TokenMasked         string   `json:"tokenMasked,omitempty"`
+	HasCustomAuth       bool     `json:"hasCustomAuth"`
+	HasOAuthFile        bool     `json:"hasOAuthFile"`
+	ConflictingAuth     bool     `json:"conflictingAuth"`
+	ClearedAuthBackup   string   `json:"clearedAuthBackup,omitempty"`
+	Model               string   `json:"model,omitempty"`
+	Effort              string   `json:"effort,omitempty"`
+	DiscoveredModels    []string `json:"discoveredModels,omitempty"`
+	UpdatedAt           string   `json:"updatedAt,omitempty"`
+}
+
 // RunnerWorkspaceRequest is a bounded workspace request sent over the
 // runner's outbound control socket. Responses are transient and are never
 // persisted in runner_tasks or the run record.
 type RunnerWorkspaceRequest struct {
 	Maintenance       *RunnerMaintenanceRequest `json:"maintenance,omitempty"`
+	CLIConfig         *RunnerCLIConfigRequest   `json:"cliConfig,omitempty"`
 	ModelProvider     string                    `json:"modelProvider,omitempty"`
 	SSHHostKeyAddress string                    `json:"sshHostKeyAddress,omitempty"`
 	// SSHHostKeyOwnerID accompanies probes across platform handover. The

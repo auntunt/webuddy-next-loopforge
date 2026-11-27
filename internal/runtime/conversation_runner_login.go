@@ -185,6 +185,43 @@ func prepareRunnerLogin(home AgentCLIHome, login conversationLoginSpec, enabled 
 			configDir = filepath.Join(dataHome, filepath.Base(login.dir))
 		}
 	}
+	// Prioritize explicit custom gateway configuration in config.toml / settings.json!
+	// If ~/.codex/config.toml defines custom gateway auth (requires_openai_auth = false
+	// or experimental_bearer_token), staging a leftover ~/.codex/auth.json from an old
+	// ChatGPT login would hijack Codex onto the ChatGPT account backend and reject custom
+	// gateway models (e.g. "model is not supported when using Codex with a ChatGPT account").
+	if login.binding == BindCodex {
+		if cfgData, cfgErr := readRunnerConfigFile(configDir, "config.toml"); cfgErr == nil && codexConfigHasCustomAuth(cfgData) {
+			if writeErr := target.WriteFile("config.toml", cfgData, 0600); writeErr != nil {
+				return nil, nil, writeErr
+			}
+			cleanupCfg := func() error {
+				dir, openErr := openAgentCLIHome(home)
+				if openErr != nil {
+					return openErr
+				}
+				defer dir.Close()
+				return remove(dir)
+			}
+			return cleanupCfg, nil, nil
+		}
+	}
+	if login.binding == BindClaudeCode {
+		if cfgData, cfgErr := readRunnerConfigFile(configDir, "settings.json"); cfgErr == nil && claudeSettingsHasCustomAuth(cfgData) {
+			if writeErr := target.WriteFile("settings.json", cfgData, 0600); writeErr != nil {
+				return nil, nil, writeErr
+			}
+			cleanupCfg := func() error {
+				dir, openErr := openAgentCLIHome(home)
+				if openErr != nil {
+					return openErr
+				}
+				defer dir.Close()
+				return remove(dir)
+			}
+			return cleanupCfg, nil, nil
+		}
+	}
 	var data []byte
 	var keepAntigravity func([]byte) error
 	if login.tokenFile {

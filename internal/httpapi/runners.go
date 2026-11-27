@@ -531,23 +531,12 @@ func (h *runnersHandlers) issueRunnerBindCode(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, map[string]string{"error": "请先登录后生成接入命令"})
 		return
 	}
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		c.JSON(http.StatusInternalServerError, map[string]string{"error": "生成绑定码失败"})
+	code, expiresAt, err := h.mintBindCodeForUser(user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	code := runnerBindCodePrefix + base64.RawURLEncoding.EncodeToString(raw)
-	now := time.Now().UTC()
-	h.runnerBindMu.Lock()
-	// Opportunistically drop expired codes so the map cannot grow unbounded.
-	for key, entry := range h.runnerBindCodes {
-		if !entry.expiresAt.After(now) {
-			delete(h.runnerBindCodes, key)
-		}
-	}
-	h.runnerBindCodes[code] = runnerBindCode{userID: user.ID, expiresAt: now.Add(runnerBindCodeTTL)}
-	h.runnerBindMu.Unlock()
-	c.JSON(http.StatusOK, map[string]any{"code": code, "expiresAt": now.Add(runnerBindCodeTTL)})
+	c.JSON(http.StatusOK, map[string]any{"code": code, "expiresAt": expiresAt})
 }
 
 // ---------- registration ----------

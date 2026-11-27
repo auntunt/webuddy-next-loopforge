@@ -51,6 +51,8 @@ type deps struct {
 	passwordAttempts *passwordLimiter
 	envProber        *envprobe.ProbeManager
 	runnerProfiles   *stdsync.Map
+	runnerControls   *runnerControlHub
+	runners          *runnersHandlers
 }
 
 // configureSync 是跨领域共享的依赖配置行为（mcp/issues/sync 都调用）。
@@ -160,6 +162,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	runnerControls := newRunnerControlHub()
 	runnerControls.sshHostLookup = s.PlatformSSHKnownHosts
 	runnerControls.successor = relayRunnerWorkspaceToSuccessor(e)
+	d.runnerControls = runnerControls
 	if bg != nil {
 		bg.runnerControls = runnerControls
 	}
@@ -289,6 +292,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		webuddyEnv:      &webuddyEnvHandlers{deps: d},
 	}
 	e.WorkspaceActive = func(run domain.Run) bool { return api.runs.terminals.HasRunScope(run.ID) }
+	d.runners = api.runners
 	api.catalog.notifications = api.notifications
 	api.schedule.notifications = api.notifications
 	if syncSvc != nil {
@@ -788,6 +792,8 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/runners/:id/maintenance", api.runners.runnerMaintenance)
 	g.POST("/api/runners/:id/maintenance", api.runners.runnerMaintenance)
 	g.POST("/api/runners/:id/models/probe", api.runners.probeRunnerModels)
+	g.GET("/api/runners/:id/cli-config", api.runners.runnerCLIConfig)
+	g.PUT("/api/runners/:id/cli-config", api.runners.runnerCLIConfig)
 	g.POST("/api/runners/heartbeat", api.runners.runnerHeartbeat)
 	g.GET("/api/runners/tasks", api.runners.runnerTasksCollection)
 	g.POST("/api/runners/tasks", api.runners.runnerTasksCollection)

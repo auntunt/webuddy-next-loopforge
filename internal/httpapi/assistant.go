@@ -185,16 +185,30 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 		}
 		req.ExecutionTarget = target
 	}
+	slashCmd := isWorkbenchSlashCommand(lastAssistantUserContent(req.Messages))
 	req.Model = h.assistantChatRequestModel(req, old, stored)
 	cliEngine, _ := assistantModelEngine(req.Model)
 	loginRunner := h.assistantLoginRunner(stored.ID, req.ExecutionTarget, cliEngine)
 	runnerLogin := loginRunner.ID != ""
-	user, model, refusal := h.assistantTurnUser(stored, req.Model, runnerLogin)
-	if refusal != "" {
-		c.JSON(400, gin.H{"error": refusal})
-		return
+	var user domain.User
+	var cliModel string
+	if slashCmd {
+		user = stored
+		if strings.TrimSpace(req.Model) == "" {
+			req.Model = assistantDefaultModel
+		}
+		cliEngine, _ = assistantModelEngine(req.Model)
+		req.Executor = cliEngine
+		cliModel = req.Model
+	} else {
+		var model, refusal string
+		user, model, refusal = h.assistantTurnUser(stored, req.Model, runnerLogin)
+		if refusal != "" {
+			c.JSON(400, gin.H{"error": refusal})
+			return
+		}
+		req.Model = model
 	}
-	req.Model = model
 	if err := h.validateAssistantTriggerHistory(ownerID, req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
@@ -232,30 +246,33 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	catalogEngine, _ := assistantModelEngine(req.Model)
-	var catalog assistantModelCatalog
-	if catalogEngine == assistantEngineCodeBuddy {
-		_, modelID := assistantModelEngine(req.Model)
-		catalog = h.turnCatalog(c.Request.Context(), user, modelID)
-	}
-	if !runnerLogin {
-		selected, err := assistantTurnCatalogModel(req.Model, catalog, user, req.RequireExactModel)
+	if !slashCmd {
+		catalogEngine, _ := assistantModelEngine(req.Model)
+		var catalog assistantModelCatalog
+		if catalogEngine == assistantEngineCodeBuddy {
+			_, modelID := assistantModelEngine(req.Model)
+			catalog = h.turnCatalog(c.Request.Context(), user, modelID)
+		}
+		if !runnerLogin {
+			selected, err := assistantTurnCatalogModel(req.Model, catalog, user, req.RequireExactModel)
+			if err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			req.Model = selected
+		}
+		cliEngine, _ = assistantModelEngine(req.Model)
+		req.Executor = cliEngine
+		var err error
+		cliModel, err = h.resolveAssistantTurnModel(c.Request.Context(), user, req.Model, req.Effort, loginRunner)
 		if err != nil {
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
-		req.Model = selected
-	}
-	cliEngine, _ = assistantModelEngine(req.Model)
-	req.Executor = cliEngine
-	cliModel, err := h.resolveAssistantTurnModel(c.Request.Context(), user, req.Model, req.Effort, loginRunner)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	if refusal := assistantEngineSwitchRefusal(assistantConversationEngine(req.Messages, h.forkExecutor(c, old, user.ID)), req.Model); refusal != "" {
-		c.JSON(409, gin.H{"error": refusal})
-		return
+		if refusal := assistantEngineSwitchRefusal(assistantConversationEngine(req.Messages, h.forkExecutor(c, old, user.ID)), req.Model); refusal != "" {
+			c.JSON(409, gin.H{"error": refusal})
+			return
+		}
 	}
 	sink, _ := c.Request.Context().Value(assistantGenerationSinkKey{}).(func(string, any))
 	if sink == nil {
@@ -316,6 +333,77 @@ func (h *assistantHandlers) chat(c *gin.Context) {
 		defer func() { finish(chatCompleted) }()
 		modelCtx = context.WithValue(modelCtx, assistantDiagnosticsKey{}, diagnostics)
 		modelCtx = context.WithValue(modelCtx, assistantControlScopeKey{}, assistantControlScope{RunID: req.RunID, SessionID: req.SessionID, GenerationID: job.ID, MessageIndex: len(req.Messages) - 1})
+	}
+	if slashCmd {
+		replyText := h.executeWorkbenchSlashCommand(modelCtx, user, c.Request, lastAssistantUserContent(req.Messages))
+		reply := assistantReply{
+			SpeakerName: "Webuddy 管控台",
+			Message:     replyText,
+			Drafts:      []assistantDraft{},
+			SessionID:   req.SessionID,
+		}
+		zeroUsage := &domain.TokenUsage{
+			InputTokens:  0,
+			OutputTokens: 0,
+			TotalTokens:  0,
+			CostUSD:      0,
+			CostStatus:   "reported",
+		}
+		storedMsgs := append([]assistantMessage{}, req.Messages...)
+		storedMsgs = append(storedMsgs, assistantMessage{
+			StartedAt:    &startedAt,
+			CreatedAt:    time.Now().UTC(),
+			SpeakerName:  reply.SpeakerName,
+			Model:        "",
+			Usage:        zeroUsage,
+			Role:         "assistant",
+			Content:      jsonObject(gin.H{"message": reply.Message, "drafts": reply.Drafts}),
+			GenerationID: assistantControlScopeFrom(modelCtx).GenerationID,
+		})
+		conversation := assistantConversation{
+			Shared:          shared,
+			ID:              req.SessionID,
+			ProjectID:       req.ProjectID,
+			Model:           savedConversation.Model,
+			Effort:          savedConversation.Effort,
+			Executor:        savedConversation.Executor,
+			ExecutionTarget: savedConversation.ExecutionTarget,
+			RunID:           req.RunID,
+			Messages:        storedMsgs,
+		}
+		if req.sopDesigner() {
+			conversation.Source, conversation.WorkflowID = domain.AssistantSourceSOPDesigner, req.WorkflowID
+		}
+		var saveErr error
+		if shared {
+			saveErr = h.repo.PutAssistantGenerationReply(ownerID, assistantControlScopeFrom(modelCtx).GenerationID, conversation)
+		} else {
+			saveErr = saveAssistantConversation(h.repo, ownerID, conversation)
+		}
+		if saveErr != nil {
+			log.Printf("assistant slash save session=%s: %v", req.SessionID, saveErr)
+			c.JSON(500, gin.H{"error": "保存对话失败，请重试"})
+			return
+		}
+		chatCompleted = true
+		if streaming {
+			if sink != nil {
+				sink("result", reply)
+				return
+			}
+			c.Header("Content-Type", "text/event-stream; charset=utf-8")
+			c.Header("Cache-Control", "no-cache")
+			c.Header("Connection", "keep-alive")
+			c.Header("X-Accel-Buffering", "no")
+			c.Status(200)
+			if data, mErr := json.Marshal(reply); mErr == nil {
+				fmt.Fprintf(c.Writer, "event: result\ndata: %s\n\n", data)
+				c.Writer.Flush()
+			}
+			return
+		}
+		c.JSON(200, reply)
+		return
 	}
 	var toolSession *AgentToolSession
 	var toolFiles agentToolFiles

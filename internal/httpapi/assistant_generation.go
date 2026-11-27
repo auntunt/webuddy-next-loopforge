@@ -92,16 +92,30 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 			return
 		}
 	}
+	slashCmd := isWorkbenchSlashCommand(lastAssistantUserContent(req.Messages))
 	req.Model = h.assistantChatRequestModel(req, old, stored)
 	cliEngine, _ := assistantModelEngine(req.Model)
 	loginRunner := h.assistantLoginRunner(stored.ID, req.ExecutionTarget, cliEngine)
 	runnerLogin := loginRunner.ID != ""
-	user, model, refusal := h.assistantTurnUser(stored, req.Model, runnerLogin)
-	if refusal != "" {
-		c.JSON(400, gin.H{"error": refusal})
-		return
+	var user domain.User
+	var cliModel string
+	if slashCmd {
+		user = stored
+		if strings.TrimSpace(req.Model) == "" {
+			req.Model = assistantDefaultModel
+		}
+		cliEngine, _ = assistantModelEngine(req.Model)
+		req.Executor = cliEngine
+		cliModel = req.Model
+	} else {
+		var model, refusal string
+		user, model, refusal = h.assistantTurnUser(stored, req.Model, runnerLogin)
+		if refusal != "" {
+			c.JSON(400, gin.H{"error": refusal})
+			return
+		}
+		req.Model = model
 	}
-	req.Model = model
 	if err := h.validateAssistantTriggerHistory(ownerID, req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
@@ -130,37 +144,41 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 		c.JSON(403, gin.H{"error": err.Error()})
 		return
 	}
-	catalogEngine, _ := assistantModelEngine(req.Model)
-	var catalog assistantModelCatalog
-	if catalogEngine == assistantEngineCodeBuddy {
-		_, modelID := assistantModelEngine(req.Model)
-		catalog = h.turnCatalog(c.Request.Context(), user, modelID)
-	}
-	if !runnerLogin {
-		selected, err := assistantTurnCatalogModel(req.Model, catalog, user, req.RequireExactModel)
+	var executor string
+	if !slashCmd {
+		catalogEngine, _ := assistantModelEngine(req.Model)
+		var catalog assistantModelCatalog
+		if catalogEngine == assistantEngineCodeBuddy {
+			_, modelID := assistantModelEngine(req.Model)
+			catalog = h.turnCatalog(c.Request.Context(), user, modelID)
+		}
+		if !runnerLogin {
+			selected, err := assistantTurnCatalogModel(req.Model, catalog, user, req.RequireExactModel)
+			if err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			req.Model = selected
+		}
+		cliEngine, _ = assistantModelEngine(req.Model)
+		req.Executor = cliEngine
+		var err error
+		cliModel, err = h.resolveAssistantTurnModel(c.Request.Context(), user, req.Model, req.Effort, loginRunner)
 		if err != nil {
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
 		}
-		req.Model = selected
+		executor = h.forkExecutor(c, old, user.ID)
+		if refusal := assistantEngineSwitchRefusal(assistantConversationEngine(req.Messages, executor), req.Model); refusal != "" {
+			c.JSON(409, gin.H{"error": refusal})
+			return
+		}
+		if err := h.buildWorkbenchContext(c, &req, user); err != nil {
+			c.JSON(403, gin.H{"error": err.Error()})
+			return
+		}
 	}
-	cliEngine, _ = assistantModelEngine(req.Model)
-	req.Executor = cliEngine
-	cliModel, err := h.resolveAssistantTurnModel(c.Request.Context(), user, req.Model, req.Effort, loginRunner)
-	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	executor := h.forkExecutor(c, old, user.ID)
-	if refusal := assistantEngineSwitchRefusal(assistantConversationEngine(req.Messages, executor), req.Model); refusal != "" {
-		c.JSON(409, gin.H{"error": refusal})
-		return
-	}
-	if err := h.buildWorkbenchContext(c, &req, user); err != nil {
-		c.JSON(403, gin.H{"error": err.Error()})
-		return
-	}
-	freshCLI := old.ID != "" && assistantConversationEngine(old.Messages, executor) != cliEngine
+	freshCLI := !slashCmd && old.ID != "" && assistantConversationEngine(old.Messages, executor) != cliEngine
 	if old.ID != "" {
 		if len(req.Messages) < len(old.Messages) {
 			c.JSON(409, gin.H{"error": "会话已更新，请重新打开后发送"})
@@ -235,8 +253,10 @@ func (h *assistantHandlers) startGeneration(c *gin.Context) {
 			runnerID: loginRunner.ID, model: req.Model, effort: req.Effort, resolved: cliModel,
 		})
 	}
-	_, sharedModels, _ := h.assistantChatUser(stored)
-	h.scheduleAssistantTitle(h.helperExecutionContext(parent, ownerID, req.ExecutionTarget), ownerID, user, old, req.SessionID, req.Messages, req.Model, sharedModels)
+	if !slashCmd {
+		_, sharedModels, _ := h.assistantChatUser(stored)
+		h.scheduleAssistantTitle(h.helperExecutionContext(parent, ownerID, req.ExecutionTarget), ownerID, user, old, req.SessionID, req.Messages, req.Model, sharedModels)
+	}
 	done := inflightTasks.Add()
 	go func() {
 		defer done()

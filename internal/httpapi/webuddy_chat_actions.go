@@ -461,12 +461,17 @@ func webuddyAssistantToolSpecs() []map[string]any {
 			"description": "搜索当前租户的跨项目团队共享知识库（包含各项目同步的架构知识、代码审查沉淀的避坑经验与团队规范），回答跨项目约定、历史踩坑或复用方案时优先调用。",
 			"inputSchema": json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"搜索关键词（留空返回最近共享条目）"}}}`),
 		},
+		{
+			"name":        "webuddy_runners_manage",
+			"description": "工作台执行机/测试机管控工具：无需进终端，支持查看测试机列表(list)、生成单行接入新测试机命令(add)、切换默认执行机(use)、一键同步主控网关配置并清理冲突登录态(sync)、远程修改测试机 CLI 模型或网关(config)、以及远程 OTA 升级 Runner 守护进程(upgrade)。",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["list","add","use","sync","config","upgrade"],"description":"操作类型"},"runner":{"type":"string","description":"目标测试机名称或 ID（sync/upgrade 支持传 all）"},"provider":{"type":"string","enum":["codex","claude-code"],"description":"CLI 类型，默认 codex"},"model":{"type":"string","description":"可选默认模型（如 gpt-6.2-sol、gpt-6-luna）"},"baseUrl":{"type":"string","description":"可选网关 Base URL"},"apiKey":{"type":"string","description":"可选网关令牌"},"effort":{"type":"string","description":"可选思考强度（low/medium/high/xhigh）"}},"required":["action"]}`),
+		},
 	}
 }
 
 func isWebuddyAssistantTool(name string) bool {
 	switch name {
-	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start", "webuddy_list_sops", "webuddy_kb_shared_search":
+	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start", "webuddy_list_sops", "webuddy_kb_shared_search", "webuddy_runners_manage":
 		return true
 	default:
 		return false
@@ -535,6 +540,10 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 			return "", true
 		}
 		return "无权访问该项目。", false
+	}
+
+	if name == "webuddy_runners_manage" {
+		return h.runWebuddyRunnersManageTool(ctx, session, args)
 	}
 
 	if name == "webuddy_ensure_project_env" {
