@@ -1377,6 +1377,7 @@ function bind(){
     if($('#dashboardView').classList.contains('active'))renderDashboard();
     if($('#observabilityView').classList.contains('active'))refreshObs();
     if($('#codereviewView')?.classList.contains('active')&&typeof loadCodeReviewView==='function')loadCodeReviewView();
+    if($('#autotestView')?.classList.contains('active')&&typeof loadAutoTestView==='function')loadAutoTestView();
     if($('#knowledgebaseView')?.classList.contains('active')&&typeof loadKnowledgeBaseView==='function')loadKnowledgeBaseView();
     if($('#onboardingView')?.classList.contains('active')&&typeof loadOnboardingView==='function')loadOnboardingView();
     if(typeof refreshWebuddyFloatingReview==='function')refreshWebuddyFloatingReview();
@@ -1812,7 +1813,7 @@ function setSettingsSidebarExpanded(expanded){
     });
   }
 }
-function viewTitles(){return {management:'设置',collaboration:'Webuddy 工作台',issues:'需求列表',aiSchedules:'定时任务',bots:'通道管理',assistant:'AI 助手',runs:'运行记录',approvals:'待我确认',codereview:'代码审查',knowledgebase:'知识库',onboarding:'使用指引',sops:'流程模板',flow:'流程设计',agents:'角色定义',mcp:'能力资产',rules:'能力资产',skills:'能力资产',dockerfiles:'环境资产',environments:'环境资产',sandboxes:'环境资产',observability:'统计',projects:'项目配置',platform:'平台管理',runners:'执行机器',settings:'个人配置',access:'访问密钥',guide:'访问密钥'}}
+function viewTitles(){return {management:'设置',collaboration:'Webuddy 工作台',issues:'需求列表',aiSchedules:'定时任务',bots:'通道管理',assistant:'AI 助手',runs:'运行记录',approvals:'待我确认',codereview:'代码审查',autotest:'自动化测试',knowledgebase:'知识库',onboarding:'使用指引',sops:'流程模板',flow:'流程设计',agents:'角色定义',mcp:'能力资产',rules:'能力资产',skills:'能力资产',dockerfiles:'环境资产',environments:'环境资产',sandboxes:'环境资产',observability:'统计',projects:'项目配置',platform:'平台管理',runners:'执行机器',settings:'个人配置',access:'访问密钥',guide:'访问密钥'}}
 // 设置侧栏只列一级入口；被合并进同一页的子视图（能力资产、环境资产的类型 Tab，
 // 从流程模板打开的流程设计）按 data-nav-match 高亮它们所属的入口。
 function settingsNavMatches(btn,name){return btn.dataset.view===name||String(btn.dataset.navMatch||'').split(/\s+/).includes(name)}
@@ -2000,7 +2001,7 @@ function switchView(name){
   setSettingsSidebarExpanded(!narrowSettings?isPureManagement:staying?settingsSidebarExpanded():!!prevView&&!isSettingsManagementView(previous));
   $('#managementEntry')?.classList.toggle('active', isPureManagement);
   $('#railSettingsEntry')?.classList.toggle('active', isPureManagement);
-  const noSidebarViews = ['issues', 'approvals', 'observability', 'codereview', 'knowledgebase', 'onboarding', 'sops', 'flow', 'platform'];
+  const noSidebarViews = ['issues', 'approvals', 'observability', 'codereview', 'autotest', 'knowledgebase', 'onboarding', 'sops', 'flow', 'platform'];
   document.body.classList.toggle('no-sidebar', noSidebarViews.includes(name));
   document.body.classList.toggle('chat-next-active', name==='collaboration');
   if(name==='collaboration')mountNativeChat();
@@ -2063,6 +2064,7 @@ function switchView(name){
   if(name==='dashboard')refreshDashboard()
   if(name==='approvals')renderApprovals(false)
   if(name==='codereview'&&typeof loadCodeReviewView==='function')loadCodeReviewView()
+  if(name==='autotest'&&typeof loadAutoTestView==='function')loadAutoTestView()
   if(name==='knowledgebase'&&typeof loadKnowledgeBaseView==='function')loadKnowledgeBaseView()
   if(name==='onboarding'&&typeof loadOnboardingView==='function')loadOnboardingView()
   if(name==='observability')refreshObs()

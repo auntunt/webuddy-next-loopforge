@@ -102,8 +102,9 @@ type Server struct {
 	botIdentities   *botIdentityHandlers
 	know            *knowledgeHandlers   // knowledge.go / knowledge_proxy.go
 	codeReview      *codeReviewHandlers  // codereview.go
-	webuddyKB       *webuddyKBHandlers   // webuddy_kb.go
-	webuddyEnv      *webuddyEnvHandlers  // webuddy_env.go
+	webuddyKB       *webuddyKBHandlers       // webuddy_kb.go
+	webuddyEnv      *webuddyEnvHandlers      // webuddy_env.go
+	webuddyAutoTest *webuddyAutoTestHandlers // webuddy_autotest.go
 }
 
 func New(s *repo.Store, e *engine.Engine, syncSvc *tracker.Service, basicUser, basicPass string) *gin.Engine {
@@ -290,6 +291,7 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 		codeReview:      &codeReviewHandlers{deps: d, svc: codereview.NewService(d.repo, randomID)},
 		webuddyKB:       &webuddyKBHandlers{deps: d, svc: webuddykb.NewService()},
 		webuddyEnv:      &webuddyEnvHandlers{deps: d},
+		webuddyAutoTest: &webuddyAutoTestHandlers{deps: d},
 	}
 	e.WorkspaceActive = func(run domain.Run) bool { return api.runs.terminals.HasRunScope(run.ID) }
 	d.runners = api.runners
@@ -704,6 +706,22 @@ func newWithNotifications(s *repo.Store, e *engine.Engine, syncSvc *tracker.Serv
 	g.GET("/api/webuddy/builtin-agent/status", api.webuddyEnv.builtinStatus)
 	g.PUT("/api/webuddy/builtin-agent/config", api.webuddyEnv.builtinSaveConfig)
 	g.POST("/api/webuddy/builtin-agent/chat", api.webuddyKB.builtinChat)
+
+	// --- webuddy AI automated testing & 5-step self-healing ---
+	g.GET("/api/webuddy/autotest/overview", api.webuddyAutoTest.overview)
+	g.GET("/api/webuddy/autotest/cases", api.webuddyAutoTest.listCases)
+	g.GET("/api/webuddy/autotest/cases/:id", api.webuddyAutoTest.getCase)
+	g.DELETE("/api/webuddy/autotest/cases/:id", api.webuddyAutoTest.deleteCase)
+	g.POST("/api/webuddy/autotest/cases/generate", api.webuddyAutoTest.generateAndSolidifyCase)
+	g.POST("/api/webuddy/autotest/cases/:id/run", api.webuddyAutoTest.runCaseHandler)
+	g.POST("/api/webuddy/autotest/suites/run", api.webuddyAutoTest.runSuiteHandler)
+	g.POST("/api/webuddy/autotest/cases/:id/inject-drift", api.webuddyAutoTest.injectUIDriftHandler)
+	g.POST("/api/webuddy/autotest/cases/:id/rollback", api.webuddyAutoTest.rollbackCaseHandler)
+	g.GET("/api/webuddy/autotest/runs", api.webuddyAutoTest.listRunsHandler)
+	g.GET("/api/webuddy/autotest/runs/:id", api.webuddyAutoTest.getRunHandler)
+	g.POST("/api/webuddy/autotest/runs/:id/create-issue", api.webuddyAutoTest.escalateRunToIssueHandler)
+	g.GET("/api/webuddy/autotest/precedents", api.webuddyAutoTest.listPrecedentsHandler)
+	g.GET("/api/webuddy/autotest/screenshots/:name", api.webuddyAutoTest.serveScreenshot)
 
 	// --- runs ---
 	g.GET("/api/runs", api.runs.runs)

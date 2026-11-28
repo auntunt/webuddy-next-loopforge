@@ -466,12 +466,17 @@ func webuddyAssistantToolSpecs() []map[string]any {
 			"description": "工作台执行机/测试机管控工具：无需进终端，支持查看测试机列表(list)、生成单行接入新测试机命令(add)、切换默认执行机(use)、一键同步主控网关配置并清理冲突登录态(sync)、远程修改测试机 CLI 模型或网关(config)、以及远程 OTA 升级 Runner 守护进程(upgrade)。",
 			"inputSchema": json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["list","add","use","sync","config","upgrade"],"description":"操作类型"},"runner":{"type":"string","description":"目标测试机名称或 ID（sync/upgrade 支持传 all）"},"provider":{"type":"string","enum":["codex","claude-code"],"description":"CLI 类型，默认 codex"},"model":{"type":"string","description":"可选默认模型（如 gpt-6.2-sol、gpt-6-luna）"},"baseUrl":{"type":"string","description":"可选网关 Base URL"},"apiKey":{"type":"string","description":"可选网关令牌"},"effort":{"type":"string","description":"可选思考强度（low/medium/high/xhigh）"}},"required":["action"]}`),
 		},
+		{
+			"name":        "webuddy_autotest_manage",
+			"description": "AI 自动化测试与五步自愈工具：支持列出当前项目固化回归用例(list)、用自然语言需求直接在服务端启动 Headless Chrome 真机探索并固化确定性脚本(generate)、或零 Token 极速跑回归并遇 UI 改版自动执行五步诊断与 >=0.80 置信度自愈(run)。",
+			"inputSchema": json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["list","generate","run"],"description":"操作类型"},"projectId":{"type":"string","description":"可选项目ID，默认当前会话项目"},"title":{"type":"string","description":"generate 时的用例标题"},"requirement":{"type":"string","description":"generate 时的自然语言验收场景描述"},"baseUrl":{"type":"string","description":"generate 时的目标站点地址（如 https://earn-demo.bbstack.date）"},"preconditionUrl":{"type":"string","description":"generate 时的可选前置登录态注入路径（如 /auth/dev?id=1&to=admin）"},"caseId":{"type":"string","description":"run 时的用例 ID 或关键词，留空跑全量"}},"required":["action"]}`),
+		},
 	}
 }
 
 func isWebuddyAssistantTool(name string) bool {
 	switch name {
-	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start", "webuddy_list_sops", "webuddy_kb_shared_search", "webuddy_runners_manage":
+	case "webuddy_kb_overview", "webuddy_kb_search", "webuddy_kb_chain", "webuddy_ensure_project_env", "webuddy_kb_update", "webuddy_preview_start", "webuddy_list_sops", "webuddy_kb_shared_search", "webuddy_runners_manage", "webuddy_autotest_manage":
 		return true
 	default:
 		return false
@@ -544,6 +549,15 @@ func (h *agentToolGateway) callWebuddyAssistantTool(ctx context.Context, session
 
 	if name == "webuddy_runners_manage" {
 		return h.runWebuddyRunnersManageTool(ctx, session, args)
+	}
+
+	if name == "webuddy_autotest_manage" {
+		if strArg("action") == "generate" || strArg("action") == "run" {
+			if msg, ok := checkProjectPerm(pid, true); !ok {
+				return mcpToolTextResult(msg, true), nil
+			}
+		}
+		return h.runWebuddyAutoTestManageTool(ctx, session, pid, args)
 	}
 
 	if name == "webuddy_ensure_project_env" {

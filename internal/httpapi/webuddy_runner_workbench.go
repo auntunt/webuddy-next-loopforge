@@ -418,7 +418,7 @@ func isWorkbenchSlashCommand(content string) bool {
 		return false
 	}
 	switch strings.ToLower(fields[0]) {
-	case "/runner", "/runners", "/machine", "/machines", "/测试机", "/执行机":
+	case "/runner", "/runners", "/machine", "/machines", "/测试机", "/执行机", "/test", "/autotest", "/测试":
 		return true
 	default:
 		return false
@@ -766,11 +766,22 @@ func (h *assistantHandlers) executeWorkbenchSlashCommand(ctx context.Context, us
 		trimmed = strings.TrimSpace(trimmed[:nl])
 	}
 	fields := strings.Fields(trimmed)
+	cmd := ""
+	if len(fields) > 0 {
+		cmd = strings.ToLower(fields[0])
+	}
 	subcmd := ""
 	var args []string
 	if len(fields) > 1 {
 		subcmd = fields[1]
 		args = fields[2:]
+	}
+	if cmd == "/test" || cmd == "/autotest" || cmd == "/测试" {
+		pid := ""
+		if r != nil {
+			pid = strings.TrimSpace(r.URL.Query().Get("projectId"))
+		}
+		return h.deps.executeWorkbenchAutoTestOp(ctx, user, pid, subcmd, args)
 	}
 	return h.deps.executeWorkbenchRunnerOp(ctx, user, resolvePublicOriginHost(r), subcmd, args)
 }
