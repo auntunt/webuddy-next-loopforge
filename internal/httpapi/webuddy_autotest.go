@@ -677,8 +677,9 @@ func (h *webuddyAutoTestHandlers) executeCase(ctx context.Context, tc AutoTestCa
 	stepsWork := cloneAutoTestSteps(tc.Steps)
 	var pendingHealDiff *AutoTestHealDiff
 	healedInRun := false
+	portraitEnriched := false
 
-	// Optional Precondition Auth Injection (if PreconditionURL set on Case and step 0 isn't already inject_auth)
+	// Optional Precondition Auth Injection (or automatic BaseURL entry when step 0 isn't navigate/inject_auth!)
 	if strings.TrimSpace(tc.PreconditionURL) != "" && (len(stepsWork) == 0 || stepsWork[0].Action != "inject_auth") {
 		authURL, err := resolveRelativeTargetURL(tc.BaseURL, tc.PreconditionURL)
 		if err != nil {
@@ -711,6 +712,39 @@ func (h *webuddyAutoTestHandlers) executeCase(ctx context.Context, tc AutoTestCa
 		sr.Status = "passed"
 		if chrome != nil {
 			shotName := fmt.Sprintf("%s-pre.png", runID)
+			if chrome.capturePNG(rctx, filepath.Join(shotDir, shotName)) == nil {
+				sr.ScreenshotURL = "/api/webuddy/autotest/screenshots/" + shotName
+			}
+		}
+		run.StepResults = append(run.StepResults, sr)
+	} else if strings.TrimSpace(tc.PreconditionURL) == "" && len(stepsWork) > 0 && stepsWork[0].Action != "navigate" && stepsWork[0].Action != "inject_auth" {
+		stepStart := time.Now()
+		var navErr error
+		var finalURL string
+		if chrome != nil {
+			finalURL, navErr = chrome.navigateAndSettle(rctx, tc.BaseURL)
+		} else {
+			finalURL, navErr = fallback.navigate(rctx, tc.BaseURL)
+		}
+		sr := AutoTestStepResult{
+			StepIndex:     0,
+			StepID:        "entry-open",
+			Name:          "打开目标站点入口页",
+			Action:        "navigate",
+			DurationMs:    time.Since(stepStart).Milliseconds(),
+			ActualSummary: "已进入目标页面 -> " + finalURL,
+		}
+		if navErr != nil {
+			sr.Status = "failed"
+			sr.Error = navErr.Error()
+			run.Status = "failed"
+			run.EscalationReason = "打开目标站点失败：" + navErr.Error()
+			run.StepResults = append(run.StepResults, sr)
+			return h.finalizeRun(tc, run, stepsWork, false, nil)
+		}
+		sr.Status = "passed"
+		if chrome != nil {
+			shotName := fmt.Sprintf("%s-entry.png", runID)
 			if chrome.capturePNG(rctx, filepath.Join(shotDir, shotName)) == nil {
 				sr.ScreenshotURL = "/api/webuddy/autotest/screenshots/" + shotName
 			}
@@ -812,6 +846,7 @@ func (h *webuddyAutoTestHandlers) executeCase(ctx context.Context, tc AutoTestCa
 				}
 			} else if st.Portrait == nil && capturedPortrait != nil {
 				st.Portrait = capturedPortrait
+				portraitEnriched = true
 			}
 		}
 
@@ -833,7 +868,7 @@ func (h *webuddyAutoTestHandlers) executeCase(ctx context.Context, tc AutoTestCa
 		run.Mode = "self_healed"
 		run.HealDiff = pendingHealDiff
 	}
-	saveUpdatedSteps := capturePortraits || (run.Status == "healed" && pendingHealDiff != nil)
+	saveUpdatedSteps := capturePortraits || portraitEnriched || (run.Status == "healed" && pendingHealDiff != nil)
 	return h.finalizeRun(tc, run, stepsWork, saveUpdatedSteps, pendingHealDiff)
 }
 

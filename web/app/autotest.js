@@ -330,27 +330,27 @@
 
   function applyPresetScenario(idx) {
     if (idx === 1) {
-      atState.draft.title = 'CEO 管理后台 2026-11 算薪批次与 AI 对账核验';
+      atState.draft.title = 'CEO 月度核算台 2026-11 算薪与报销契约核验';
       atState.draft.baseUrl = 'https://earn-demo.bbstack.date';
       atState.draft.preconditionUrl = '/auth/dev?id=1&to=admin';
       atState.draft.naturalRequirement =
-        '通过前置登录态进入 we-earn 管理后台 (/admin.html)，核验页面核心导航与标题可见，校验 /api/payroll/runs 接口返回 2026-11 算薪批次数据，且管理总览接口正常响应。';
+        '通过前置登录态直接进入 we-earn 管理后台 (/admin.html)，核验月度核算台主标题控件与品牌文案，并校验 /api/admin/month/2026-11 月度核算接口正常返回 2026-11 账期与员工明细契约。';
       atState.draft.advancedSteps = true;
       atState.draft.customStepsJson = JSON.stringify(
         [
           { name: '校验已进入管理后台页面', action: 'assert_url', expected: '/admin' },
-          { name: '核验管理后台主标题控件与品牌文案', action: 'assert_text', primarySelector: 'h1', expected: '' },
-          { name: '核验 2026-11 算薪批次 API 契约数据', action: 'assert_api', targetUrl: '/api/payroll/runs', expected: '2026-11' },
+          { name: '核验管理后台主标题控件与品牌文案', action: 'assert_text', primarySelector: 'h1', expected: '月度核算台' },
+          { name: '核验 2026-11 月度核算与对账 API 契约数据', action: 'assert_api', targetUrl: '/api/admin/month/2026-11', expected: '2026-11' },
         ],
         null,
         2
       );
     } else if (idx === 2) {
       atState.draft.title = '演示角色切换门户与员工端一键进入闭环核验';
-      atState.draft.baseUrl = 'https://earn-demo.bbstack.date';
+      atState.draft.baseUrl = 'https://earn-demo.bbstack.date/auth/dev';
       atState.draft.preconditionUrl = '';
       atState.draft.naturalRequirement =
-        '打开 earn-demo 角色体验门户 (/auth/dev)，核验管理员与员工切换入口渲染正常，点击员工端登录链接后成功进入员工工作台页面。';
+        '打开 earn-demo 角色体验门户 (/auth/dev)，核验角色切换入口渲染正常，点击员工登录链接后进入员工报销工作台页面。';
       atState.draft.advancedSteps = false;
       atState.draft.customStepsJson = '';
     }

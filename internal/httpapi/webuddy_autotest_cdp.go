@@ -224,7 +224,7 @@ func startHeadlessChromeSession(ctx context.Context) (*autoChromeSession, error)
 		_ = cmd.Wait()
 		_ = os.RemoveAll(userDir)
 		return nil, e
-	case <-time.After(10 * time.Second):
+	case <-time.After(22 * time.Second):
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		_ = os.RemoveAll(userDir)
