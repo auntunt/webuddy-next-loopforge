@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Webuddy 2.0 — 图谱驱动 · 全量审查 · 真机自愈的 AI 研发工作台</title>
+  <meta name="description" content="Webuddy 2.0 是可自托管的企业级智能软件工程工作台：融合 TMH 多语言代码图谱、14K 分批全量 AI 代码审查、Headless Chrome 真机固化与五步自愈自动化测试、零 Token 测试机管控与多租户 SOP 流水线。" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="./index.html">
+        <span class="brand-badge">W</span>
+        <span>Webuddy</span>
+        <span class="brand-ver">2.0</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#pillars">核心能力</a>
+        <a href="#autotest">五步自愈测试</a>
+        <a href="#quickstart">三分钟部署</a>
+        <a href="#case-study">实测案例</a>
+        <a href="./docs.html">文档中心</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="btn icon-btn" id="themeToggle" title="切换亮/暗主题" aria-label="切换主题">🌓</button>
+        <a class="btn" href="https://github.com/auntunt/webuddy-next-loopforge" target="_blank" rel="noopener">GitHub</a>
+        <a class="btn primary" href="https://webuddy.bbstack.date" target="_blank" rel="noopener">进入在线工作台</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container">
+        <div class="hero-eyebrow">✨ 开源可自托管 · 基于 LoopForge 架构深度演进 · 22 种编程 Agent CLI 统一调度</div>
+        <h1>让一个人像一支团队：<br/><span class="grad">图谱驱动 · 全量审查 · 真机自愈</span></h1>
+        <p class="hero-sub">
+          Webuddy 2.0 将 <strong>TMH 多语言代码图谱</strong>、<strong>可视化 SOP 流水线</strong>、<strong>14K 分批全量 AI 代码审查</strong>、<strong>Headless Chrome 真机固化与五步自愈测试</strong> 以及 <strong>零 Token 测试机/网关管控</strong> 融为一体——编码、测试、审查、验收与经验沉淀全部形成可控闭环。
+        </p>
+        <div class="hero-cta">
+          <a class="btn primary lg" href="https://webuddy.bbstack.date" target="_blank" rel="noopener">🚀 打开线上工作台</a>
+          <a class="btn lg" href="./docs.html">📘 阅读配套文档</a>
+          <a class="btn lg" href="#quickstart">⚡ 3 分钟 Docker 自托管</a>
+        </div>
+        <div class="hero-metrics">
+          <div class="metric-card">
+            <strong>22 种 CLI</strong>
+            <span>Codex / Claude Code / CodeBuddy / Cursor 等零耦合接入</span>
+          </div>
+          <div class="metric-card">
+            <strong>0 Token</strong>
+            <span>固化回归复放与 <code>/runner</code> <code>/test</code> 瞬时管控</span>
+          </div>
+          <div class="metric-card">
+            <strong>≥ 0.80 门禁</strong>
+            <span>五步诊断 + 跨页语义防火墙 + 三维控件身份证自愈</span>
+          </div>
+          <div class="metric-card">
+            <strong>14K 分批</strong>
+            <span>大体积 Diff 全量深度审查 + 6 维 Trace 智能评测</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 Core Pillars -->
+    <section class="section alt" id="pillars">
+      <div class="container">
+        <div class="section-head">
+          <div class="section-tag">Core Capabilities</div>
+          <h2>六大核心工程底座，打通从需求到上线的每一公里</h2>
+          <p>不为演示堆砌概念，每一项能力均已在真实业务项目与多台测试机上跑通实测。</p>
+        </div>
+        <div class="grid-3">
+          <article class="card">
+            <div class="card-icon">📊</div>
+            <h3>TMH 多语言代码图谱</h3>
+            <p>内置零第三方依赖静态分析引擎，自动抽取业务域、核心流程、数据表与确定性状态机（Statecharts），强制绑定 <code>file:line</code> 源码行号溯源，彻底消除 Agent 改坏存量业务的幻觉。</p>
+            <div class="pill-row"><span class="pill">Go / TS / Python / Java</span><span class="pill ok">行级溯源核验</span></div>
+          </article>
+          <article class="card">
+            <div class="card-icon">🧪</div>
+            <h3>AI 自动化测试与五步自愈</h3>
+            <p>自然语言直连 Headless Chrome CDP 探索真实 DOM 并降噪固化确定性脚本；日常回归 0 Token 秒级复放 + 全步骤截图；UI 改版失效自动五步诊断自愈，支持快照一键回滚与判例沉淀。</p>
+            <div class="pill-row"><span class="pill ok">0-Token 复放</span><span class="pill warn">置信度 ≥ 0.80</span></div>
+          </article>
+          <article class="card">
+            <div class="card-icon">🔍</div>
+            <h3>14K 分批全量 AI 代码审查</h3>
+            <p>按文件边界智能拆分大型 Diff 进行无截断全量审查，清晰区分阻断项（Blocker）与建议项；支持人工有效性打分反馈，阻断项未解除自动拦截验收与 PR 合并关口。</p>
+            <div class="pill-row"><span class="pill">无截断全审</span><span class="pill">人工反馈闭环</span></div>
+          </article>
+          <article class="card">
+            <div class="card-icon">🖥️</div>
+            <h3>零 Token 测试机与网关管控</h3>
+            <p>一行命令接入 Linux / macOS / Windows WSL2 测试机；支持官方 OAuth 登录与自定义网关零耦合一键切换，自动隔离冲突 <code>auth.json</code> 并实时过滤不可用上游模型，支持远程 OTA 升级。</p>
+            <div class="pill-row"><span class="pill">/runner 瞬时指令</span><span class="pill ok">官方登录零耦合</span></div>
+          </article>
+          <article class="card">
+            <div class="card-icon">🧭</div>
+            <h3>可视化 SOP 与 6 维 Trace 评测</h3>
+            <p>自由编排 Agent、确定性脚本、人工审批关口与实时预览节点；内置 <code>pstack</code> 工程纪律套件；完结运行一键 6 维 Trace 诊断并生成可回写 SOP 补丁，自动沉淀经验至共享知识库。</p>
+            <div class="pill-row"><span class="pill">pstack 纪律</span><span class="pill">6 维量化评测</span></div>
+          </article>
+          <article class="card">
+            <div class="card-icon">🏢</div>
+            <h3>全场景代码源与多租户隔离</h3>
+            <p>原生支持 GitHub、私有 GitLab HTTP(S)、Git SSH 及零 Git 压缩包直传；控制面支持无外网沙箱代提真实 PR；独立团队空间无刷秒切、邀请码准入与细粒度 RBAC 权限隔离。</p>
+            <div class="pill-row"><span class="pill">GitHub / GitLab / ZIP</span><span class="pill ok">租户级强隔离</span></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5-Step Self-Healing Flywheel -->
+    <section class="section" id="autotest">
+      <div class="container">
+        <div class="section-head">
+          <div class="section-tag">Self-Healing Flywheel</div>
+          <h2>五步诊断自愈引擎：先硬后软，宁可不修也不误修</h2>
+          <p>针对单周 UI 迭代导致传统脚本大面积失效的顽疾，建立严格置信度门禁与跨页防误修防火墙。</p>
+        </div>
+        <div class="flow-strip">
+          <div class="flow-step">
+            <div class="flow-num">1</div>
+            <h4>目标服务探活</h4>
+            <p>先检 502 / 断连 / 超时，判定为环境故障立即停止，绝不误改测试脚本。</p>
+          </div>
+          <div class="flow-step">
+            <div class="flow-num">2</div>
+            <h4>驱动会话存活</h4>
+            <p>校验 Headless Chrome CDP 会话与页面 DOM 状态，排除驱动异常。</p>
+          </div>
+          <div class="flow-step">
+            <div class="flow-num">3</div>
+            <h4>视觉与语义弹窗</h4>
+            <p>自动识别权限/合规弹窗放行、引导/通知弹窗关闭，并原地重试原定位器。</p>
+          </div>
+          <div class="flow-step">
+            <div class="flow-num">4</div>
+            <h4>跨页语义防火墙</h4>
+            <p>校验路由基线（如 <code>/admin.html</code>），若掉登录跳回 <code>/login</code> 直接拦截，严防跨页假成功。</p>
+          </div>
+          <div class="flow-step">
+            <div class="flow-num">5</div>
+            <h4>三维画像 ≥ 0.80</h4>
+            <p>语义角色 + 业务父上下文 + DOM 层级三维打分达标才原地重试、生成快照与判例；否则一键转缺陷单。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Quickstart -->
+    <section class="section alt" id="quickstart">
+      <div class="container">
+        <div class="section-head">
+          <div class="section-tag">Quick Start</div>
+          <h2>三分钟跑起来：一键部署与零 Token 快捷指令</h2>
+          <p>内置国内镜像源并行测速校验（<code>ghcr.io</code> / <code>ghcr.nju.edu.cn</code>），开箱即用。</p>
+        </div>
+        <div class="term-box">
+          <div class="term-top">
+            <div class="term-tabs">
+              <button class="term-tab active" data-term="deploy">Docker 三分钟部署</button>
+              <button class="term-tab" data-term="runner">聊天框 /runner 管控</button>
+              <button class="term-tab" data-term="test">聊天框 /test 极速回归</button>
+            </div>
+            <button class="term-copy" id="copyTermBtn">复制命令</button>
+          </div>
+          <pre class="term-pre" id="termCode"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Real Case Study -->
+    <section class="section" id="case-study">
+      <div class="container">
+        <div class="section-head">
+          <div class="section-tag">Dogfooding in Production</div>
+          <h2>真实项目全链路实测：<code>we-earn</code> 薪酬与报销系统</h2>
+          <p>使用 Webuddy 自身完成了多容器协同开发、代码图谱扫描、独立域名演示部署与真机五步自愈闭环。</p>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>🐳 多容器隔离协同迭代 + 图谱沉淀</h3>
+            <p>通过 4 阶段隔离容器并行完成核心算薪模块、同步适配、QA 审计与知识库整理（13 项测试全绿），TMH 自动扫描沉淀 <strong>15 业务域 · 34 流程 · 15 数据表</strong>，并同步发布团队共享知识条目。</p>
+            <div class="pill-row">
+              <a class="pill ok" href="https://earn-demo.bbstack.date/auth/dev" target="_blank" rel="noopener">🌐 在线体验 earn-demo ↗</a>
+              <span class="pill">15 域 · 34 流程 · 15 表</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3>🩹 真机固化与五步自愈实测数据</h3>
+            <p>前置注入 <code>/auth/dev?id=1&amp;to=admin</code> 直达月度核算台，0-Token 回归仅耗时 <strong>1858 ms</strong>；人工破坏定位器注入 UI 漂移后，五步诊断在 <strong>1841 ms（0 Token）</strong>内以置信度 <strong>1.00</strong> 自动修复并生成可回滚快照 <code>Rev 3</code>。</p>
+            <div class="pill-row">
+              <a class="pill warn" href="https://webuddy.bbstack.date/#/autotest" target="_blank" rel="noopener">🧪 打开自动化测试工作台 ↗</a>
+              <span class="pill ok">置信度 1.00 · 4 张真机截图</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div><strong>Webuddy 2.0</strong> · MIT License · 自托管智能软件工程工作台</div>
+      <div class="footer-links">
+        <a href="./docs.html">文档中心</a>
+        <a href="https://webuddy.bbstack.date" target="_blank" rel="noopener">线上工作台</a>
+        <a href="https://earn-demo.bbstack.date/auth/dev" target="_blank" rel="noopener">we-earn 演示站</a>
+        <a href="https://github.com/auntunt/webuddy-next-loopforge" target="_blank" rel="noopener">GitHub 源码</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>

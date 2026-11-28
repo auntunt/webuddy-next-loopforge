@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Webuddy 2.0 文档中心 — 部署、自动化测试自愈、测试机管控与开放接口</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="./index.html">
+        <span class="brand-badge">W</span>
+        <span>Webuddy</span>
+        <span class="brand-ver">Docs</span>
+      </a>
+      <nav class="nav-links">
+        <a href="./index.html">产品官网</a>
+        <a href="./docs.html" class="active">文档中心</a>
+        <a href="https://github.com/auntunt/webuddy-next-loopforge/tree/main/docs" target="_blank" rel="noopener">GitHub 原始文档</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="btn icon-btn" id="themeToggle" title="切换亮/暗主题" aria-label="切换主题">🌓</button>
+        <a class="btn primary" href="https://webuddy.bbstack.date" target="_blank" rel="noopener">打开工作台</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <input type="search" id="docsSearch" class="docs-search" placeholder="搜索文档关键词（如 自愈、WSL2、/test）…" />
+        <div id="docsNav"></div>
+      </aside>
+      <article class="docs-article" id="docsContent"></article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div>Webuddy 2.0 配套文档中心 · 源码目录：<code>docs/webuddy/</code></div>
+      <div class="footer-links">
+        <a href="./index.html">返回官网</a>
+        <a href="https://github.com/auntunt/webuddy-next-loopforge" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>

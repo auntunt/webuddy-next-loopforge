@@ -45,6 +45,8 @@
 | **🚀 全场景代码接入 & 控制面 PR 交付** | 内网私有 GitLab 难接入、隔离沙箱无外网无法提 PR | 原生支持 **GitHub、自建私有 GitLab HTTP(S)（含内网 IPv4 端口）、Git SSH、本地目录及 `.zip/.tar.gz` 压缩包上传**；即使 WSL2 / 内网 Runner 处于无外网隔离环境，控制面也可基于 `repository-patch` 自动或一键推送分支并创建真实 GitHub PR（凭据全程走内存环境变量作用域头，零命令行或配置落盘泄露）。 |
 | **🏢 企业多租户隔离 & 细粒度 RBAC** | 多团队共用一套平台导致项目、知识库与指标串租 | 独立团队空间无刷秒切、邀请码准入、成员角色权限管控；项目、代码知识库、共享知识中心、会话记录、SOP 指标与环境概览均严格按租户隔离，非管理员自动脱敏并收敛特权入口。 |
 | **🖥️ 实时应用预览 & 内置 Web IDE** | 后端/前端改动无法在浏览器当场验收 | 支持一键拉起项目服务并通过 `/app-preview/<projectId>/` HTTPS 安全代理内嵌交互预览；运行详情内置 **VS Code Web 工作区**，随时检视与接管沙箱文件。 |
+| **🧪 AI 自动化测试与五步自愈工作台** | 自动化脚本写得慢、UI 微调易碎、纯 AI 每次现跑贵且慢 | 内置 Headless Chrome CDP 真机引擎，支持**前置登录态直接注入 + 自然语言真机固化（日常 0-Token 秒级回归 + 全步骤截图）**；定位失败自动触发**五步诊断（服务探活 → 驱动存活 → 弹窗消解 → 跨页语义防火墙 → 三维控件身份证 ≥ 0.80 门禁）**、快照一键回滚、上下文判例库沉淀及异常一键转缺陷单。 |
+| **⚡ 零 Token 测试机与网关管控 (`/runner` / `/test`)** | 多台 Linux / WSL2 测试机需反复 SSH 改配置、官方登录与自建网关冲突 | 聊天框发 `/runner add` / `/runner sync` / `/runner config` / `/test run` 零 Token 瞬时管控；**官方 OAuth 登录与自定义网关零耦合一键切换**，自动隔离冲突 `auth.json` 并实时过滤上游不可用模型，支持远程 OTA 热升级。 |
 
 ---
 
@@ -136,14 +138,19 @@ GOPROXY=https://goproxy.cn,direct NPM_REGISTRY=https://registry.npmmirror.com ./
 
 ---
 
-## 文档导航
+## 文档导航与配套官网
+
+- **产品官网与交互式文档门户（零构建静态站）**：[site/index.html](site/index.html) · [site/docs.html](site/docs.html)
 
 | 主题 | 文档入口 |
 | :--- | :--- |
-| 生产部署、HTTPS 反向代理、环境变量、备份与发版 | [部署与运维指南](docs/deployment.md) |
+| 3 分钟快速部署与首次上手（含 4 种代码源接入） | [快速部署与上手指南](docs/webuddy/quickstart.md) · [生产运维指南](docs/deployment.md) |
+| AI 自动化测试、真机固化、五步自愈与判例库 | [AI 自动化测试与五步自愈指南](docs/webuddy/autotest-self-healing.md) |
+| 测试机（Runner）接入、官方登录与网关零耦合管控 | [测试机与网关管控指南](docs/webuddy/runners-and-gateways.md) |
+| TMH 代码图谱、14K 全量代码审查与多租户团队协作 | [代码图谱与全量审查指南](docs/webuddy/code-graph-and-review.md) |
+| 开放 HTTP API、MCP 工具与零 Token 快捷指令速查 | [API 与快捷指令速查手册](docs/webuddy/api-and-slash-commands.md) · [OpenAPI 参考](docs/api/README.md) |
 | 对话工作区机制、AI 定时任务与 Token 成本核算 | [对话工作区](docs/conversation-workspaces.md) · [AI 定时任务](docs/ai-scheduled-task-capabilities.md) · [Token 成本统计](docs/token-pricing.md) |
-| 平台架构与 HTTP / MCP 开放接口 | [系统架构](docs/architecture.md) · [API 参考手册](docs/api/README.md) · [共享定时任务 API](docs/api/shared-schedules.md) |
-| 前端视觉与交互规范 | [前端设计约定](design.md) |
+| 平台架构与前端视觉规范 | [系统架构](docs/architecture.md) · [前端设计约定](design.md) |
 | 英文版主页 | [English README](README.en.md) |
 
 ---
